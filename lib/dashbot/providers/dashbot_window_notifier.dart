@@ -39,16 +39,6 @@ class DashbotWindowNotifier extends StateNotifier<DashbotWindowModel> {
   void show() {
     if (state.isHidden) state = state.copyWith(isHidden: false);
   }
-
-  void maximize(Size screenSize) {
-    state = state.copyWith(
-      width: screenSize.width,
-      height: screenSize.height,
-      right: 0,
-      bottom: 0,
-    );
-  }
-
 }
 
 final dashbotWindowNotifierProvider =

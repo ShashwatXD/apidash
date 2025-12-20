@@ -123,12 +123,10 @@ class URLTextField extends ConsumerWidget {
           final windowNotifier =
               ref.read(dashbotWindowNotifierProvider.notifier);
           final windowState = ref.read(dashbotWindowNotifierProvider);
-          final screenSize = MediaQuery.of(context).size;
-          windowNotifier.maximize(screenSize);
-
-          if (!windowState.isPopped) {
+          if (windowState.isPopped) {
             windowNotifier.togglePopped();
           }
+
           if (!windowState.isActive) {
             showDashbotWindow(context, ref);
           }

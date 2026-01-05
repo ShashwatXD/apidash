@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_portal/flutter_portal.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart' hide WindowCaption;
-import 'widgets/widgets.dart' show WindowCaption, WorkspaceSelector;
+import 'widgets/widgets.dart'
+    show SavingOverlay, WindowCaption, WorkspaceSelector;
 import 'providers/providers.dart';
 import 'services/services.dart';
 import 'screens/screens.dart';
@@ -57,17 +58,20 @@ class _AppState extends ConsumerState<App> with WindowListener {
 
   @override
   void onWindowClose() async {
-    bool isPreventClose = await windowManager.isPreventClose();
-    if (isPreventClose) {
-      if (ref.watch(
-              settingsProvider.select((value) => value.promptBeforeClosing)) &&
-          ref.watch(hasUnsavedChangesProvider)) {
+    final shouldPrompt =
+        ref.read(settingsProvider.select((v) => v.promptBeforeClosing));
+    final hasUnsaved = ref.read(hasUnsavedChangesProvider);
+
+    if (hasUnsaved) {
+      if (shouldPrompt) {
         showDialog(
           context: context,
+          barrierDismissible: true,
           builder: (_) => AlertDialog(
             title: const Text('Save Changes'),
-            content:
-                const Text('Want to save changes before you close API Dash?'),
+            content: const Text(
+              'Do you want to save your workspace before closing API Dash?',
+            ),
             actions: [
               OutlinedButton(
                 child: const Text('No'),
@@ -90,8 +94,18 @@ class _AppState extends ConsumerState<App> with WindowListener {
           ),
         );
       } else {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const SavingOverlay(saveCompleted: false),
+        );
+        await Future.delayed(const Duration(seconds: 1));
+        await ref.read(collectionStateNotifierProvider.notifier).saveData();
+        if (mounted) Navigator.of(context).pop();
         await windowManager.destroy();
       }
+    } else {
+      await windowManager.destroy();
     }
   }
 

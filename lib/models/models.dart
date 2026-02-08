@@ -5,3 +5,4 @@ export 'settings_model.dart';
 export 'collection_model.dart';
 export 'workflow_model.dart';
 export 'workflow_node_data.dart';
+export 'request_meta_model.dart';

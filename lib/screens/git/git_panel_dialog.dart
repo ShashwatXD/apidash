@@ -71,10 +71,12 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
       if (idx == 2) _loadBranchesIfNeeded();
       if (idx == 0) _loadPushPreview();
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final activeId = ref.read(activeCollectionIdStateProvider);
       if (activeId != widget.collectionId) {
-        ref.read(collectionStateNotifierProvider.notifier).switchCollection(widget.collectionId);
+        await ref
+            .read(collectionStateNotifierProvider.notifier)
+            .switchCollection(widget.collectionId);
       }
       final collections = ref.read(collectionsStateProvider);
       final c = collections[widget.collectionId];
@@ -196,7 +198,7 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
       repoController: _repoInputController,
       branchController: _branchController,
       onConnect: () async {
-        ref
+        await ref
             .read(collectionStateNotifierProvider.notifier)
             .switchCollection(widget.collectionId);
         setState(() {
@@ -472,7 +474,9 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
                 onPressed: _busy
                     ? null
                     : () async {
-                        ref.read(collectionStateNotifierProvider.notifier).switchCollection(widget.collectionId);
+                        await ref
+                            .read(collectionStateNotifierProvider.notifier)
+                            .switchCollection(widget.collectionId);
                         setState(() => _busy = true);
                         try {
                           final malformed = await _syncService.pullLatestToActiveCollection(
@@ -509,7 +513,9 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
                     : () async {
                         final commitMessage = await _askCommitMessage();
                         if (commitMessage == null) return;
-                        ref.read(collectionStateNotifierProvider.notifier).switchCollection(widget.collectionId);
+                        await ref
+                            .read(collectionStateNotifierProvider.notifier)
+                            .switchCollection(widget.collectionId);
                         setState(() => _busy = true);
                         try {
                           await _syncService.pushActiveCollection(
@@ -601,7 +607,9 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
           date: c.date,
           isCurrent: isCurrent,
           onRollback: () async {
-            ref.read(collectionStateNotifierProvider.notifier).switchCollection(widget.collectionId);
+            await ref
+                .read(collectionStateNotifierProvider.notifier)
+                .switchCollection(widget.collectionId);
             final ok = await showDialog<bool>(
               context: context,
               builder: (context) => AlertDialog(

@@ -90,6 +90,7 @@ class _AppState extends ConsumerState<App> with WindowListener {
           ),
         );
       } else {
+        await ref.read(collectionStateNotifierProvider.notifier).saveData();
         await windowManager.destroy();
       }
     }

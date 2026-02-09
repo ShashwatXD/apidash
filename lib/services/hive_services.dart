@@ -1,3 +1,5 @@
+import 'package:apidash_core/apidash_core.dart';
+import 'package:apidash/models/models.dart';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
@@ -15,6 +17,10 @@ const String kActiveWorkflowId = "active_workflow_id";
 const String kWorkflowPrefix = "workflow_";
 const String kWorkflowRunHistoryPrefix = "workflow_runs_";
 
+/// Sidebar metadata (name, url, method) without loading full request bodies.
+/// Request id ordering is stored under [kKeyDataBoxIds] (same key as legacy).
+const String kRequestMetaBox = "apidash-request-meta";
+
 const String kEnvironmentBox = "apidash-environments";
 const String kKeyEnvironmentBoxIds = "environmentIds";
 
@@ -27,6 +33,7 @@ const String kKeyDashBotBoxIds = 'messages';
 
 const kHiveBoxes = [
   (kDataBox, HiveBoxType.normal),
+  (kRequestMetaBox, HiveBoxType.normal),
   (kEnvironmentBox, HiveBoxType.normal),
   (kHistoryMetaBox, HiveBoxType.normal),
   (kHistoryLazyBox, HiveBoxType.lazy),
@@ -107,6 +114,7 @@ final hiveHandler = HiveHandler();
 
 class HiveHandler {
   late final Box dataBox;
+  late final Box requestMetaBox;
   late final Box environmentBox;
   late final Box historyMetaBox;
   late final LazyBox historyLazyBox;
@@ -115,19 +123,117 @@ class HiveHandler {
   HiveHandler() {
     debugPrint("Trying to open Hive boxes");
     dataBox = Hive.box(kDataBox);
+    requestMetaBox = Hive.box(kRequestMetaBox);
     environmentBox = Hive.box(kEnvironmentBox);
     historyMetaBox = Hive.box(kHistoryMetaBox);
     historyLazyBox = Hive.lazyBox(kHistoryLazyBox);
     dashBotBox = Hive.lazyBox(kDashBotBox);
   }
 
-  dynamic getIds() => dataBox.get(kKeyDataBoxIds);
-  Future<void> setIds(List<String>? ids) => dataBox.put(kKeyDataBoxIds, ids);
+  /// Copies [kKeyDataBoxIds] and per-request meta from the legacy data box once.
+  void migrateLegacyIdsToRequestMetaBox() {
+    if (requestMetaBox.get(kKeyDataBoxIds) != null) return;
+    final legacy = dataBox.get(kKeyDataBoxIds);
+    if (legacy is! List) return;
+    requestMetaBox.put(kKeyDataBoxIds, legacy);
+    for (final id in legacy.whereType<String>()) {
+      final raw = dataBox.get(id);
+      if (raw is Map) {
+        _putRequestMetaForRequestMap(
+          id,
+          Map<String, dynamic>.from(raw),
+        );
+      }
+    }
+    dataBox.delete(kKeyDataBoxIds);
+  }
+
+  void _putRequestMetaForRequestMap(
+    String requestId,
+    Map<String, dynamic>? requestModelJson,
+  ) {
+    if (requestModelJson == null) {
+      requestMetaBox.delete(requestId);
+      return;
+    }
+    final m = RequestModel.fromJson(requestModelJson);
+    final meta = RequestMetaModel(
+      id: m.id,
+      name: m.name,
+      url: m.httpRequestModel?.url ?? "",
+      method: m.httpRequestModel?.method ?? HTTPVerb.get,
+      apiType: m.apiType,
+      responseStatus: m.responseStatus,
+      description: m.description,
+    );
+    requestMetaBox.put(requestId, meta.toJson());
+  }
+
+  dynamic getIds() {
+    migrateLegacyIdsToRequestMetaBox();
+    return requestMetaBox.get(kKeyDataBoxIds);
+  }
+
+  Future<void> setIds(List<String>? ids) => requestMetaBox.put(kKeyDataBoxIds, ids);
+
+  List<RequestMetaModel> loadRequestMeta() {
+    migrateLegacyIdsToRequestMetaBox();
+    final ids = getIds();
+    if (ids == null || ids is! List) return [];
+
+    final metaList = <RequestMetaModel>[];
+    for (final id in ids) {
+      if (id is! String) continue;
+      final metaJson = requestMetaBox.get(id);
+      if (metaJson == null) continue;
+      try {
+        metaList.add(
+          RequestMetaModel.fromJson(
+            Map<String, dynamic>.from(metaJson),
+          ),
+        );
+      } catch (_) {}
+    }
+    return metaList;
+  }
+
+  RequestModel? loadRequest(String id) {
+    final requestJson = dataBox.get(id);
+    if (requestJson != null) {
+      return RequestModel.fromJson(Map<String, dynamic>.from(requestJson));
+    }
+    return null;
+  }
 
   dynamic getRequestModel(String id) => dataBox.get(id);
+
   Future<void> setRequestModel(
-          String id, Map<String, dynamic>? requestModelJson) =>
-      dataBox.put(id, requestModelJson);
+    String id,
+    Map<String, dynamic>? requestModelJson,
+  ) async {
+    if (requestModelJson == null) {
+      await dataBox.delete(id);
+      await requestMetaBox.delete(id);
+      return;
+    }
+    await dataBox.put(id, requestModelJson);
+    _putRequestMetaForRequestMap(id, requestModelJson);
+  }
+
+  Future<void> setCollectionRequestModel(
+    String collectionId,
+    String requestId,
+    Map<String, dynamic>? requestModelJson,
+  ) async {
+    final key = '$kCollectionRequestPrefix${collectionId}_$requestId';
+    if (requestModelJson == null) {
+      await dataBox.delete(key);
+      await requestMetaBox.delete(requestId);
+      return;
+    }
+    await dataBox.put(key, requestModelJson);
+    _putRequestMetaForRequestMap(requestId, requestModelJson);
+  }
 
   dynamic getCollectionIds() => dataBox.get(kKeyCollectionIds);
   Future<void> setCollectionIds(List<String>? ids) =>
@@ -155,15 +261,6 @@ class HiveHandler {
 
   dynamic getCollectionRequestModel(String collectionId, String requestId) =>
       dataBox.get('$kCollectionRequestPrefix${collectionId}_$requestId');
-  Future<void> setCollectionRequestModel(
-    String collectionId,
-    String requestId,
-    Map<String, dynamic>? requestModelJson,
-  ) =>
-      dataBox.put(
-        '$kCollectionRequestPrefix${collectionId}_$requestId',
-        requestModelJson,
-      );
 
   dynamic getWorkflowIds() => dataBox.get(kWorkflowIds);
   Future<void> setWorkflowIds(List<String>? ids) => dataBox.put(kWorkflowIds, ids);
@@ -193,6 +290,7 @@ class HiveHandler {
     final ids = (getCollectionRequestIds(collectionId) as List?) ?? [];
     for (final requestId in ids.whereType<String>()) {
       await dataBox.delete('$kCollectionRequestPrefix${collectionId}_$requestId');
+      await requestMetaBox.delete(requestId);
     }
     await dataBox.delete('$kCollectionRequestIdsPrefix$collectionId');
     await dataBox.delete('$kCollectionMetaPrefix$collectionId');
@@ -242,6 +340,7 @@ class HiveHandler {
 
   Future clear() async {
     await dataBox.clear();
+    await requestMetaBox.clear();
     await environmentBox.clear();
     await historyMetaBox.clear();
     await historyLazyBox.clear();
@@ -249,6 +348,7 @@ class HiveHandler {
   }
 
   Future<void> removeUnused() async {
+    migrateLegacyIdsToRequestMetaBox();
     var ids = getIds();
     final collectionIds = getCollectionIds();
     final hasCollections = collectionIds is List && collectionIds.isNotEmpty;
@@ -257,6 +357,11 @@ class HiveHandler {
       for (var key in dataBox.keys.toList()) {
         if (key != kKeyDataBoxIds && !ids.contains(key)) {
           await dataBox.delete(key);
+        }
+      }
+      for (var key in requestMetaBox.keys.toList()) {
+        if (key != kKeyDataBoxIds && !ids.contains(key)) {
+          await requestMetaBox.delete(key);
         }
       }
     }
@@ -304,6 +409,17 @@ class HiveHandler {
             await dataBox.delete(key);
           }
           continue;
+        }
+      }
+      final activeIds = <String>{};
+      for (final cId in cIds) {
+        final requestIds = (getCollectionRequestIds(cId) as List?) ?? [];
+        activeIds.addAll(requestIds.whereType<String>());
+      }
+      for (final key in requestMetaBox.keys.toList()) {
+        if (key == kKeyDataBoxIds) continue;
+        if (key is String && !activeIds.contains(key)) {
+          await requestMetaBox.delete(key);
         }
       }
     }

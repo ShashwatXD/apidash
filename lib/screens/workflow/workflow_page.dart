@@ -382,7 +382,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
 
     final notifier = ref.read(collectionStateNotifierProvider.notifier);
     if (ref.read(activeCollectionIdStateProvider) != selectedCollectionId) {
-      notifier.switchCollection(selectedCollectionId);
+      await notifier.switchCollection(selectedCollectionId);
     }
     final activeCollection = ref.read(collectionsStateProvider)[selectedCollectionId];
     if (activeCollection == null) return null;
@@ -996,7 +996,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         _controller.nodes[nodeId]?.data.linkedCollectionId ?? previousCollectionId;
     if (targetCollectionId != null &&
         targetCollectionId != ref.read(activeCollectionIdStateProvider)) {
-      ref.read(collectionStateNotifierProvider.notifier).switchCollection(targetCollectionId);
+      await ref
+          .read(collectionStateNotifierProvider.notifier)
+          .switchCollection(targetCollectionId);
     }
 
     final collection = ref.read(collectionStateNotifierProvider);
@@ -1049,7 +1051,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       }
       if (previousCollectionId != null &&
           previousCollectionId != ref.read(activeCollectionIdStateProvider)) {
-        ref.read(collectionStateNotifierProvider.notifier).switchCollection(previousCollectionId);
+        await ref
+            .read(collectionStateNotifierProvider.notifier)
+            .switchCollection(previousCollectionId);
       }
       return WorkflowRequestResult(
         ok: ok,
@@ -1064,7 +1068,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     } catch (e) {
       if (previousCollectionId != null &&
           previousCollectionId != ref.read(activeCollectionIdStateProvider)) {
-        ref.read(collectionStateNotifierProvider.notifier).switchCollection(previousCollectionId);
+        await ref
+            .read(collectionStateNotifierProvider.notifier)
+            .switchCollection(previousCollectionId);
       }
       return WorkflowRequestResult(
         ok: false,

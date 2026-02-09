@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,7 +44,7 @@ class CollectionPane extends ConsumerWidget {
     {bool startInImportMode = false}
   ) async {
     if (startInImportMode) {
-      final collectionId = ref
+      final collectionId = await ref
           .read(collectionStateNotifierProvider.notifier)
           .addCollection(name: null);
       if (context.mounted) {
@@ -87,7 +89,7 @@ class CollectionPane extends ConsumerWidget {
     );
     final normalized = name?.trim();
     if (normalized == null || normalized.isEmpty) return;
-    ref
+    await ref
         .read(collectionStateNotifierProvider.notifier)
         .addCollection(name: normalized);
   }
@@ -215,22 +217,28 @@ class _CollectionsTreeListState extends ConsumerState<CollectionsTreeList> {
                     return;
                   }
                   setState(() => expandedCollectionId = entry.key);
-                  ref
-                      .read(collectionStateNotifierProvider.notifier)
-                      .switchCollection(entry.key);
+                  unawaited(
+                    ref
+                        .read(collectionStateNotifierProvider.notifier)
+                        .switchCollection(entry.key),
+                  );
                 },
                 onAddRequest: () {
-                  ref
-                      .read(collectionStateNotifierProvider.notifier)
-                      .addRequestToCollection(entry.key);
+                  unawaited(
+                    ref
+                        .read(collectionStateNotifierProvider.notifier)
+                        .addRequestToCollection(entry.key),
+                  );
                   setState(() => expandedCollectionId = entry.key);
                 },
                 onDeleteCollection: collections.length <= 1
                     ? null
                     : () {
-                        ref
-                            .read(collectionStateNotifierProvider.notifier)
-                            .removeCollection(entry.key);
+                        unawaited(
+                          ref
+                              .read(collectionStateNotifierProvider.notifier)
+                              .removeCollection(entry.key),
+                        );
                         if (expandedCollectionId == entry.key) {
                           setState(() => expandedCollectionId = null);
                         }

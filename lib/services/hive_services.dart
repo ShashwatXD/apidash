@@ -5,6 +5,11 @@ enum HiveBoxType { normal, lazy }
 
 const String kDataBox = "apidash-data";
 const String kKeyDataBoxIds = "ids";
+const String kKeyCollectionIds = "collectionIds";
+const String kKeyActiveCollectionId = "activeCollectionId";
+const String kCollectionMetaPrefix = "collection_meta_";
+const String kCollectionRequestIdsPrefix = "collection_req_ids_";
+const String kCollectionRequestPrefix = "collection_req_";
 
 const String kEnvironmentBox = "apidash-environments";
 const String kKeyEnvironmentBoxIds = "environmentIds";
@@ -120,6 +125,51 @@ class HiveHandler {
           String id, Map<String, dynamic>? requestModelJson) =>
       dataBox.put(id, requestModelJson);
 
+  dynamic getCollectionIds() => dataBox.get(kKeyCollectionIds);
+  Future<void> setCollectionIds(List<String>? ids) =>
+      dataBox.put(kKeyCollectionIds, ids);
+
+  String? getActiveCollectionId() => dataBox.get(kKeyActiveCollectionId);
+  Future<void> setActiveCollectionId(String? collectionId) =>
+      dataBox.put(kKeyActiveCollectionId, collectionId);
+
+  dynamic getCollectionMeta(String collectionId) =>
+      dataBox.get('$kCollectionMetaPrefix$collectionId');
+  Future<void> setCollectionMeta(
+    String collectionId,
+    Map<String, dynamic>? collectionMetaJson,
+  ) =>
+      dataBox.put('$kCollectionMetaPrefix$collectionId', collectionMetaJson);
+
+  dynamic getCollectionRequestIds(String collectionId) =>
+      dataBox.get('$kCollectionRequestIdsPrefix$collectionId');
+  Future<void> setCollectionRequestIds(
+    String collectionId,
+    List<String>? ids,
+  ) =>
+      dataBox.put('$kCollectionRequestIdsPrefix$collectionId', ids);
+
+  dynamic getCollectionRequestModel(String collectionId, String requestId) =>
+      dataBox.get('$kCollectionRequestPrefix${collectionId}_$requestId');
+  Future<void> setCollectionRequestModel(
+    String collectionId,
+    String requestId,
+    Map<String, dynamic>? requestModelJson,
+  ) =>
+      dataBox.put(
+        '$kCollectionRequestPrefix${collectionId}_$requestId',
+        requestModelJson,
+      );
+
+  Future<void> deleteCollection(String collectionId) async {
+    final ids = (getCollectionRequestIds(collectionId) as List?) ?? [];
+    for (final requestId in ids.whereType<String>()) {
+      await dataBox.delete('$kCollectionRequestPrefix${collectionId}_$requestId');
+    }
+    await dataBox.delete('$kCollectionRequestIdsPrefix$collectionId');
+    await dataBox.delete('$kCollectionMetaPrefix$collectionId');
+  }
+
   void delete(String key) => dataBox.delete(key);
 
   dynamic getEnvironmentIds() => environmentBox.get(kKeyEnvironmentBoxIds);
@@ -172,11 +222,45 @@ class HiveHandler {
 
   Future<void> removeUnused() async {
     var ids = getIds();
-    if (ids != null) {
+    final collectionIds = getCollectionIds();
+    final hasCollections = collectionIds is List && collectionIds.isNotEmpty;
+    if (ids != null && !hasCollections) {
       ids = ids as List;
       for (var key in dataBox.keys.toList()) {
         if (key != kKeyDataBoxIds && !ids.contains(key)) {
           await dataBox.delete(key);
+        }
+      }
+    }
+    if (hasCollections) {
+      final cIds = collectionIds.cast<String>();
+      final validKeys = <String>{
+        kKeyCollectionIds,
+        kKeyActiveCollectionId,
+        kKeyDataBoxIds,
+      };
+      for (final cId in cIds) {
+        validKeys.add('$kCollectionMetaPrefix$cId');
+        validKeys.add('$kCollectionRequestIdsPrefix$cId');
+        final requestIds = (getCollectionRequestIds(cId) as List?) ?? [];
+        for (final requestId in requestIds.whereType<String>()) {
+          validKeys.add('$kCollectionRequestPrefix${cId}_$requestId');
+        }
+      }
+      for (final key in dataBox.keys.toList()) {
+        if (key is String && key.startsWith(kCollectionRequestPrefix)) {
+          if (!validKeys.contains(key)) {
+            await dataBox.delete(key);
+          }
+          continue;
+        }
+        if (key is String &&
+            (key.startsWith(kCollectionMetaPrefix) ||
+                key.startsWith(kCollectionRequestIdsPrefix))) {
+          if (!validKeys.contains(key)) {
+            await dataBox.delete(key);
+          }
+          continue;
         }
       }
     }

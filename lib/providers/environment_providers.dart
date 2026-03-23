@@ -197,4 +197,46 @@ class EnvironmentsStateNotifier
     ref.read(saveDataStateProvider.notifier).state = false;
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }
+
+  /// Replaces/merges environments from a Git collection import.
+  /// For MVP we merge remote values into existing ones, while keeping any
+  /// locally existing environments that are not present in the remote.
+  Future<void> importEnvironmentsFromGit({
+    required Map<String, EnvironmentModel> environmentsById,
+    required List<String> environmentOrder,
+  }) async {
+    final current = state ?? {};
+
+    // Ensure global environment always exists (many parts assume it).
+    final merged = <String, EnvironmentModel>{
+      ...current,
+      ...environmentsById,
+    };
+    merged.putIfAbsent(
+      kGlobalEnvironmentId,
+      () => const EnvironmentModel(id: kGlobalEnvironmentId, name: "Global", values: []),
+    );
+
+    final remoteIds = environmentOrder.where(merged.containsKey).toList();
+    final currentIds = ref.read(environmentSequenceProvider);
+
+    final mergedOrder = <String>[
+      ...remoteIds,
+      ...currentIds.where((id) => !remoteIds.contains(id)).where(merged.containsKey),
+    ];
+
+    state = merged;
+    ref.read(environmentSequenceProvider.notifier).state = mergedOrder;
+    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+    ref.read(saveDataStateProvider.notifier).state = true;
+
+    await hiveHandler.setEnvironmentIds(mergedOrder);
+    for (final id in mergedOrder) {
+      await hiveHandler.setEnvironment(id, merged[id]!.toJson());
+    }
+    await hiveHandler.removeUnused();
+
+    ref.read(saveDataStateProvider.notifier).state = false;
+    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  }
 }

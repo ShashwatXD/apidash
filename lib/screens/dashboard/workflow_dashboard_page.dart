@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/services/services.dart';
+import 'package:apidash/screens/dashboard/workflow_dashboard_analytics.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,8 +18,6 @@ class WorkflowDashboardPage extends ConsumerStatefulWidget {
 }
 
 class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
-  /// Non-null = user pinned a workflow (dropdown/chip, focus intent, or create).
-  /// Null = follow [workflowIdStateProvider] (active workflow in builder).
   String? _pinnedWorkflowId;
   int? _revisionSeen;
   int? _navRailPrev;
@@ -49,7 +47,6 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     final focusId = ref.watch(workflowDashboardFocusIdProvider);
     final workflows = ref.watch(workflowsStateProvider);
 
-    // Sync without ref.listen (listeners were tripping StateProvider error state).
     if (_revisionSeen != revision) {
       final first = _revisionSeen == null;
       _revisionSeen = revision;
@@ -127,7 +124,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     final dropdownWorkflowId =
         ids.contains(effectiveId()) ? effectiveId() : ids.first;
     final selected = workflows[dropdownWorkflowId]!;
-    final data = _buildWorkflowData(dropdownWorkflowId, selected);
+    final data = buildWorkflowDashboardData(dropdownWorkflowId, selected);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -329,7 +326,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     );
   }
 
-  Widget _durationTrend(BuildContext context, _WorkflowData data) {
+  Widget _durationTrend(BuildContext context, WorkflowDashboardData data) {
     final theme = Theme.of(context);
     if (data.durations.isEmpty) {
       return Center(
@@ -372,7 +369,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     );
   }
 
-  Widget _statusPie(BuildContext context, _WorkflowData data) {
+  Widget _statusPie(BuildContext context, WorkflowDashboardData data) {
     final theme = Theme.of(context);
     final total = (data.successRuns + data.failedRuns).toDouble();
     if (total == 0) {
@@ -420,7 +417,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     return _runStartedFormat.format(dt.toLocal());
   }
 
-  Widget _runsTable(BuildContext context, List<_RunRow> rows) {
+  Widget _runsTable(BuildContext context, List<WorkflowDashboardRunRow> rows) {
     if (rows.isEmpty) {
       return const Padding(
         padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
@@ -479,7 +476,11 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     );
   }
 
-  Widget _webhookPanel(BuildContext context, WorkflowModel workflow, _WorkflowData data) {
+  Widget _webhookPanel(
+    BuildContext context,
+    WorkflowModel workflow,
+    WorkflowDashboardData data,
+  ) {
     return Column(
       children: [
         Row(
@@ -536,7 +537,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     );
   }
 
-  Future<void> _sendReport(WorkflowModel workflow, _WorkflowData data) async {
+  Future<void> _sendReport(WorkflowModel workflow, WorkflowDashboardData data) async {
     final url = _webhookUrlController.text.trim();
     final uri = Uri.tryParse(url);
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
@@ -572,7 +573,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     }
   }
 
-  void _startAuto(WorkflowModel workflow, _WorkflowData data) {
+  void _startAuto(WorkflowModel workflow, WorkflowDashboardData data) {
     _timer?.cancel();
     _timer = Timer.periodic(Duration(minutes: _intervalMin), (_) => _sendReport(workflow, data));
     setState(() => _status = 'Auto-send enabled (every $_intervalMin min).');
@@ -592,7 +593,7 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
   Future<void> _openWebhookDialog(
     BuildContext context,
     WorkflowModel workflow,
-    _WorkflowData data,
+    WorkflowDashboardData data,
   ) async {
     await showDialog<void>(
       context: context,
@@ -613,113 +614,4 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
       },
     );
   }
-}
-
-class _WorkflowData {
-  const _WorkflowData({
-    required this.totalNodes,
-    required this.totalRuns,
-    required this.successRuns,
-    required this.failedRuns,
-    required this.avgMs,
-    required this.durations,
-    required this.recentRuns,
-  });
-
-  final int totalNodes;
-  final int totalRuns;
-  final int successRuns;
-  final int failedRuns;
-  final int avgMs;
-  final List<int> durations;
-  final List<_RunRow> recentRuns;
-
-  double get successRate => totalRuns == 0 ? 0 : successRuns / totalRuns;
-  String get successRateLabel =>
-      totalRuns == 0 ? '—' : '${(successRate * 100).toStringAsFixed(1)}%';
-}
-
-class _RunRow {
-  const _RunRow({
-    required this.startedAt,
-    required this.success,
-    required this.durationMs,
-  });
-
-  final DateTime? startedAt;
-  final bool success;
-  final int durationMs;
-}
-
-_WorkflowData _buildWorkflowData(String workflowId, WorkflowModel workflow) {
-  final nodes = workflow.graphData['nodes'];
-  final nodeCount = nodes is List ? nodes.length : 0;
-  final raw = hiveHandler.getWorkflowRunHistory(workflowId);
-  final runs = raw is List ? raw.whereType<Map>().toList(growable: false) : const <Map>[];
-
-  final entries = <_RunHistoryEntry>[];
-  for (final run in runs) {
-    final json = run.map((k, v) => MapEntry(k.toString(), v));
-    final ok = json['success'] as bool? ?? false;
-    final start = DateTime.tryParse(json['startedAt']?.toString() ?? '');
-    final end = DateTime.tryParse(json['endedAt']?.toString() ?? '');
-    final duration = start != null && end != null ? end.difference(start).inMilliseconds : 0;
-    entries.add(
-      _RunHistoryEntry(
-        success: ok,
-        startedAt: start,
-        durationMs: duration,
-      ),
-    );
-  }
-
-  entries.sort(
-    (a, b) => (a.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-        .compareTo(b.startedAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
-  );
-
-  var success = 0;
-  var failed = 0;
-  final durations = <int>[];
-  for (final e in entries) {
-    if (e.success) {
-      success += 1;
-    } else {
-      failed += 1;
-    }
-    durations.add(e.durationMs);
-  }
-
-  final recentRuns = entries.reversed
-      .map(
-        (e) => _RunRow(
-          startedAt: e.startedAt,
-          success: e.success,
-          durationMs: e.durationMs,
-        ),
-      )
-      .toList(growable: false);
-
-  final avg = durations.isEmpty ? 0 : (durations.reduce((a, b) => a + b) / durations.length).round();
-  return _WorkflowData(
-    totalNodes: nodeCount,
-    totalRuns: runs.length,
-    successRuns: success,
-    failedRuns: failed,
-    avgMs: avg,
-    durations: durations,
-    recentRuns: recentRuns,
-  );
-}
-
-class _RunHistoryEntry {
-  const _RunHistoryEntry({
-    required this.success,
-    required this.startedAt,
-    required this.durationMs,
-  });
-
-  final bool success;
-  final DateTime? startedAt;
-  final int durationMs;
 }

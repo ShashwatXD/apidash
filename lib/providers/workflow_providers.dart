@@ -18,8 +18,6 @@ final workflowsStateProvider =
 
 class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   WorkflowStateNotifier(this.ref, this.hiveHandler) : super(const {}) {
-    // Synchronous so first consumers never see an empty map that load() will
-    // overwrite later (avoids racing createDefault() in WorkflowPage bootstrap).
     load();
   }
 
@@ -53,8 +51,6 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
     state = workflows;
     final savedActive = activeId;
     final loaded = Map<String, WorkflowModel>.from(workflows);
-    // Cannot set workflowIdStateProvider synchronously here: Riverpod forbids
-    // modifying other providers while workflowsStateProvider is initializing.
     Future.microtask(() {
       if (savedActive != null && loaded.containsKey(savedActive)) {
         ref.read(workflowIdStateProvider.notifier).state = savedActive;

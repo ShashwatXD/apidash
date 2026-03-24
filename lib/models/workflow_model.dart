@@ -1,4 +1,3 @@
-/// Top-level workflow model for persistence.
 class WorkflowModel {
   const WorkflowModel({
     required this.id,

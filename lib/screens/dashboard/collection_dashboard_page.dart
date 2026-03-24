@@ -1,41 +1,263 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash_core/apidash_core.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
-class CollectionDashboardPage extends ConsumerWidget {
+class CollectionDashboardPage extends ConsumerStatefulWidget {
   const CollectionDashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CollectionDashboardPage> createState() =>
+      _CollectionDashboardPageState();
+}
+
+class _CollectionDashboardPageState extends ConsumerState<CollectionDashboardPage> {
+  String? _collectionA;
+  final TextEditingController _webhookUrlController = TextEditingController();
+  final TextEditingController _reportNameController =
+      TextEditingController(text: 'Collection Health Report');
+  Timer? _reportTimer;
+  int _autoReportMinutes = 15;
+  String? _reportStatus;
+  DateTime? _lastReportSentAt;
+
+  @override
+  void dispose() {
+    _reportTimer?.cancel();
+    _webhookUrlController.dispose();
+    _reportNameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final surface = theme.colorScheme.surface;
+    final collections = ref.watch(collectionsStateProvider);
+    final history = ref.watch(historyMetaStateNotifier) ?? const {};
 
-    final collection = ref.watch(collectionStateNotifierProvider);
-    final history = ref.watch(historyMetaStateNotifier);
+    final ids = collections.keys.toList(growable: false);
+    if (ids.isEmpty) {
+      return const Scaffold(
+        body: Center(child: Text('No collections available')),
+      );
+    }
+    _collectionA ??= ids.first;
 
-    final dashboardData = _buildDashboardData(
-      collection: collection,
+    final dataA = _buildCollectionData(
+      collectionId: _collectionA!,
+      collections: collections,
       history: history,
     );
-
+    final overallHealth = ((dataA.successRate * 100) * 0.75) +
+        ((100 - (dataA.errorRatio * 100)) * 0.25);
     return Scaffold(
-      backgroundColor: surface,
+      backgroundColor: theme.colorScheme.surface,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _DashboardHeader(),
-              const SizedBox(height: 20),
-              _KpiRow(data: dashboardData),
+              Row(
+                children: [
+                  Text(
+                    kLabelDashboard,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: () => _openWebhookDialog(context, dataA),
+                    icon: const Icon(Icons.hub_outlined),
+                    label: const Text('Webhook Reports'),
+                  ),
+                  const Spacer(),
+                  SizedBox(
+                    width: 260,
+                    child: DropdownButtonFormField<String>(
+                      value: _collectionA,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Collection',
+                        isDense: true,
+                      ),
+                      items: ids
+                          .map(
+                            (id) => DropdownMenuItem(
+                              value: id,
+                              child: Text(collections[id]!.name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) => setState(() => _collectionA = value),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: 16),
-              Expanded(
-                child: _DashboardGrid(data: dashboardData),
+              _overviewStrip(context, dataA),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _kpiCard(
+                      context,
+                      'Health Score',
+                      '${overallHealth.clamp(0, 100).round()}/100',
+                      color: overallHealth >= 80
+                          ? const Color(0xFF5DE5C3)
+                          : overallHealth >= 60
+                              ? const Color(0xFFFFB156)
+                              : const Color(0xFFFF587A),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(child: _kpiCard(context, 'Requests', '${dataA.totalRequests}')),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _kpiCard(
+                      context,
+                      'Success Rate',
+                      dataA.successLabel,
+                      color: dataA.successRate >= 0.8
+                          ? const Color(0xFF5DE5C3)
+                          : const Color(0xFFFFB156),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _kpiCard(
+                      context,
+                      'Failures',
+                      '${dataA.failures}',
+                      color: const Color(0xFFFF587A),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _kpiCard(
+                      context,
+                      '5xx Errors',
+                      '${dataA.statusBuckets['5xx'] ?? 0}',
+                      color: const Color(0xFFFF587A),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: _kpiCard(context, 'Timing*', '${dataA.p95Ms}ms')),
+                ],
+              ),
+              // const SizedBox(height: 6),
+              // Text(
+              //   '*Timing is mock-derived for now; request/history coverage in memory lacks response duration.',
+              //   style: theme.textTheme.bodySmall?.copyWith(
+              //     color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+              //   ),
+              // ),
+              const SizedBox(height: 12),
+              _expandableCard(
+                context,
+                title: 'Trends & Health',
+                initiallyExpanded: true,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: _card(
+                        context,
+                        title: 'Response Timing Trend (${dataA.name})',
+                        child: SizedBox(
+                          height: 230,
+                          child: _timingLineChart(context, dataA.mockTimingsMs),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: _card(
+                        context,
+                        title: 'Run Health (${dataA.name})',
+                        child: SizedBox(
+                          height: 230,
+                          child: _healthPanel(context, dataA),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _expandableCard(
+                context,
+                title: 'Distributions',
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: _card(
+                        context,
+                        title: 'Method Distribution (${dataA.name})',
+                        child: SizedBox(
+                          height: 220,
+                          child: _methodBarChart(context, dataA),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 3,
+                      child: _card(
+                        context,
+                        title: 'Status Distribution (${dataA.name})',
+                        child: SizedBox(
+                          height: 220,
+                          child: _statusBarChart(context, dataA),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _expandableCard(
+                context,
+                title: 'Request Tables',
+                initiallyExpanded: false,
+                child: Column(
+                  children: [
+                    _card(
+                      context,
+                      title: 'Top Endpoints (${dataA.name})',
+                      child: _topEndpoints(context, dataA),
+                    ),
+                    const SizedBox(height: 12),
+                    _card(
+                      context,
+                      title: 'Slowest Requests (${dataA.name})',
+                      child: _slowestTable(context, dataA.slowestRows),
+                    ),
+                    const SizedBox(height: 12),
+                    _card(
+                      context,
+                      title:
+                          'Recent Requests (${dataA.name}) · ${dataA.statusBuckets['5xx'] ?? 0} server (5xx)',
+                      child: _requestTable(context, _recentRowsWith5xxFirst(dataA.recentRows)),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -43,333 +265,791 @@ class CollectionDashboardPage extends ConsumerWidget {
       ),
     );
   }
-}
 
-// ─── Header ──────────────────────────────────────────────────────────────────
-
-class _DashboardHeader extends StatelessWidget {
-  const _DashboardHeader();
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _overviewStrip(BuildContext context, _CollectionData data) {
     final theme = Theme.of(context);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    Widget chip(String label, String value, {Color? valueColor}) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.18)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(kLabelDashboard, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-            const SizedBox(height: 4),
             Text(
-              'Unified view of collection health, workflows & tests',
+              '$label: ',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+            ),
+            Text(
+              value,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: valueColor,
               ),
             ),
           ],
         ),
-        const Spacer(),
-        FilledButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.notifications_active_outlined, size: 16),
-          label: const Text('Webhook report'),
-          style: FilledButton.styleFrom(
-            textStyle: theme.textTheme.labelMedium,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          ),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.ios_share_rounded, size: 16),
-          label: const Text('Export'),
-          style: OutlinedButton.styleFrom(
-            textStyle: theme.textTheme.labelMedium,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          ),
-        ),
-      ],
-    );
-  }
-}
+      );
+    }
 
-// ─── KPI Row ─────────────────────────────────────────────────────────────────
-
-class _KpiRow extends StatelessWidget {
-  const _KpiRow({required this.data});
-  final _DashboardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final errorCount = data.clientErrors + data.serverErrors;
-    final healthColor = _healthColor(data.healthScore, theme);
-
-    return Row(
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        Expanded(
-          child: _KpiCard(
-            title: 'Total requests',
-            value: '${data.totalRequests}',
-            sub: '+12 last hour',
-            icon: Icons.swap_vert_rounded,
-            iconBg: theme.colorScheme.primaryContainer,
-            iconColor: theme.colorScheme.onPrimaryContainer,
-            trend: _Trend.up,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _KpiCard(
-            title: 'Unique endpoints',
-            value: '${data.uniqueEndpoints}',
-            sub: 'method × URL pairs',
-            icon: Icons.hub_outlined,
-            iconBg: theme.colorScheme.secondaryContainer,
-            iconColor: theme.colorScheme.onSecondaryContainer,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _KpiCard(
-            title: '4xx / 5xx errors',
-            value: '$errorCount',
-            sub: '4xx: ${data.clientErrors}  ·  5xx: ${data.serverErrors}',
-            icon: Icons.error_outline_rounded,
-            iconBg: theme.colorScheme.errorContainer,
-            iconColor: theme.colorScheme.onErrorContainer,
-            trend: errorCount > 0 ? _Trend.down : null,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: _KpiCard(
-            title: 'Health score',
-            value: data.healthScoreLabel,
-            sub: '2xx success ratio',
-            icon: Icons.favorite_rounded,
-            iconBg: healthColor.withValues(alpha: 0.14),
-            iconColor: healthColor,
-            valueColor: healthColor,
-          ),
-        ),
+        chip('Collection', data.name),
+        chip('Last Run', data.lastRunLabel),
+        chip('Avg Timing*', '${data.avgMs}ms'),
+        chip('Peak Timing*', '${data.maxMs}ms'),
+        chip('Error Ratio', data.errorRatioLabel, valueColor: const Color(0xFFFFB156)),
+        chip('Total Unique Endpoints', '${data.topEndpoints.length}'),
       ],
     );
   }
 
-  Color _healthColor(double score, ThemeData theme) {
-    if (score >= 0.9) return const Color(0xFF1D9E75);
-    if (score >= 0.7) return const Color(0xFFBA7517);
-    return theme.colorScheme.error;
-  }
-}
-
-enum _Trend { up, down }
-
-class _KpiCard extends StatelessWidget {
-  const _KpiCard({
-    required this.title,
-    required this.value,
-    required this.sub,
-    required this.icon,
-    required this.iconBg,
-    required this.iconColor,
-    this.trend,
-    this.valueColor,
-  });
-
-  final String title;
-  final String value;
-  final String sub;
-  final IconData icon;
-  final Color iconBg;
-  final Color iconColor;
-  final _Trend? trend;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _kpiCard(
+    BuildContext context,
+    String title,
+    String value, {
+    Color? color,
+  }) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isDark
-            ? theme.colorScheme.surfaceContainerHigh
-            : theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: theme.colorScheme.outline.withValues(alpha: 0.2),
         ),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(10),
+          Text(
+            title.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+              letterSpacing: 0.4,
             ),
-            child: Icon(icon, color: iconColor, size: 20),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                    letterSpacing: 0.2,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Text(
-                      value,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: valueColor,
-                        height: 1.1,
-                      ),
-                    ),
-                    if (trend != null) ...[
-                      const SizedBox(width: 6),
-                      Icon(
-                        trend == _Trend.up
-                            ? Icons.trending_up_rounded
-                            : Icons.trending_down_rounded,
-                        size: 16,
-                        color: trend == _Trend.up
-                            ? const Color(0xFF1D9E75)
-                            : const Color(0xFFA32D2D),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  sub,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
           ),
         ],
       ),
     );
   }
-}
 
-// ─── Dashboard Grid ───────────────────────────────────────────────────────────
+  Widget _card(BuildContext context, {required String title, required Widget child}) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.colorScheme.outline.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
 
-class _DashboardGrid extends StatelessWidget {
-  const _DashboardGrid({required this.data});
-  final _DashboardData data;
+  Widget _expandableCard(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+    bool initiallyExpanded = false,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.2)),
+      ),
+      child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
+        title: Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        children: [child],
+      ),
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth < 980;
-        if (isNarrow) {
-          return ListView(
-            children: [
-              _CardShell(title: 'Request volume', subtitle: 'Over time', child: _RequestVolumeChart(data: data)),
-              const SizedBox(height: 12),
-              _CardShell(title: 'Status distribution', subtitle: 'By code', child: _StatusPieChart(data: data)),
-              const SizedBox(height: 12),
-              _CardShell(title: 'Recent activity', subtitle: 'Last 6 requests', child: _RecentActivityList(data: data)),
-              const SizedBox(height: 12),
-              _CardShell(title: 'By method', subtitle: 'GET · POST · etc', child: _MethodBarChart(data: data)),
-              const SizedBox(height: 12),
-              _CardShell(title: 'Script coverage', subtitle: 'Pre & post scripts', child: _CoverageCard(data: data)),
-            ],
-          );
-        }
+  Widget _timingLineChart(BuildContext context, List<int> timings) {
+    final theme = Theme.of(context);
+    final spots = <FlSpot>[
+      for (var i = 0; i < timings.length; i++) FlSpot(i.toDouble(), timings[i].toDouble()),
+    ];
+    return LineChart(
+      LineChartData(
+        minY: 0,
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            barWidth: 2.6,
+            color: theme.colorScheme.primary,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  theme.colorScheme.primary.withValues(alpha: 0.22),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+        ],
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: 100,
+          getDrawingHorizontalLine: (_) => FlLine(
+            color: theme.colorScheme.outline.withValues(alpha: 0.15),
+            strokeWidth: 1,
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              getTitlesWidget: (value, meta) => Text(
+                '${value.toInt()}',
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) => Text(
+                '#${value.toInt() + 1}',
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+              ),
+            ),
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+      ),
+    );
+  }
 
-        return Column(
-          children: [
-            Expanded(
+  Widget _statusBarChart(BuildContext context, _CollectionData data) {
+    final theme = Theme.of(context);
+    final entries = data.statusBuckets.entries.toList(growable: false);
+    final bars = [
+      for (var i = 0; i < entries.length; i++)
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: entries[i].value.toDouble(),
+              color: switch (entries[i].key) {
+                '2xx' => theme.colorScheme.primary,
+                '3xx' => theme.colorScheme.primary.withValues(alpha: 0.75),
+                '4xx' => const Color(0xFFFFB156),
+                _ => const Color(0xFFFF587A),
+              },
+              width: 26,
+            ),
+          ],
+        ),
+    ];
+
+    return BarChart(
+      BarChartData(
+        barGroups: bars,
+        groupsSpace: 24,
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) => FlLine(
+            color: theme.colorScheme.outline.withValues(alpha: 0.15),
+            strokeWidth: 1,
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 30,
+              getTitlesWidget: (v, m) => Text(
+                v.toInt().toString(),
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (v, m) {
+                final labels = entries.map((e) => e.key).toList(growable: false);
+                final idx = v.toInt();
+                if (idx < 0 || idx >= labels.length) return const SizedBox.shrink();
+                return Text(
+                  labels[idx],
+                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _methodBarChart(BuildContext context, _CollectionData data) {
+    final theme = Theme.of(context);
+    final entries = data.methodBuckets.entries.toList(growable: false);
+    if (entries.isEmpty) {
+      return Center(
+        child: Text(
+          'No request methods yet',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
+    return BarChart(
+      BarChartData(
+        barGroups: [
+          for (var i = 0; i < entries.length; i++)
+            BarChartGroupData(
+              x: i,
+              barRods: [
+                BarChartRodData(
+                  toY: entries[i].value.toDouble(),
+                  color: theme.colorScheme.primary,
+                  width: 24,
+                ),
+              ],
+            ),
+        ],
+        borderData: FlBorderData(show: false),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) => FlLine(
+            color: theme.colorScheme.outline.withValues(alpha: 0.15),
+            strokeWidth: 1,
+          ),
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 28,
+              getTitlesWidget: (v, m) => Text(
+                v.toInt().toString(),
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (v, m) {
+                final idx = v.toInt();
+                if (idx < 0 || idx >= entries.length) return const SizedBox.shrink();
+                return Text(
+                  entries[idx].key,
+                  style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _topEndpoints(BuildContext context, _CollectionData data) {
+    final theme = Theme.of(context);
+    if (data.topEndpoints.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          'No endpoints in history yet.',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
+    return Column(
+      children: data.topEndpoints
+          .map(
+            (e) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
-                    flex: 3,
-                    child: _CardShell(
-                      title: 'Request volume',
-                      subtitle: 'Requests per hour today',
-                      child: _RequestVolumeChart(data: data),
+                    child: Text(
+                      e.$1,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: _CardShell(
-                      title: 'Status distribution',
-                      subtitle: 'By status code',
-                      child: _StatusPieChart(data: data),
+                  const SizedBox(width: 10),
+                  Text(
+                    '${e.$2} calls',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: _CardShell(
-                      title: 'Recent activity',
-                      subtitle: 'Last 6 requests',
-                      child: _RecentActivityList(data: data),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: _CardShell(
-                            title: 'Requests',
-                            subtitle: 'Distribution',
-                            child: _MethodBarChart(data: data),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Expanded(
-                          child: _CardShell(
-                            title: 'Script coverage',
-                            subtitle: 'Pre & post scripts',
-                            child: _CoverageCard(data: data),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _healthPanel(BuildContext context, _CollectionData data) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _healthMetric(
+          context,
+          'Healthy (2xx/3xx)',
+          '${data.healthyCount}',
+          theme.colorScheme.primary,
+        ),
+        const SizedBox(height: 8),
+        _healthMetric(
+          context,
+          'Client Errors (4xx)',
+          '${data.statusBuckets['4xx'] ?? 0}',
+          const Color(0xFFFFB156),
+        ),
+        const SizedBox(height: 8),
+        _healthMetric(
+          context,
+          'Server Errors (5xx)',
+          '${data.statusBuckets['5xx'] ?? 0}',
+          const Color(0xFFFF587A),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Recent Activity',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 5,
+          runSpacing: 5,
+          children: data.recentRows.take(20).map((row) {
+            final color = row.status >= 500
+                ? const Color(0xFFFF587A)
+                : row.status >= 400
+                    ? const Color(0xFFFFB156)
+                    : theme.colorScheme.primary;
+            return Container(
+              width: 14,
+              height: 14,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(4),
               ),
+            );
+          }).toList(growable: false),
+        ),
+      ],
+    );
+  }
+
+  Widget _healthMetric(
+    BuildContext context,
+    String label,
+    String value,
+    Color color,
+  ) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall,
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Surfaces 5xx rows at the top of the recent table without a separate card.
+  List<_RecentRow> _recentRowsWith5xxFirst(List<_RecentRow> rows) {
+    final fivexx = <_RecentRow>[];
+    final other = <_RecentRow>[];
+    for (final r in rows) {
+      if (r.status >= 500) {
+        fivexx.add(r);
+      } else {
+        other.add(r);
+      }
+    }
+    return [...fivexx, ...other];
+  }
+
+  Widget _requestTable(BuildContext context, List<_RecentRow> rows) {
+    final theme = Theme.of(context);
+    if (rows.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          'No request history for selected collection.',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(1),
+        1: FlexColumnWidth(3),
+        2: FlexColumnWidth(1.4),
+        3: FlexColumnWidth(1.2),
+      },
+      children: [
+        _trHeader(context, 'Method', 'Endpoint', 'Status', 'Timing*'),
+        ...rows.take(8).map((r) => _trData(context, r)),
+      ],
+    );
+  }
+
+  TableRow _trHeader(
+    BuildContext context,
+    String c1,
+    String c2,
+    String c3,
+    String c4,
+  ) {
+    final theme = Theme.of(context);
+    Text style(String v) => Text(
+          v.toUpperCase(),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+          ),
+        );
+    return TableRow(
+      children: [
+        Padding(padding: const EdgeInsets.all(6), child: style(c1)),
+        Padding(padding: const EdgeInsets.all(6), child: style(c2)),
+        Padding(padding: const EdgeInsets.all(6), child: style(c3)),
+        Padding(padding: const EdgeInsets.all(6), child: style(c4)),
+      ],
+    );
+  }
+
+  TableRow _trData(BuildContext context, _RecentRow row) {
+    final theme = Theme.of(context);
+    return TableRow(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Text(
+            row.method.toUpperCase(),
+            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Text(
+            row.endpoint,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Text(
+            row.status >= 500 ? '${row.status} (5xx)' : '${row.status}',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: row.status >= 200 && row.status < 300
+                  ? theme.colorScheme.primary
+                  : row.status >= 500
+                      ? const Color(0xFFFF587A)
+                      : const Color(0xFFFFB156),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(6),
+          child: Text(
+            '${row.mockLatencyMs}ms',
+            style: theme.textTheme.bodyMedium,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _slowestTable(BuildContext context, List<_RecentRow> rows) {
+    final theme = Theme.of(context);
+    if (rows.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          'No slow request data yet.',
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(1),
+        1: FlexColumnWidth(3),
+        2: FlexColumnWidth(1.2),
+        3: FlexColumnWidth(1.4),
+      },
+      children: [
+        _trHeader(context, 'Method', 'Endpoint', 'Status', 'Latency*'),
+        ...rows.take(6).map((r) => _trData(context, r)),
+      ],
+    );
+  }
+
+  Widget _reportWebhookPanel(
+    BuildContext context,
+    _CollectionData requestData,
+  ) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextField(
+                controller: _webhookUrlController,
+                decoration: const InputDecoration(
+                  labelText: 'Webhook URL',
+                  hintText: 'https://example.com/incoming',
+                  isDense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 2,
+              child: TextField(
+                controller: _reportNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Report Name',
+                  isDense: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            SizedBox(
+              width: 200,
+              child: DropdownButtonFormField<int>(
+                value: _autoReportMinutes,
+                isDense: true,
+                decoration: const InputDecoration(
+                  labelText: 'Auto-send interval',
+                ),
+                items: const [5, 15, 30, 60]
+                    .map(
+                      (m) => DropdownMenuItem<int>(
+                        value: m,
+                        child: Text('Every $m min'),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _autoReportMinutes = value);
+                  if (_reportTimer != null) {
+                    _startAutoReports(requestData);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(width: 10),
+            FilledButton.icon(
+              onPressed: () => _sendWebhookReport(requestData),
+              icon: const Icon(Icons.send_rounded),
+              label: const Text('Send now'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: _reportTimer == null
+                  ? () => _startAutoReports(requestData)
+                  : _stopAutoReports,
+              icon: Icon(_reportTimer == null ? Icons.play_arrow_rounded : Icons.stop_rounded),
+              label: Text(_reportTimer == null ? 'Start auto-send' : 'Stop auto-send'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_lastReportSentAt != null)
+          Text(
+            'Last report sent: ${_relativeTimeLabel(_lastReportSentAt!)}',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+        if (_reportStatus != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _reportStatus!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: _reportStatus!.toLowerCase().contains('failed')
+                    ? const Color(0xFFFF587A)
+                    : theme.colorScheme.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _sendWebhookReport(
+    _CollectionData requestData,
+  ) async {
+    final url = _webhookUrlController.text.trim();
+    if (url.isEmpty) {
+      setState(() => _reportStatus = 'Failed: webhook URL is required.');
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      setState(() => _reportStatus = 'Failed: webhook URL must be valid http/https.');
+      return;
+    }
+    final payload = {
+      'reportName': _reportNameController.text.trim().isEmpty
+          ? 'Collection Health Report'
+          : _reportNameController.text.trim(),
+      'generatedAt': DateTime.now().toIso8601String(),
+      'collection': {
+        'name': requestData.name,
+        'totalRequests': requestData.totalRequests,
+        'successRate': requestData.successRate,
+        'failures': requestData.failures,
+        'p95Ms': requestData.p95Ms,
+      },
+      'health': {
+        'errorRatio': requestData.errorRatio,
+        'healthScore': (((requestData.successRate * 100) * 0.75) +
+                ((100 - (requestData.errorRatio * 100)) * 0.25))
+            .clamp(0, 100),
+      },
+    };
+    try {
+      final resp = await http.post(
+        uri,
+        headers: const {'content-type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+      setState(() {
+        _lastReportSentAt = DateTime.now();
+        _reportStatus = resp.statusCode >= 200 && resp.statusCode < 300
+            ? 'Report sent successfully (${resp.statusCode}).'
+            : 'Failed: webhook responded ${resp.statusCode}.';
+      });
+    } catch (e) {
+      setState(() => _reportStatus = 'Failed: $e');
+    }
+  }
+
+  void _startAutoReports(
+    _CollectionData requestData,
+  ) {
+    _reportTimer?.cancel();
+    _reportTimer = Timer.periodic(
+      Duration(minutes: _autoReportMinutes),
+      (_) => _sendWebhookReport(requestData),
+    );
+    setState(() {
+      _reportStatus = 'Auto-send started (every $_autoReportMinutes minutes).';
+    });
+  }
+
+  void _stopAutoReports() {
+    _reportTimer?.cancel();
+    _reportTimer = null;
+    setState(() => _reportStatus = 'Auto-send stopped.');
+  }
+
+  Future<void> _openWebhookDialog(
+    BuildContext context,
+    _CollectionData requestData,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Collection Webhook Reports'),
+          content: SizedBox(
+            width: 720,
+            child: _reportWebhookPanel(context, requestData),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
             ),
           ],
         );
@@ -378,779 +1058,276 @@ class _DashboardGrid extends StatelessWidget {
   }
 }
 
-// ─── Card Shell ───────────────────────────────────────────────────────────────
-
-class _CardShell extends StatelessWidget {
-  const _CardShell({
-    required this.title,
-    required this.subtitle,
-    required this.child,
-  });
-
-  final String title;
-  final String subtitle;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark
-            ? theme.colorScheme.surfaceContainerHigh
-            : theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.18),
-        ),
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-                      fontSize: 11,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(child: child),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Request Volume Chart ─────────────────────────────────────────────────────
-
-class _RequestVolumeChart extends StatelessWidget {
-  const _RequestVolumeChart({required this.data});
-  final _DashboardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final primary = theme.colorScheme.primary;
-
-    final spots = [
-      for (var i = 0; i < data.seriesCounts.length; i++)
-        FlSpot(i.toDouble(), data.seriesCounts[i].count.toDouble()),
-    ];
-
-    return LineChart(
-      LineChartData(
-        lineBarsData: [
-          LineChartBarData(
-            spots: spots,
-            isCurved: true,
-            curveSmoothness: 0.35,
-            color: primary,
-            barWidth: 2.5,
-            dotData: FlDotData(
-              show: true,
-              getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(
-                radius: 3.5,
-                color: primary,
-                strokeWidth: 2,
-                strokeColor: theme.colorScheme.surface,
-              ),
-            ),
-            belowBarData: BarAreaData(
-              show: true,
-              gradient: LinearGradient(
-                colors: [
-                  primary.withValues(alpha: 0.22),
-                  primary.withValues(alpha: 0.0),
-                ],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
-            ),
-          ),
-        ],
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 32,
-              getTitlesWidget: (v, m) => Text(
-                '${v.toInt()}',
-                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: 1,
-              getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
-                if (idx < 0 || idx >= data.seriesCounts.length) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    data.seriesCounts[idx].label,
-                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
-                  ),
-                );
-              },
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: 5,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: theme.colorScheme.outline.withValues(alpha: 0.12),
-            strokeWidth: 1,
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        lineTouchData: LineTouchData(
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => theme.colorScheme.surfaceContainerHighest,
-            tooltipBorderRadius: BorderRadius.circular(8),
-            getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
-              return LineTooltipItem(
-                '${s.y.toInt()} requests',
-                theme.textTheme.labelSmall!.copyWith(color: primary),
-              );
-            }).toList(),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Status Pie Chart ─────────────────────────────────────────────────────────
-
-class _StatusPieChart extends StatefulWidget {
-  const _StatusPieChart({required this.data});
-  final _DashboardData data;
-
-  @override
-  State<_StatusPieChart> createState() => _StatusPieChartState();
-}
-
-class _StatusPieChartState extends State<_StatusPieChart> {
-  int _touchedIndex = -1;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final total = widget.data.totalRequests;
-    if (total == 0) return const _EmptyState(label: 'No requests yet');
-
-    final codeCounts = <int, int>{};
-    for (final h in widget.data.recentHistory) {
-      codeCounts[h.responseStatus] = (codeCounts[h.responseStatus] ?? 0) + 1;
-    }
-
-    // Use statusBuckets for full picture
-    final buckets = widget.data.statusBuckets;
-    final entries = buckets.entries.where((e) => e.value > 0).toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-
-    Color _bucketColor(String key) {
-      switch (key) {
-        case '2xx': return const Color(0xFF1D9E75);
-        case '3xx': return const Color(0xFF378ADD);
-        case '4xx': return const Color(0xFFBA7517);
-        case '5xx': return const Color(0xFFA32D2D);
-        default:    return theme.colorScheme.secondary;
-      }
-    }
-
-    final sections = <PieChartSectionData>[];
-    for (var i = 0; i < entries.length; i++) {
-      final e = entries[i];
-      final isTouched = i == _touchedIndex;
-      final pct = (e.value / total * 100);
-      sections.add(
-        PieChartSectionData(
-          value: e.value.toDouble(),
-          color: _bucketColor(e.key),
-          radius: isTouched ? 62 : 52,
-          title: isTouched ? '${pct.toStringAsFixed(0)}%' : '',
-          titleStyle: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-          badgeWidget: isTouched ? null : null,
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(
-                child: PieChart(
-                  PieChartData(
-                    sections: sections,
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 36,
-                    pieTouchData: PieTouchData(
-                      touchCallback: (event, response) {
-                        setState(() {
-                          if (!event.isInterestedForInteractions ||
-                              response == null ||
-                              response.touchedSection == null) {
-                            _touchedIndex = -1;
-                            return;
-                          }
-                          _touchedIndex = response.touchedSection!.touchedSectionIndex;
-                        });
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Legend
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: entries.map((e) {
-                  final pct = (e.value / total * 100).toStringAsFixed(0);
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: _bucketColor(e.key),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          e.key,
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '$pct%',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ],
-          ),
-        ),
-        // Center summary
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            '$total total  ·  ${widget.data.success2xx} success  ·  ${widget.data.clientErrors + widget.data.serverErrors} errors',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-              fontSize: 11,
-            ),
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Recent Activity List ─────────────────────────────────────────────────────
-
-class _RecentActivityList extends StatelessWidget {
-  const _RecentActivityList({required this.data});
-  final _DashboardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (data.recentHistory.isEmpty) {
-      return const _EmptyState(label: 'No history yet');
-    }
-
-    return ListView.separated(
-      itemCount: data.recentHistory.length,
-      physics: const NeverScrollableScrollPhysics(),
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        color: theme.colorScheme.outline.withValues(alpha: 0.1),
-      ),
-      itemBuilder: (context, index) {
-        final h = data.recentHistory[index];
-        return _ActivityRow(item: h);
-      },
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.item});
-  final HistoryMetaModel item;
-
-  String _timeAgo(DateTime t) {
-    final diff = DateTime.now().difference(t);
-    if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    return '${diff.inHours}h ago';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final sColor = item.responseStatus >= 200 && item.responseStatus < 300
-        ? scheme.primary
-        : scheme.error;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          // Method
-          Text(
-            item.method.name.toUpperCase(),
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: scheme.onSurface.withValues(alpha: 0.8),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Status code
-          Text(
-            '${item.responseStatus}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: sColor,
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Name + URL
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.name,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  item.url,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontSize: 11,
-                    color: scheme.onSurface.withValues(alpha: 0.45),
-                    fontFamily: 'monospace',
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Timestamp
-          Text(
-            _timeAgo(item.timeStamp),
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 11,
-              color: scheme.onSurface.withValues(alpha: 0.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Method Bar Chart ─────────────────────────────────────────────────────────
-
-class _MethodBarChart extends StatelessWidget {
-  const _MethodBarChart({required this.data});
-  final _DashboardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    if (data.methodBuckets.isEmpty) return const _EmptyState(label: 'No requests yet');
-
-    final entries = data.methodBuckets.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    Color methodColor(String m) {
-      switch (m.toUpperCase()) {
-        case 'GET':    return const Color(0xFF1D9E75);
-        case 'POST':   return const Color(0xFF185FA5);
-        case 'PUT':    return const Color(0xFFBA7517);
-        case 'DELETE': return const Color(0xFFA32D2D);
-        default:       return const Color(0xFF534AB7);
-      }
-    }
-
-    final groups = [
-      for (var i = 0; i < entries.length; i++)
-        BarChartGroupData(
-          x: i,
-          barRods: [
-            BarChartRodData(
-              toY: entries[i].value.toDouble(),
-              color: methodColor(entries[i].key),
-              width: 28,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-            ),
-          ],
-          showingTooltipIndicators: [0],
-        ),
-    ];
-
-    return BarChart(
-      BarChartData(
-        barGroups: groups,
-        gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          horizontalInterval: 20,
-          getDrawingHorizontalLine: (v) => FlLine(
-            color: theme.colorScheme.outline.withValues(alpha: 0.1),
-            strokeWidth: 1,
-          ),
-        ),
-        borderData: FlBorderData(show: false),
-        barTouchData: BarTouchData(
-          touchTooltipData: BarTouchTooltipData(
-            getTooltipColor: (_) => theme.colorScheme.surfaceContainerHighest,
-            tooltipBorderRadius: BorderRadius.circular(8),
-            getTooltipItem: (group, _, rod, __) {
-              return BarTooltipItem(
-                '${rod.toY.toInt()}',
-                theme.textTheme.labelSmall!.copyWith(
-                  color: methodColor(entries[group.x].key),
-                ),
-              );
-            },
-          ),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 28,
-              getTitlesWidget: (v, m) => Text(
-                '${v.toInt()}',
-                style: theme.textTheme.bodySmall?.copyWith(fontSize: 10),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              getTitlesWidget: (value, meta) {
-                final idx = value.toInt();
-                if (idx < 0 || idx >= entries.length) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    entries[idx].key,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: methodColor(entries[idx].key),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Coverage Card ────────────────────────────────────────────────────────────
-
-class _CoverageCard extends StatelessWidget {
-  const _CoverageCard({required this.data});
-  final _DashboardData data;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final total = data.totalRequests;
-    if (total == 0) return const _EmptyState(label: 'No requests yet');
-
-    final withScripts = data.withScripts;
-    final pct = withScripts / total;
-    final pctLabel = '${(pct * 100).toStringAsFixed(0)}%';
-
-    final Color barColor = pct >= 0.5
-        ? const Color(0xFF1D9E75)
-        : pct >= 0.25
-            ? const Color(0xFFBA7517)
-            : const Color(0xFFA32D2D);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Requests with scripts',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-              ),
-            ),
-            Text(
-              pctLabel,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: barColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(100),
-          child: LinearProgressIndicator(
-            value: pct,
-            minHeight: 10,
-            backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.12),
-            valueColor: AlwaysStoppedAnimation<Color>(barColor),
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            _CoverageChip(label: 'With scripts', value: '$withScripts', color: barColor),
-            _CoverageChip(
-              label: 'Without',
-              value: '${total - withScripts}',
-              color: theme.colorScheme.outline.withValues(alpha: 0.5),
-            ),
-            _CoverageChip(label: 'Total', value: '$total', color: theme.colorScheme.primary),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _CoverageChip extends StatelessWidget {
-  const _CoverageChip({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Text(
-          value,
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 10,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.inbox_outlined,
-            size: 32,
-            color: theme.colorScheme.outline.withValues(alpha: 0.4),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Data Model ───────────────────────────────────────────────────────────────
-
-class _DashboardData {
-  _DashboardData({
+class _CollectionData {
+  const _CollectionData({
+    required this.name,
     required this.totalRequests,
-    required this.uniqueEndpoints,
-    required this.seriesCounts,
+    required this.successCount,
+    required this.failures,
+    required this.successRate,
+    required this.p95Ms,
+    required this.mockTimingsMs,
+    required this.recentRows,
     required this.statusBuckets,
     required this.methodBuckets,
-    required this.recentHistory,
-    required this.withScripts,
+    required this.topEndpoints,
+    required this.avgMs,
+    required this.maxMs,
+    required this.healthyCount,
+    required this.lastRunLabel,
+    required this.slowestRows,
+    required this.isDemoData,
   });
 
+  final String name;
   final int totalRequests;
-  final int uniqueEndpoints;
-  final List<_BucketPoint> seriesCounts;
+  final int successCount;
+  final int failures;
+  final double successRate;
+  final int p95Ms;
+  final List<int> mockTimingsMs;
+  final List<_RecentRow> recentRows;
   final Map<String, int> statusBuckets;
   final Map<String, int> methodBuckets;
-  final List<HistoryMetaModel> recentHistory;
-  final int withScripts;
+  final List<(String, int)> topEndpoints;
+  final int avgMs;
+  final int maxMs;
+  final int healthyCount;
+  final String lastRunLabel;
+  final List<_RecentRow> slowestRows;
+  final bool isDemoData;
 
-  int get success2xx => statusBuckets['2xx'] ?? 0;
-  int get clientErrors => statusBuckets['4xx'] ?? 0;
-  int get serverErrors => statusBuckets['5xx'] ?? 0;
-  double get healthScore => totalRequests == 0 ? 1.0 : success2xx / totalRequests;
-
-  String get healthScoreLabel {
-    if (totalRequests == 0) return '—';
-    return '${(healthScore * 100).toStringAsFixed(0)}%';
-  }
+  String get successLabel => totalRequests == 0
+      ? '—'
+      : '${(successRate * 100).toStringAsFixed(1)}%';
+  double get errorRatio => totalRequests == 0 ? 0 : failures / totalRequests;
+  String get errorRatioLabel => totalRequests == 0
+      ? '—'
+      : '${((failures / totalRequests) * 100).toStringAsFixed(1)}%';
 }
 
-class _BucketPoint {
-  _BucketPoint({required this.label, required this.count});
-  final String label;
-  final int count;
+class _RecentRow {
+  const _RecentRow({
+    required this.method,
+    required this.endpoint,
+    required this.status,
+    required this.mockLatencyMs,
+  });
+
+  final String method;
+  final String endpoint;
+  final int status;
+  final int mockLatencyMs;
 }
 
-_DashboardData _buildDashboardData({
-  required Map<String, RequestModel>? collection,
-  required Map<String, HistoryMetaModel>? history,
+_CollectionData _buildCollectionData({
+  required String collectionId,
+  required Map<String, CollectionModel> collections,
+  required Map<String, HistoryMetaModel> history,
 }) {
-  final now = DateTime.now();
+  final collection = collections[collectionId];
+  if (collection == null) {
+    return const _CollectionData(
+      name: 'Unknown',
+      totalRequests: 0,
+      successCount: 0,
+      failures: 0,
+      successRate: 0,
+      p95Ms: 0,
+      mockTimingsMs: <int>[],
+      recentRows: <_RecentRow>[],
+      statusBuckets: const {'2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0},
+      methodBuckets: const {},
+      topEndpoints: const [],
+      avgMs: 0,
+      maxMs: 0,
+      healthyCount: 0,
+      lastRunLabel: 'Never',
+      slowestRows: const [],
+      isDemoData: false,
+    );
+  }
 
-  return _DashboardData(
-    totalRequests: 120,
-    uniqueEndpoints: 7,
-    seriesCounts: [
-      _BucketPoint(label: '09:00', count: 5),
-      _BucketPoint(label: '10:00', count: 14),
-      _BucketPoint(label: '11:00', count: 7),
-      _BucketPoint(label: '12:00', count: 18),
-      _BucketPoint(label: '13:00', count: 9),
-      _BucketPoint(label: '14:00', count: 22),
-      _BucketPoint(label: '15:00', count: 17),
-    ],
-    statusBuckets: {
-      '2xx': 90,
-      '3xx': 5,
-      '4xx': 15,
-      '5xx': 10,
-    },
-    methodBuckets: {
-      'GET': 15,
-      'POST': 20,
-      'PUT': 14,
-      'DELETE': 2,
-    },
-    recentHistory: [
-      HistoryMetaModel(
-        historyId: 'h1', requestId: 'r1', apiType: APIType.rest,
-        name: 'List users', url: '/users', method: HTTPVerb.get,
-        responseStatus: 200, timeStamp: now.subtract(const Duration(minutes: 1)),
-      ),
-      HistoryMetaModel(
-        historyId: 'h2', requestId: 'r2', apiType: APIType.rest,
-        name: 'Login', url: '/auth/login', method: HTTPVerb.post,
-        responseStatus: 403, timeStamp: now.subtract(const Duration(minutes: 4)),
-      ),
-      HistoryMetaModel(
-        historyId: 'h3', requestId: 'r3', apiType: APIType.rest,
-        name: 'Orders', url: '/orders', method: HTTPVerb.get,
-        responseStatus: 500, timeStamp: now.subtract(const Duration(minutes: 7)),
-      ),
-      HistoryMetaModel(
-        historyId: 'h4', requestId: 'r4', apiType: APIType.rest,
-        name: 'User profile', url: '/users/me', method: HTTPVerb.get,
-        responseStatus: 200, timeStamp: now.subtract(const Duration(minutes: 10)),
-      ),
-      HistoryMetaModel(
-        historyId: 'h5', requestId: 'r5', apiType: APIType.rest,
-        name: 'Update user', url: '/users/1', method: HTTPVerb.put,
-        responseStatus: 200, timeStamp: now.subtract(const Duration(minutes: 14)),
-      ),
-      HistoryMetaModel(
-        historyId: 'h6', requestId: 'r6', apiType: APIType.rest,
-        name: 'Health check', url: '/health', method: HTTPVerb.get,
-        responseStatus: 200, timeStamp: now.subtract(const Duration(minutes: 18)),
-      ),
-    ],
-    withScripts: 38,
+  final requestSet = collection.requestIds.toSet();
+  final filtered = history.values
+      .where((h) => requestSet.contains(h.requestId))
+      .toList()
+    ..sort((a, b) => b.timeStamp.compareTo(a.timeStamp));
+
+  final total = filtered.length;
+  final success = filtered.where((h) => h.responseStatus >= 200 && h.responseStatus < 300).length;
+  final failures = filtered.where((h) => h.responseStatus >= 400).length;
+  final rate = total == 0 ? 0.0 : success / total;
+
+  final timings = <int>[
+    for (var i = 0; i < filtered.length; i++) _mockLatencyMs(filtered[i], i),
+  ];
+  final p95 = timings.isEmpty
+      ? 0
+      : (timings..sort()).elementAt(((timings.length - 1) * 0.95).floor());
+
+  final rows = filtered
+      .take(12)
+      .toList(growable: false)
+      .asMap()
+      .entries
+      .map(
+        (e) => _RecentRow(
+          method: e.value.method.name,
+          endpoint: e.value.name.isNotEmpty ? e.value.name : e.value.url,
+          status: e.value.responseStatus,
+          mockLatencyMs: _mockLatencyMs(e.value, e.key),
+        ),
+      )
+      .toList(growable: false);
+  final slowestRows = rows.toList()..sort((a, b) => b.mockLatencyMs.compareTo(a.mockLatencyMs));
+
+  final statusBuckets = <String, int>{'2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0};
+  final methodBuckets = <String, int>{};
+  final endpointBuckets = <String, int>{};
+  for (final item in filtered) {
+    if (item.responseStatus >= 200 && item.responseStatus < 300) {
+      statusBuckets['2xx'] = (statusBuckets['2xx'] ?? 0) + 1;
+    } else if (item.responseStatus >= 300 && item.responseStatus < 400) {
+      statusBuckets['3xx'] = (statusBuckets['3xx'] ?? 0) + 1;
+    } else if (item.responseStatus >= 400 && item.responseStatus < 500) {
+      statusBuckets['4xx'] = (statusBuckets['4xx'] ?? 0) + 1;
+    } else if (item.responseStatus >= 500) {
+      statusBuckets['5xx'] = (statusBuckets['5xx'] ?? 0) + 1;
+    }
+    final method = item.method.name.toUpperCase();
+    methodBuckets[method] = (methodBuckets[method] ?? 0) + 1;
+    final endpoint = item.name.isNotEmpty ? item.name : item.url;
+    endpointBuckets[endpoint] = (endpointBuckets[endpoint] ?? 0) + 1;
+  }
+  final topEndpoints = endpointBuckets.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final avg = timings.isEmpty ? 0 : (timings.reduce((a, b) => a + b) / timings.length).round();
+  final max = timings.isEmpty ? 0 : timings.reduce((a, b) => a > b ? a : b);
+  final healthy = (statusBuckets['2xx'] ?? 0) + (statusBuckets['3xx'] ?? 0);
+  final lastRun = filtered.isEmpty
+      ? 'Never'
+      : _relativeTimeLabel(filtered.first.timeStamp.toLocal());
+
+  final built = _CollectionData(
+    name: collection.name,
+    totalRequests: total,
+    successCount: success,
+    failures: failures,
+    successRate: rate,
+    p95Ms: p95,
+    mockTimingsMs: timings.take(24).toList(growable: false),
+    recentRows: rows,
+    statusBuckets: statusBuckets,
+    methodBuckets: methodBuckets,
+    topEndpoints: topEndpoints.take(8).map((e) => (e.key, e.value)).toList(),
+    avgMs: avg,
+    maxMs: max,
+    healthyCount: healthy,
+    lastRunLabel: lastRun,
+    slowestRows: slowestRows.take(8).toList(growable: false),
+    isDemoData: false,
   );
+  if (built.totalRequests >= 8) return built;
+  return _buildDemoCollectionData(collection, seedBase: built.totalRequests);
+}
+
+_CollectionData _buildDemoCollectionData(
+  CollectionModel collection, {
+  required int seedBase,
+}) {
+  final seed = collection.id.hashCode.abs() + seedBase * 17;
+  final methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const forced5xx = [500, 502, 500, 503];
+  final statuses = [200, 201, 204, 400, 401, 404, 500, 502];
+  final rows = <_RecentRow>[
+    for (var i = 0; i < 10; i++)
+      _RecentRow(
+        method: methods[(seed + i) % methods.length],
+        endpoint: '/${collection.name.toLowerCase().replaceAll(' ', '-')}/endpoint-${(i % 7) + 1}',
+        status: i < forced5xx.length
+            ? forced5xx[i]
+            : statuses[(seed + i * 3) % statuses.length],
+        mockLatencyMs: 80 + ((seed + i * 29) % 320),
+      ),
+  ];
+  final timings = rows.map((e) => e.mockLatencyMs).toList(growable: false);
+  final total = rows.length;
+  final success =
+      rows.where((r) => r.status >= 200 && r.status < 300).length;
+  final failures = rows.where((r) => r.status >= 400).length;
+  final statusBuckets = <String, int>{'2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0};
+  final methodBuckets = <String, int>{};
+  final endpointBuckets = <String, int>{};
+  for (final r in rows) {
+    if (r.status >= 200 && r.status < 300) {
+      statusBuckets['2xx'] = (statusBuckets['2xx'] ?? 0) + 1;
+    } else if (r.status >= 300 && r.status < 400) {
+      statusBuckets['3xx'] = (statusBuckets['3xx'] ?? 0) + 1;
+    } else if (r.status >= 400 && r.status < 500) {
+      statusBuckets['4xx'] = (statusBuckets['4xx'] ?? 0) + 1;
+    } else {
+      statusBuckets['5xx'] = (statusBuckets['5xx'] ?? 0) + 1;
+    }
+    methodBuckets[r.method] = (methodBuckets[r.method] ?? 0) + 1;
+    endpointBuckets[r.endpoint] = (endpointBuckets[r.endpoint] ?? 0) + 1;
+  }
+  final topEndpoints = endpointBuckets.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final sortedTimings = [...timings]..sort();
+  final p95 = sortedTimings[((sortedTimings.length - 1) * 0.95).floor()];
+  final avg = (timings.reduce((a, b) => a + b) / timings.length).round();
+  final max = timings.reduce((a, b) => a > b ? a : b);
+  final healthy = (statusBuckets['2xx'] ?? 0) + (statusBuckets['3xx'] ?? 0);
+  final slowestRows = [...rows]..sort((a, b) => b.mockLatencyMs.compareTo(a.mockLatencyMs));
+
+  return _CollectionData(
+    name: collection.name,
+    totalRequests: total,
+    successCount: success,
+    failures: failures,
+    successRate: total == 0 ? 0 : success / total,
+    p95Ms: p95,
+    mockTimingsMs: timings.take(24).toList(growable: false),
+    recentRows: rows,
+    statusBuckets: statusBuckets,
+    methodBuckets: methodBuckets,
+    topEndpoints: topEndpoints.take(8).map((e) => (e.key, e.value)).toList(),
+    avgMs: avg,
+    maxMs: max,
+    healthyCount: healthy,
+    lastRunLabel: '2m ago',
+    slowestRows: slowestRows.take(8).toList(growable: false),
+    isDemoData: true,
+  );
+}
+
+int _mockLatencyMs(HistoryMetaModel h, int index) {
+  final methodWeight = switch (h.method.name.toUpperCase()) {
+    'GET' => 0,
+    'POST' => 30,
+    'PUT' => 45,
+    'PATCH' => 50,
+    'DELETE' => 25,
+    _ => 20,
+  };
+  final base = 55 + (h.requestId.hashCode.abs() % 190) + methodWeight;
+  final penalty = h.responseStatus >= 500
+      ? 420
+      : h.responseStatus >= 400
+          ? 180
+          : 0;
+  final waveform = ((index * 17) % 7) * 9;
+  final burst = index % 9 == 0 ? 95 : 0;
+  return base + penalty + waveform + burst;
+}
+
+String _relativeTimeLabel(DateTime ts) {
+  final now = DateTime.now();
+  final diff = now.difference(ts);
+  if (diff.inMinutes < 1) return 'just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 7) return '${diff.inDays}d ago';
+  return '${(diff.inDays / 7).floor()}w ago';
 }

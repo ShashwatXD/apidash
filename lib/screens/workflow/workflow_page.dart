@@ -32,7 +32,13 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   final Map<String, bool?> _nodeSuccess = {};
   final Map<String, _NodeRunOutput> _nodeOutputs = {};
   final List<WorkflowRunEvent> _runEvents = [];
-  final WorkflowWebhookService _webhookService = WorkflowWebhookService();
+  /// Docked run log below the canvas (not a modal).
+  bool _logsPaneVisible = false;
+
+  /// Completion events only ([WorkflowExecutionService] also emits a "Started"
+  /// event per node, which would double the visible line count).
+  List<WorkflowRunEvent> _runEventsForDisplay() =>
+      _runEvents.where((e) => e.message != 'Started').toList();
   int _nodeCounter = 100;
   String? _selectedNodeId;
   String? _pendingConnectSourceNodeId;
@@ -48,12 +54,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       connections: _defaultConnections(),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapWorkflowState());
-  }
-
-  @override
-  void dispose() {
-    _webhookService.stop();
-    super.dispose();
   }
 
   List<Node<WorkflowNodeData>> _defaultNodes() {
@@ -672,9 +672,24 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   void _hydrateFromGraph(Map<String, dynamic> graphData) {
     final nodesRaw = graphData['nodes'];
     final connectionsRaw = graphData['connections'];
-    if (nodesRaw is! List || connectionsRaw is! List) return;
+    final nodesList = nodesRaw is List ? nodesRaw : <dynamic>[];
+    final connectionsList = connectionsRaw is List ? connectionsRaw : <dynamic>[];
+
+    if (nodesList.isEmpty) {
+      for (final key in _controller.nodes.keys.toList()) {
+        _controller.removeNode(key);
+      }
+      for (final c in _controller.connections.toList()) {
+        _controller.removeConnection(c.id);
+      }
+      for (final n in _defaultNodes()) {
+        _controller.addNode(n);
+      }
+      return;
+    }
+
     final nodes = <Node<WorkflowNodeData>>[];
-    for (final item in nodesRaw.whereType<Map>()) {
+    for (final item in nodesList.whereType<Map>()) {
       final json = item.map((k, v) => MapEntry(k.toString(), v));
       final type = WorkflowNodeData.fromJson(
         (json['data'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ??
@@ -700,7 +715,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       nodes.add(hydrated);
     }
     final conns = <Connection<dynamic>>[];
-    for (final item in connectionsRaw.whereType<Map>()) {
+    for (final item in connectionsList.whereType<Map>()) {
       final json = item.map((k, v) => MapEntry(k.toString(), v));
       conns.add(
         Connection(
@@ -726,6 +741,59 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     }
   }
 
+  void _syncNodeCounterFromGraph() {
+    var maxSuffix = 0;
+    for (final id in _controller.nodes.keys) {
+      final parts = id.split('-');
+      if (parts.isEmpty) continue;
+      final n = int.tryParse(parts.last);
+      if (n != null && n > maxSuffix) maxSuffix = n;
+    }
+    // New nodes use `${type}-${_nodeCounter++}` with counter starting at 100.
+    _nodeCounter = maxSuffix >= 100 ? maxSuffix + 1 : 100;
+  }
+
+  Future<void> _switchWorkflow(String workflowId) async {
+    if (_workflowId == workflowId) return;
+    await _saveWorkflowSnapshot();
+    ref.read(workflowsStateProvider.notifier).setActive(workflowId);
+    _workflowId = workflowId;
+    final workflow = ref.read(workflowsStateProvider)[workflowId];
+    if (workflow != null) {
+      _hydrateFromGraph(workflow.graphData);
+      _syncNodeCounterFromGraph();
+    }
+    _runEvents.clear();
+    _nodeSuccess.clear();
+    _nodeOutputs.clear();
+    _selectedNodeId = null;
+    _runningNodeId = null;
+    _isRunning = false;
+    _loadRunHistoryFromHive(workflowId);
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _createNewWorkflow() async {
+    await _saveWorkflowSnapshot();
+    final model = await ref.read(workflowsStateProvider.notifier).createDefault();
+    _workflowId = model.id;
+    _hydrateFromGraph(model.graphData);
+    _syncNodeCounterFromGraph();
+    _runEvents.clear();
+    _nodeSuccess.clear();
+    _nodeOutputs.clear();
+    _selectedNodeId = null;
+    _runningNodeId = null;
+    _isRunning = false;
+    _loadRunHistoryFromHive(model.id);
+    if (mounted) setState(() {});
+  }
+
+  String _workflowPickerLabel(int index, String name) {
+    final normalized = name.trim().isEmpty ? 'Untitled' : name.trim();
+    return 'Flow ${index + 1} — $normalized';
+  }
+
   Future<void> _bootstrapWorkflowState() async {
     final workflowNotifier = ref.read(workflowsStateProvider.notifier);
     if (ref.read(workflowsStateProvider).isEmpty) {
@@ -741,6 +809,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final workflow = ref.read(workflowsStateProvider)[activeWorkflowId];
     if (workflow != null) {
       _hydrateFromGraph(workflow.graphData);
+      _syncNodeCounterFromGraph();
     }
     _loadRunHistoryFromHive(activeWorkflowId);
     if (mounted) setState(() {});
@@ -758,16 +827,15 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
 
   void _loadRunHistoryFromHive(String workflowId) {
     final raw = hiveHandler.getWorkflowRunHistory(workflowId);
+    _runHistory.clear();
     if (raw is! List) return;
-    _runHistory
-      ..clear()
-      ..addAll(
-        raw.whereType<Map>().map(
-              (m) => _WorkflowRunRecord.fromJson(
-                m.map((k, v) => MapEntry(k.toString(), v)),
-              ),
+    _runHistory.addAll(
+      raw.whereType<Map>().map(
+            (m) => _WorkflowRunRecord.fromJson(
+              m.map((k, v) => MapEntry(k.toString(), v)),
             ),
-      );
+          ),
+    );
   }
 
   String _nodeShortLabel(String nodeId) {
@@ -775,6 +843,95 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     if (n == null) return nodeId;
     final l = n.data.label.trim();
     return l.isEmpty ? nodeId : l;
+  }
+
+  /// Linked request display name for request nodes; empty when not applicable.
+  String _requestNameForNode(String nodeId, Map<String, RequestModel> requests) {
+    final node = _controller.nodes[nodeId];
+    if (node == null) return '';
+    if (node.data.nodeType != WorkflowNodeType.request) return '';
+    final rid = node.data.linkedRequestId;
+    if (rid == null || rid.isEmpty) return '—';
+    final req = requests[rid];
+    final name = req?.name.trim() ?? '';
+    return name.isNotEmpty ? name : rid;
+  }
+
+  List<String> _topologicalOrderForLayout() {
+    final ids = _controller.nodes.keys.toList();
+    if (ids.isEmpty) return ids;
+    final adj = <String, List<String>>{};
+    final inDegree = <String, int>{};
+    for (final id in ids) {
+      adj[id] = [];
+      inDegree[id] = 0;
+    }
+    for (final c in _controller.connections.toList()) {
+      final from = c.sourceNodeId;
+      final to = c.targetNodeId;
+      if (!adj.containsKey(from) || !inDegree.containsKey(to)) continue;
+      adj[from]!.add(to);
+      inDegree[to] = (inDegree[to] ?? 0) + 1;
+    }
+    bool isStart(String id) =>
+        _controller.nodes[id]?.data.nodeType == WorkflowNodeType.start;
+    void sortReady(List<String> ready) {
+      ready.sort((a, b) {
+        final aS = isStart(a);
+        final bS = isStart(b);
+        if (aS != bS) return aS ? -1 : 1;
+        return a.compareTo(b);
+      });
+    }
+
+    final result = <String>[];
+    final q = <String>[];
+    for (final id in ids) {
+      if (inDegree[id] == 0) q.add(id);
+    }
+    sortReady(q);
+    while (q.isNotEmpty) {
+      final v = q.removeAt(0);
+      result.add(v);
+      for (final w in adj[v] ?? const <String>[]) {
+        inDegree[w] = inDegree[w]! - 1;
+        if (inDegree[w] == 0) {
+          q.add(w);
+          sortReady(q);
+        }
+      }
+    }
+    if (result.length != ids.length) {
+      final remaining = ids.where((id) => !result.contains(id)).toList();
+      remaining.sort(
+        (a, b) => _controller.nodes[a]!.position.value.dx.compareTo(
+              _controller.nodes[b]!.position.value.dx,
+            ),
+      );
+      return [...result, ...remaining];
+    }
+    return result;
+  }
+
+  void _autoOrganizeNodes() {
+    final ids = _controller.nodes.keys.toList();
+    if (ids.isEmpty) return;
+    final ordered = _topologicalOrderForLayout();
+    var sumY = 0.0;
+    for (final id in ids) {
+      sumY += _controller.nodes[id]!.position.value.dy;
+    }
+    final y = sumY / ids.length;
+    const x0 = 80.0;
+    const gap = 40.0;
+    var x = x0;
+    for (final id in ordered) {
+      final n = _controller.nodes[id]!;
+      _controller.setNodePosition(id, Offset(x, y));
+      x += n.size.value.width + gap;
+    }
+    _saveWorkflowSnapshot();
+    setState(() {});
   }
 
   Future<void> _persistRunHistory() async {
@@ -837,15 +994,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         _runHistory.removeRange(20, _runHistory.length);
       }
       await _persistRunHistory();
-      if (mounted) {
+      if (mounted && result.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              result.isSuccess
-                  ? 'Workflow run complete'
-                  : 'Workflow failed: ${result.error ?? 'unknown error'}',
-            ),
-          ),
+          const SnackBar(content: Text('Workflow run complete')),
         );
       }
     } finally {
@@ -1130,38 +1281,20 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     }
   }
 
-  Future<void> _toggleWebhookServer() async {
-    if (_webhookService.isRunning) {
-      await _webhookService.stop();
-      if (mounted) setState(() {});
-      return;
-    }
-    await _webhookService.start(
-      onTrigger: (trigger) {
-        if (trigger.workflowId != _workflowId) return;
-        _executionService.run(
-          nodes: _controller.nodes,
-          connections: _controller.connections.toList(),
-          delegate: _WorkflowRunDelegate(runRequestById: _runRequestById),
-          initialVariables: <String, dynamic>{'webhookPayload': trigger.payload},
-          onEvent: (event) {
-            if (!mounted) return;
-            setState(() => _runEvents.insert(0, event));
-          },
-        );
-      },
-    );
-    if (mounted) setState(() {});
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final nodeFlowTheme = isDark ? NodeFlowTheme.dark : NodeFlowTheme.light;
     final collection = ref.watch(collectionStateNotifierProvider) ?? {};
+    final workflows = ref.watch(workflowsStateProvider);
+    final workflowIds = workflows.keys.toList(growable: false);
+    final dropdownWorkflowId = _workflowId != null && workflows.containsKey(_workflowId)
+        ? _workflowId!
+        : (workflowIds.isNotEmpty ? workflowIds.first : null);
     final selectedNode =
         _selectedNodeId == null ? null : _controller.nodes[_selectedNodeId!];
+    final displayRunEvents = _runEventsForDisplay().reversed.toList();
     return Scaffold(
       body: Column(
         children: [
@@ -1174,56 +1307,43 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                   style: theme.textTheme.titleLarge,
                 ),
                 const SizedBox(width: 12),
-                TextButton.icon(
-                  onPressed: _workflowId == null ? null : _openWorkflowAnalytics,
-                  icon: const Icon(Icons.analytics_outlined, size: 20),
-                  label: const Text('Show analytics'),
-                ),
-                const SizedBox(width: 16),
-                FilledButton.icon(
-                  onPressed: _isRunning ? null : _runWorkflow,
-                  icon: _isRunning
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.play_arrow, size: 20),
-                  label: Text(_isRunning ? 'Running...' : 'Run'),
-                ),
-                const SizedBox(width: 12),
-                PopupMenuButton<WorkflowNodeType>(
-                  tooltip: 'Add node',
-                  onSelected: _addNode,
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: WorkflowNodeType.request,
-                      child: Text('Add Request node'),
+                if (workflowIds.isNotEmpty && dropdownWorkflowId != null) ...[
+                  SizedBox(
+                    width: 280,
+                    child: DropdownButtonFormField<String>(
+                      value: dropdownWorkflowId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Open workflow',
+                        isDense: true,
+                      ),
+                      items: workflowIds.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final id = entry.value;
+                        final name = workflows[id]!.name;
+                        return DropdownMenuItem<String>(
+                          value: id,
+                          child: Text(
+                            _workflowPickerLabel(idx, name),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        _switchWorkflow(value);
+                      },
                     ),
-                    PopupMenuItem(
-                      value: WorkflowNodeType.variable,
-                      child: Text('Add Variable node'),
-                    ),
-                    PopupMenuItem(
-                      value: WorkflowNodeType.condition,
-                      child: Text('Add Condition node'),
-                    ),
-                    PopupMenuItem(
-                      value: WorkflowNodeType.delay,
-                      child: Text('Add Delay node'),
-                    ),
-                    PopupMenuItem(
-                      value: WorkflowNodeType.loop,
-                      child: Text('Add Loop node'),
-                    ),
-                    PopupMenuItem(
-                      value: WorkflowNodeType.end,
-                      child: Text('Add End node'),
-                    ),
-                  ],
-                  child: const Chip(label: Text('Add Node')),
-                ),
-                const SizedBox(width: 8),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filledTonal(
+                    tooltip: 'New workflow',
+                    onPressed: _createNewWorkflow,
+                    icon: const Icon(Icons.add_rounded),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                const Spacer(),
                 OutlinedButton(
                   onPressed: _saveWorkflowSnapshot,
                   child: const Text('Save'),
@@ -1238,49 +1358,48 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                   onPressed: _exportWorkflowJson,
                   child: const Text('Export'),
                 ),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: _toggleWebhookServer,
-                  icon: Icon(
-                    _webhookService.isRunning ? Icons.link_off : Icons.link,
-                  ),
-                  label: Text(_webhookService.isRunning ? 'Stop Webhook' : 'Start Webhook'),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _workflowId == null ? null : _openWorkflowAnalytics,
+                  icon: const Icon(Icons.analytics_outlined, size: 20),
+                  label: const Text('Show analytics'),
                 ),
               ],
             ),
           ),
-          if (_webhookService.isRunning && _workflowId != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SelectableText(
-                  _webhookService.endpointFor(_workflowId!),
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
-            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _MetricChip(
-                  label: 'Runs',
-                  value: '${_runHistory.length}',
+                Row(
+                  children: [
+                    _MetricChip(
+                      label: 'Runs',
+                      value: '${_runHistory.length}',
+                    ),
+                    const SizedBox(width: 8),
+                    _MetricChip(
+                      label: 'Success()',
+                      value:
+                          '${_runHistory.where((r) => r.success).length}/${_runHistory.length}',
+                    ),
+                    const SizedBox(width: 8),
+                    _MetricChip(
+                      label: 'Avg Duration',
+                      value: _runHistory.isEmpty
+                          ? '-'
+                          : '${(_runHistory.map((r) => r.durationMs).reduce((a, b) => a + b) / _runHistory.length).round()}ms',
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                _MetricChip(
-                  label: 'Success()',
-                  value:
-                      '${_runHistory.where((r) => r.success).length}/${_runHistory.length}',
-                ),
-                const SizedBox(width: 8),
-                _MetricChip(
-                  label: 'Avg Duration',
-                  value: _runHistory.isEmpty
-                      ? '-'
-                      : '${(_runHistory.map((r) => r.durationMs).reduce((a, b) => a + b) / _runHistory.length).round()}ms',
-                ),
+                // const SizedBox(height: 4),
+                // Text(
+                //   'Run metrics use Hive history for the workflow selected above (separate per workflow).',
+                //   style: theme.textTheme.bodySmall?.copyWith(
+                //     color: theme.colorScheme.onSurfaceVariant,
+                //   ),
+                // ),
               ],
             ),
           ),
@@ -1288,31 +1407,292 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
             child: Row(
               children: [
                 Expanded(
-                  child: NodeFlowEditor<WorkflowNodeData, dynamic>(
-                    controller: _controller,
-                    theme: nodeFlowTheme,
-                    events: _editorEvents(),
-                    nodeBuilder: (context, node) => _WorkflowNodeWidget(
-                      node: node,
-                      availableRequests: collection,
-                      isRunning: _runningNodeId == node.id,
-                      isSuccess: _nodeSuccess[node.id],
-                      isSelected: _selectedNodeId == node.id,
-                      onTap: () => setState(() => _selectedNodeId = node.id),
-                      onDuplicate: () {
-                        _controller.duplicateNode(node.id);
-                        _saveWorkflowSnapshot();
-                        setState(() {});
-                      },
-                      onDelete: () {
-                        _controller.removeNode(node.id);
-                        if (_selectedNodeId == node.id) {
-                          _selectedNodeId = null;
-                        }
-                        _saveWorkflowSnapshot();
-                        setState(() {});
-                      },
-                    ),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            NodeFlowEditor<WorkflowNodeData, dynamic>(
+                              controller: _controller,
+                              theme: nodeFlowTheme,
+                              events: _editorEvents(),
+                              nodeBuilder: (context, node) => _WorkflowNodeWidget(
+                                node: node,
+                                availableRequests: collection,
+                                isRunning: _runningNodeId == node.id,
+                                isSuccess: _nodeSuccess[node.id],
+                                isSelected: _selectedNodeId == node.id,
+                                onTap: () => setState(() => _selectedNodeId = node.id),
+                                onDuplicate: () {
+                                  _controller.duplicateNode(node.id);
+                                  _saveWorkflowSnapshot();
+                                  setState(() {});
+                                },
+                                onDelete: () {
+                                  _controller.removeNode(node.id);
+                                  if (_selectedNodeId == node.id) {
+                                    _selectedNodeId = null;
+                                  }
+                                  _saveWorkflowSnapshot();
+                                  setState(() {});
+                                },
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: _logsPaneVisible ? 8 : 16,
+                                ),
+                                child: Material(
+                                  color: theme.colorScheme.surfaceContainerHigh,
+                                  elevation: 2,
+                                  shadowColor: theme.shadowColor.withValues(alpha: 0.35),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    side: BorderSide(
+                                      color: theme.colorScheme.outline.withValues(alpha: 0.25),
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        FilledButton.icon(
+                                          onPressed: _isRunning ? null : _runWorkflow,
+                                          icon: _isRunning
+                                              ? const SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                                )
+                                              : const Icon(Icons.play_arrow, size: 20),
+                                          label: Text(_isRunning ? 'Running...' : 'Run'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        PopupMenuButton<WorkflowNodeType>(
+                                          tooltip: 'Add node',
+                                          onSelected: _addNode,
+                                          itemBuilder: (context) => const [
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.request,
+                                              child: Text('Add Request node'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.variable,
+                                              child: Text('Add Variable node'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.condition,
+                                              child: Text('Add Condition node'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.delay,
+                                              child: Text('Add Delay node'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.loop,
+                                              child: Text('Add Loop node'),
+                                            ),
+                                            PopupMenuItem(
+                                              value: WorkflowNodeType.end,
+                                              child: Text('Add End node'),
+                                            ),
+                                          ],
+                                          child: const Chip(label: Text('Add Node')),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message:
+                                              'Arrange nodes in a horizontal line following flow connections',
+                                          child: OutlinedButton(
+                                            onPressed: _autoOrganizeNodes,
+                                            child: const Text('Auto organize'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        OutlinedButton.icon(
+                                          onPressed: () => setState(
+                                            () => _logsPaneVisible = !_logsPaneVisible,
+                                          ),
+                                          icon: Badge(
+                                            isLabelVisible:
+                                                displayRunEvents.isNotEmpty,
+                                            label: Text(
+                                              displayRunEvents.length > 99
+                                                  ? '99+'
+                                                  : '${displayRunEvents.length}',
+                                            ),
+                                            child: const Icon(
+                                              Icons.list_alt_outlined,
+                                              size: 18,
+                                            ),
+                                          ),
+                                          label: Text(
+                                            _logsPaneVisible ? 'Hide logs' : 'View logs',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_logsPaneVisible)
+                        SizedBox(
+                          height: 300,
+                          child: Material(
+                            elevation: 2,
+                            color: theme.colorScheme.surfaceContainerLow,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+                              side: BorderSide.none,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(10, 6, 4, 4),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.terminal,
+                                        size: 18,
+                                        color: theme.colorScheme.primary,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Run log',
+                                        style: theme.textTheme.titleSmall?.copyWith(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const Spacer(),
+                                      Text(
+                                        '${displayRunEvents.length} events',
+                                        style: theme.textTheme.labelSmall?.copyWith(
+                                          color: theme.colorScheme.onSurfaceVariant,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'Hide logs',
+                                        icon: const Icon(Icons.close, size: 20),
+                                        onPressed: () =>
+                                            setState(() => _logsPaneVisible = false),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Divider(
+                                  height: 1,
+                                  color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                                ),
+                                Expanded(
+                                  child: displayRunEvents.isEmpty
+                                      ? Center(
+                                          child: Text(
+                                            'No log entries yet. Run the workflow to see live events.',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: theme.colorScheme.onSurfaceVariant,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        )
+                                      : ListView.separated(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 6,
+                                          ),
+                                          itemCount: displayRunEvents.length,
+                                          separatorBuilder: (_, _) =>
+                                              Divider(
+                                            height: 12,
+                                            color: theme.colorScheme.outline
+                                                .withValues(alpha: 0.12),
+                                          ),
+                                          itemBuilder: (context, i) {
+                                            final e = displayRunEvents[i];
+                                            final n = _controller.nodes[e.nodeId];
+                                            final isRequest =
+                                                n?.data.nodeType == WorkflowNodeType.request;
+                                            final reqName =
+                                                _requestNameForNode(e.nodeId, collection);
+                                            return Row(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Padding(
+                                                  padding: const EdgeInsets.only(top: 2),
+                                                  child: Icon(
+                                                    e.isError
+                                                        ? Icons.error_outline
+                                                        : Icons
+                                                            .check_circle_outline,
+                                                    size: 16,
+                                                    color: e.isError
+                                                        ? theme.colorScheme.error
+                                                        : theme.colorScheme.primary,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        _nodeShortLabel(e.nodeId),
+                                                        style: theme.textTheme.labelLarge
+                                                            ?.copyWith(
+                                                          fontWeight: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                      if (isRequest)
+                                                        Padding(
+                                                          padding:
+                                                              const EdgeInsets.only(top: 2),
+                                                          child: Text(
+                                                            'Request: $reqName',
+                                                            style: theme
+                                                                .textTheme.bodySmall
+                                                                ?.copyWith(
+                                                              color: theme.colorScheme
+                                                                  .tertiary,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        e.message,
+                                                        style: theme.textTheme.bodySmall,
+                                                      ),
+                                                      Text(
+                                                        _kRunTimeOnly
+                                                            .format(e.at.toLocal()),
+                                                        style: theme.textTheme.labelSmall
+                                                            ?.copyWith(
+                                                          color: theme.colorScheme
+                                                              .onSurfaceVariant,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            );
+                                          },
+                                        ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 if (selectedNode != null)
@@ -1351,55 +1731,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
               ],
             ),
           ),
-          if (_runEvents.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final e in _runEvents
-                          .where((ev) => ev.message != 'Started')
-                          .take(40))
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: theme.colorScheme.outline
-                                    .withValues(alpha: 0.18),
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 7,
-                                vertical: 3,
-                              ),
-                              child: Text(
-                                '${_nodeShortLabel(e.nodeId)} ${e.isError ? '✗' : '✓'}',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  fontSize: 10,
-                                  height: 1.1,
-                                  color: e.isError
-                                      ? theme.colorScheme.error
-                                          .withValues(alpha: 0.9)
-                                      : theme.colorScheme.onSurface
-                                          .withValues(alpha: 0.55),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
@@ -1884,14 +2215,16 @@ class _WorkflowNodeWidget extends StatelessWidget {
             ),
           ),
         ),
+      
         if (isSelected)
           Positioned(
-            top: -30,
+            top: 0,
             right: 6,
             child: Material(
               color: theme.colorScheme.surfaceContainerHighest,
               elevation: 2,
               borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

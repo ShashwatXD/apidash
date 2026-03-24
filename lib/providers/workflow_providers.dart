@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +9,8 @@ import 'package:apidash/utils/utils.dart';
 
 final workflowIdStateProvider = StateProvider<String?>((ref) => null);
 
+final workflowRunHistoryRevisionProvider = StateProvider<int>((ref) => 0);
+
 final workflowsStateProvider =
     StateNotifierProvider<WorkflowStateNotifier, Map<String, WorkflowModel>>(
   (ref) => WorkflowStateNotifier(ref, hiveHandler),
@@ -15,6 +18,8 @@ final workflowsStateProvider =
 
 class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   WorkflowStateNotifier(this.ref, this.hiveHandler) : super(const {}) {
+    // Synchronous so first consumers never see an empty map that load() will
+    // overwrite later (avoids racing createDefault() in WorkflowPage bootstrap).
     load();
   }
 
@@ -24,26 +29,42 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   String? get activeWorkflowId => ref.read(workflowIdStateProvider);
 
   void load() {
-    final ids = (hiveHandler.getWorkflowIds() as List?)?.whereType<String>().toList() ??
-        const <String>[];
+    final storedIds =
+        (hiveHandler.getWorkflowIds() as List?)?.whereType<String>().toList() ??
+            const <String>[];
+    final activeId = hiveHandler.getActiveWorkflowId();
+    final ids = storedIds.isNotEmpty
+        ? storedIds
+        : <String>[
+            if (activeId != null && activeId.isNotEmpty) activeId,
+          ];
     final workflows = <String, WorkflowModel>{};
     for (final id in ids) {
       final raw = hiveHandler.getWorkflow(id);
       if (raw is Map) {
         final json = raw.map((k, v) => MapEntry(k.toString(), v));
-        workflows[id] = WorkflowModel.fromJson(json);
+        try {
+          workflows[id] = WorkflowModel.fromJson(json);
+        } catch (_) {
+          workflows[id] = _fallbackWorkflowFromLegacyJson(id, json);
+        }
       }
     }
     state = workflows;
-    final savedActive = hiveHandler.getActiveWorkflowId();
-    if (savedActive != null && workflows.containsKey(savedActive)) {
-      ref.read(workflowIdStateProvider.notifier).state = savedActive;
-    } else if (workflows.isNotEmpty) {
-      ref.read(workflowIdStateProvider.notifier).state = workflows.keys.first;
-    }
+    final savedActive = activeId;
+    final loaded = Map<String, WorkflowModel>.from(workflows);
+    // Cannot set workflowIdStateProvider synchronously here: Riverpod forbids
+    // modifying other providers while workflowsStateProvider is initializing.
+    Future.microtask(() {
+      if (savedActive != null && loaded.containsKey(savedActive)) {
+        ref.read(workflowIdStateProvider.notifier).state = savedActive;
+      } else if (loaded.isNotEmpty) {
+        ref.read(workflowIdStateProvider.notifier).state = loaded.keys.first;
+      }
+    });
   }
 
-  WorkflowModel createDefault() {
+  Future<WorkflowModel> createDefault() async {
     final now = DateTime.now();
     final id = getNewUuid();
     final model = WorkflowModel(
@@ -54,7 +75,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
       graphData: const <String, dynamic>{},
     );
     state = {...state, id: model};
-    _persistWorkflows();
+    await _persistWorkflows();
     setActive(id);
     return model;
   }
@@ -107,4 +128,32 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
       await hiveHandler.setWorkflow(entry.key, entry.value.toJson());
     }
   }
+}
+
+WorkflowModel _fallbackWorkflowFromLegacyJson(
+  String id,
+  Map<String, dynamic> json,
+) {
+  final now = DateTime.now();
+  DateTime parseDate(dynamic value) {
+    final text = value?.toString();
+    if (text == null || text.isEmpty) return now;
+    return DateTime.tryParse(text) ?? now;
+  }
+
+  final graphRaw = json['graphData'];
+  final graph = graphRaw is Map
+      ? graphRaw.map((k, v) => MapEntry(k.toString(), v))
+      : const <String, dynamic>{};
+  return WorkflowModel(
+    id: json['id']?.toString().isNotEmpty == true ? json['id'].toString() : id,
+    name: json['name']?.toString().isNotEmpty == true
+        ? json['name'].toString()
+        : 'Untitled Workflow',
+    description: json['description']?.toString() ?? '',
+    schemaVersion: (json['schemaVersion'] as num?)?.toInt() ?? 1,
+    createdAt: parseDate(json['createdAt']),
+    modifiedAt: parseDate(json['modifiedAt']),
+    graphData: graph,
+  );
 }

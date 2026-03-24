@@ -1,4 +1,5 @@
 export 'ai_providers.dart';
+export 'dashboard_navigation_providers.dart';
 export 'collection_providers.dart';
 export 'environment_providers.dart';
 export 'history_providers.dart';

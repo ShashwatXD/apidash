@@ -35,7 +35,7 @@ class WorkflowModel {
         schemaVersion: (json['schemaVersion'] as num?)?.toInt() ?? 1,
         createdAt: DateTime.parse(json['createdAt'] as String),
         modifiedAt: DateTime.parse(json['modifiedAt'] as String),
-        graphData: (json['graphData'] as Map<String, dynamic>?) ?? {},
+        graphData: _coerceGraphData(json['graphData']),
       );
 
   WorkflowModel copyWith({
@@ -56,4 +56,12 @@ class WorkflowModel {
         modifiedAt: modifiedAt ?? this.modifiedAt,
         graphData: graphData ?? this.graphData,
       );
+}
+
+Map<String, dynamic> _coerceGraphData(dynamic raw) {
+  if (raw is Map<String, dynamic>) return raw;
+  if (raw is Map) {
+    return raw.map((k, v) => MapEntry(k.toString(), v));
+  }
+  return const <String, dynamic>{};
 }

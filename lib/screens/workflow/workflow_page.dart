@@ -6,12 +6,15 @@ import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/services.dart';
+import 'package:intl/intl.dart';
 
 const double _kRequestNodeWidth = 310;
 const double _kRequestNodeHeight = 178;
 const double _kRequestPortSuccessY = 108;
 const double _kRequestPortSendY = 118;
 const double _kRequestPortFailY = 128;
+
+final DateFormat _kRunTimeOnly = DateFormat('HH:mm:ss');
 
 /// Workflow builder POC: canvas with Start, Request, End nodes and minimal run.
 class WorkflowPage extends ConsumerStatefulWidget {
@@ -30,8 +33,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   final Map<String, _NodeRunOutput> _nodeOutputs = {};
   final List<WorkflowRunEvent> _runEvents = [];
   final WorkflowWebhookService _webhookService = WorkflowWebhookService();
-  Map<String, dynamic> _lastRunVariables = const {};
-  Map<String, dynamic> _lastRunResults = const {};
   int _nodeCounter = 100;
   String? _selectedNodeId;
   String? _pendingConnectSourceNodeId;
@@ -692,6 +693,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         id: node.id,
         type: node.type,
         position: node.position.value,
+        size: node.size.value,
         data: dataMap == null ? node.data : WorkflowNodeData.fromJson(dataMap),
         ports: node.ports,
       );
@@ -727,9 +729,13 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   Future<void> _bootstrapWorkflowState() async {
     final workflowNotifier = ref.read(workflowsStateProvider.notifier);
     if (ref.read(workflowsStateProvider).isEmpty) {
-      workflowNotifier.createDefault();
+      await workflowNotifier.createDefault();
     }
-    final activeWorkflowId = ref.read(workflowIdStateProvider);
+    var activeWorkflowId = ref.read(workflowIdStateProvider);
+    if (activeWorkflowId == null) {
+      await Future<void>.delayed(Duration.zero);
+      activeWorkflowId = ref.read(workflowIdStateProvider);
+    }
     if (activeWorkflowId == null) return;
     _workflowId = activeWorkflowId;
     final workflow = ref.read(workflowsStateProvider)[activeWorkflowId];
@@ -738,6 +744,16 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     }
     _loadRunHistoryFromHive(activeWorkflowId);
     if (mounted) setState(() {});
+  }
+
+  void _openWorkflowAnalytics() {
+    final id = _workflowId;
+    if (id == null) return;
+    ref.read(dashboardOpenIntentProvider.notifier).state = DashboardOpenIntent(
+      tab: DashboardMainTab.workflows,
+      workflowId: id,
+    );
+    ref.read(navRailIndexStateProvider.notifier).state = 5;
   }
 
   void _loadRunHistoryFromHive(String workflowId) {
@@ -754,15 +770,25 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       );
   }
 
+  String _nodeShortLabel(String nodeId) {
+    final n = _controller.nodes[nodeId];
+    if (n == null) return nodeId;
+    final l = n.data.label.trim();
+    return l.isEmpty ? nodeId : l;
+  }
+
   Future<void> _persistRunHistory() async {
-    final workflowId = _workflowId;
+    final workflowId = _workflowId ?? ref.read(workflowIdStateProvider);
     if (workflowId == null) return;
+    _workflowId ??= workflowId;
     final runs = _runHistory.map((r) => r.toJson()).toList(growable: false);
     await hiveHandler.setWorkflowRunHistory(workflowId, runs);
+    ref.read(workflowRunHistoryRevisionProvider.notifier).state++;
   }
 
   Future<void> _runWorkflow() async {
     if (_isRunning) return;
+    _workflowId ??= ref.read(workflowIdStateProvider);
     setState(() {
       _isRunning = true;
       _runningNodeId = null;
@@ -789,7 +815,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                 requestId: _controller.nodes[nodeId]?.data.linkedRequestId ?? '',
                 statusCode: null,
                 timeMs: null,
-                bodyPreview: nodeResult.message,
+                responseBody: nodeResult.message,
               );
             }
           });
@@ -806,8 +832,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         error: result.error,
         nodeCount: result.nodeResults.length,
       );
-      _lastRunVariables = Map<String, dynamic>.from(result.context.variables);
-      _lastRunResults = Map<String, dynamic>.from(result.context.results);
       _runHistory.insert(0, record);
       if (_runHistory.length > 20) {
         _runHistory.removeRange(20, _runHistory.length);
@@ -897,7 +921,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         requestId: linkedId,
         statusCode: status,
         timeMs: timeMs,
-        bodyPreview: body != null && body.length > 600 ? '${body.substring(0, 600)}...' : body,
+        responseBody: body,
       );
       if (templateApplied != null) {
         await _restoreRequestTemplate(requestId: linkedId, previous: templateApplied);
@@ -1149,6 +1173,12 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                   'Workflow',
                   style: theme.textTheme.titleLarge,
                 ),
+                const SizedBox(width: 12),
+                TextButton.icon(
+                  onPressed: _workflowId == null ? null : _openWorkflowAnalytics,
+                  icon: const Icon(Icons.analytics_outlined, size: 20),
+                  label: const Text('Show analytics'),
+                ),
                 const SizedBox(width: 16),
                 FilledButton.icon(
                   onPressed: _isRunning ? null : _runWorkflow,
@@ -1264,6 +1294,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                     events: _editorEvents(),
                     nodeBuilder: (context, node) => _WorkflowNodeWidget(
                       node: node,
+                      availableRequests: collection,
                       isRunning: _runningNodeId == node.id,
                       isSuccess: _nodeSuccess[node.id],
                       isSelected: _selectedNodeId == node.id,
@@ -1292,8 +1323,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       availableRequests: collection,
                       output: _nodeOutputs[selectedNode.id],
                       runHistory: _runHistory,
-                      runtimeVariables: _lastRunVariables,
-                      runtimeResults: _lastRunResults,
                       templateVariablesForRequest: () {
                         final requestId = selectedNode.data.linkedRequestId;
                         if (requestId == null || requestId.isEmpty) return const <String>[];
@@ -1323,22 +1352,52 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
             ),
           ),
           if (_runEvents.isNotEmpty)
-            SizedBox(
-              height: 140,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: _runEvents.length > 30 ? 30 : _runEvents.length,
-                itemBuilder: (context, index) {
-                  final e = _runEvents[index];
-                  return Text(
-                    '[${e.at.toIso8601String()}] ${e.nodeId}: ${e.message}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: e.isError ? theme.colorScheme.error : null,
-                    ),
-                  );
-                },
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final e in _runEvents
+                          .where((ev) => ev.message != 'Started')
+                          .take(40))
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(
+                                color: theme.colorScheme.outline
+                                    .withValues(alpha: 0.18),
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              child: Text(
+                                '${_nodeShortLabel(e.nodeId)} ${e.isError ? '✗' : '✓'}',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  fontSize: 10,
+                                  height: 1.1,
+                                  color: e.isError
+                                      ? theme.colorScheme.error
+                                          .withValues(alpha: 0.9)
+                                      : theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.55),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],
@@ -1352,13 +1411,13 @@ class _NodeRunOutput {
     required this.requestId,
     required this.statusCode,
     required this.timeMs,
-    required this.bodyPreview,
+    required this.responseBody,
   });
 
   final String requestId;
   final int? statusCode;
   final int? timeMs;
-  final String? bodyPreview;
+  final String? responseBody;
 }
 
 class _WorkflowRunRecord {
@@ -1426,8 +1485,6 @@ class _WorkflowNodeInspector extends StatelessWidget {
     required this.availableRequests,
     required this.output,
     required this.runHistory,
-    required this.runtimeVariables,
-    required this.runtimeResults,
     required this.templateVariablesForRequest,
     required this.requestVariableValues,
     required this.onRequestVariableValueChanged,
@@ -1438,8 +1495,6 @@ class _WorkflowNodeInspector extends StatelessWidget {
   final Map<String, RequestModel> availableRequests;
   final _NodeRunOutput? output;
   final List<_WorkflowRunRecord> runHistory;
-  final Map<String, dynamic> runtimeVariables;
-  final Map<String, dynamic> runtimeResults;
   final List<String> templateVariablesForRequest;
   final Map<String, String> requestVariableValues;
   final void Function(String key, String value) onRequestVariableValueChanged;
@@ -1613,80 +1668,72 @@ class _WorkflowNodeInspector extends StatelessWidget {
             if (output!.requestId.isNotEmpty) Text('Request: ${output!.requestId}'),
             if (output!.statusCode != null) Text('Status: ${output!.statusCode}'),
             if (output!.timeMs != null) Text('Time: ${output!.timeMs} ms'),
-            if ((output!.bodyPreview ?? '').isNotEmpty)
+            if ((output!.responseBody ?? '').isNotEmpty)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text(
+                  'Response',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 280),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          output!.responseBody!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else
               Text(
-                output!.bodyPreview!,
-                maxLines: 6,
-                overflow: TextOverflow.ellipsis,
+                'No response body yet.',
+                style: theme.textTheme.bodySmall,
               ),
           ],
           if (runHistory.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Text('Recent Runs', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 6),
-            ...runHistory.take(5).map(
-                  (r) => Text(
-                    '${r.success ? 'OK' : 'FAIL'} • ${r.durationMs}ms • ${r.startedAt.toLocal()}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+            ExpansionTile(
+              initiallyExpanded: false,
+              tilePadding: EdgeInsets.zero,
+              title: Text('Recent Runs', style: theme.textTheme.titleSmall),
+              subtitle: Text(
+                '${runHistory.length} run${runHistory.length == 1 ? '' : 's'}',
+                style: theme.textTheme.bodySmall,
+              ),
+              shape: const RoundedRectangleBorder(),
+              collapsedShape: const RoundedRectangleBorder(),
+              children: [
+                ...runHistory.take(5).map(
+                      (r) => Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            '${r.success ? 'OK' : 'FAIL'} · ${r.durationMs}ms · ${_kRunTimeOnly.format(r.startedAt.toLocal())}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ),
+                      ),
+                    ),
+              ],
+            ),
           ],
-          const SizedBox(height: 16),
-          Text('Runtime Context', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 6),
-          Text(
-            'Variables',
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          if (runtimeVariables.isEmpty)
-            Text(
-              'No runtime variables captured yet. This is separate from request template variables.',
-              style: theme.textTheme.bodySmall,
-            )
-          else
-            ...runtimeVariables.entries.take(12).map(
-                  (entry) => Text(
-                    '${entry.key}: ${_previewValue(entry.value)}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-          const SizedBox(height: 10),
-          Text(
-            'Latest Results',
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          if (runtimeResults.isEmpty)
-            Text(
-              'No node results yet.',
-              style: theme.textTheme.bodySmall,
-            )
-          else
-            ...runtimeResults.entries.take(8).map(
-                  (entry) => Text(
-                    '${entry.key}: ${_previewValue(entry.value)}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
         ],
       ),
     );
-  }
-
-  static String _previewValue(dynamic value) {
-    if (value == null) return 'null';
-    final raw = value is String ? value : value.toString();
-    return raw.length > 120 ? '${raw.substring(0, 120)}...' : raw;
   }
 }
 
@@ -1716,6 +1763,7 @@ class _MetricChip extends StatelessWidget {
 class _WorkflowNodeWidget extends StatelessWidget {
   const _WorkflowNodeWidget({
     required this.node,
+    required this.availableRequests,
     required this.isRunning,
     required this.isSuccess,
     required this.isSelected,
@@ -1725,6 +1773,7 @@ class _WorkflowNodeWidget extends StatelessWidget {
   });
 
   final Node<WorkflowNodeData> node;
+  final Map<String, RequestModel> availableRequests;
   final bool isRunning;
   final bool? isSuccess;
   final bool isSelected;
@@ -1817,9 +1866,9 @@ class _WorkflowNodeWidget extends StatelessWidget {
         ),
         child: d.nodeType == WorkflowNodeType.request
             ? _WorkflowHttpRequestNodeCard(
-                data: d,
                 icon: icon,
                 title: label == 'Request' ? 'HTTP Request' : label,
+                linkedRequestLabel: _linkedRequestPanelLabel(d, availableRequests),
               )
             : Row(
                 mainAxisSize: MainAxisSize.min,
@@ -1872,6 +1921,18 @@ class _WorkflowNodeWidget extends StatelessWidget {
     );
   }
 
+  static String _linkedRequestPanelLabel(
+    WorkflowNodeData data,
+    Map<String, RequestModel> requests,
+  ) {
+    final id = data.linkedRequestId;
+    if (id == null || id.isEmpty) return 'Find or create request';
+    final req = requests[id];
+    if (req == null) return id;
+    final name = req.name.trim();
+    return name.isEmpty ? id : name;
+  }
+
   String _defaultLabel(WorkflowNodeType type) {
     switch (type) {
       case WorkflowNodeType.start:
@@ -1896,14 +1957,14 @@ class _WorkflowNodeWidget extends StatelessWidget {
 
 class _WorkflowHttpRequestNodeCard extends StatelessWidget {
   const _WorkflowHttpRequestNodeCard({
-    required this.data,
     required this.icon,
     required this.title,
+    required this.linkedRequestLabel,
   });
 
-  final WorkflowNodeData data;
   final IconData icon;
   final String title;
+  final String linkedRequestLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1944,9 +2005,7 @@ class _WorkflowHttpRequestNodeCard extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    data.linkedRequestId == null || data.linkedRequestId!.isEmpty
-                        ? 'Find or create request'
-                        : data.linkedRequestId!,
+                    linkedRequestLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(fontSize: 14),

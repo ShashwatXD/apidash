@@ -12,7 +12,7 @@ import 'history/history_page.dart';
 import 'settings_page.dart';
 import 'terminal/terminal_page.dart';
 import 'workflow/workflow_page.dart';
-import 'dashboard/collection_dashboard_page.dart';
+import 'dashboard/dashboard_page.dart';
 
 class Dashboard extends ConsumerWidget {
   const Dashboard({super.key});
@@ -183,7 +183,7 @@ class Dashboard extends ConsumerWidget {
                   HistoryPage(),
                   TerminalPage(),
                   WorkflowPage(),
-                  CollectionDashboardPage(),
+                  DashboardPage(),
                   SettingsPage(),
                 ],
               ),

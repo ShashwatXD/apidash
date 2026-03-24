@@ -1,8 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/services/services.dart';
+
+const double _kRequestNodeWidth = 310;
+const double _kRequestNodeHeight = 178;
+const double _kRequestPortSuccessY = 108;
+const double _kRequestPortSendY = 118;
+const double _kRequestPortFailY = 128;
 
 /// Workflow builder POC: canvas with Start, Request, End nodes and minimal run.
 class WorkflowPage extends ConsumerStatefulWidget {
@@ -14,12 +23,21 @@ class WorkflowPage extends ConsumerStatefulWidget {
 
 class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   late final NodeFlowController<WorkflowNodeData, dynamic> _controller;
+  final WorkflowExecutionService _executionService = const WorkflowExecutionService();
   bool _isRunning = false;
   String? _runningNodeId;
-  final Map<String, bool> _nodeSuccess = {};
+  final Map<String, bool?> _nodeSuccess = {};
   final Map<String, _NodeRunOutput> _nodeOutputs = {};
+  final List<WorkflowRunEvent> _runEvents = [];
+  final WorkflowWebhookService _webhookService = WorkflowWebhookService();
+  Map<String, dynamic> _lastRunVariables = const {};
+  Map<String, dynamic> _lastRunResults = const {};
   int _nodeCounter = 100;
   String? _selectedNodeId;
+  String? _pendingConnectSourceNodeId;
+  String? _pendingConnectSourcePortId;
+  String? _workflowId;
+  final List<_WorkflowRunRecord> _runHistory = [];
 
   @override
   void initState() {
@@ -28,6 +46,13 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       nodes: _defaultNodes(),
       connections: _defaultConnections(),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrapWorkflowState());
+  }
+
+  @override
+  void dispose() {
+    _webhookService.stop();
+    super.dispose();
   }
 
   List<Node<WorkflowNodeData>> _defaultNodes() {
@@ -36,6 +61,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         id: 'start-1',
         type: 'start',
         position: const Offset(80, 120),
+        size: const Size(170, 96),
         data: const WorkflowNodeData(
           nodeType: WorkflowNodeType.start,
           label: 'Start',
@@ -51,37 +77,13 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         ],
       ),
       Node<WorkflowNodeData>(
-        id: 'request-1',
-        type: 'request',
-        position: const Offset(280, 100),
-        data: const WorkflowNodeData(
-          nodeType: WorkflowNodeType.request,
-          label: 'Request',
-        ),
-        ports: [
-          Port(
-            id: 'trigger',
-            name: 'In',
-            position: PortPosition.left,
-            type: PortType.input,
-            offset: const Offset(0, 50),
-          ),
-          Port(
-            id: 'out',
-            name: 'Out',
-            position: PortPosition.right,
-            type: PortType.output,
-            offset: const Offset(0, 50),
-          ),
-        ],
-      ),
-      Node<WorkflowNodeData>(
         id: 'end-1',
         type: 'end',
-        position: const Offset(480, 120),
+        position: const Offset(320, 120),
+        size: const Size(170, 96),
         data: const WorkflowNodeData(
           nodeType: WorkflowNodeType.end,
-          label: 'End',
+          label: 'Stop',
         ),
         ports: [
           Port(
@@ -97,22 +99,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   }
 
   List<Connection<dynamic>> _defaultConnections() {
-    return [
-      Connection(
-        id: 'c1',
-        sourceNodeId: 'start-1',
-        sourcePortId: 'next',
-        targetNodeId: 'request-1',
-        targetPortId: 'trigger',
-      ),
-      Connection(
-        id: 'c2',
-        sourceNodeId: 'request-1',
-        sourcePortId: 'out',
-        targetNodeId: 'end-1',
-        targetPortId: 'in',
-      ),
-    ];
+    return <Connection<dynamic>>[];
   }
 
   Node<WorkflowNodeData> _createNode({
@@ -135,6 +122,29 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       WorkflowNodeType.request => [
         Port(
           id: 'trigger',
+          name: '',
+          position: PortPosition.left,
+          type: PortType.input,
+          offset: const Offset(0, _kRequestPortSendY),
+        ),
+        Port(
+          id: 'success',
+          name: 'Success()',
+          position: PortPosition.right,
+          type: PortType.output,
+          offset: const Offset(0, _kRequestPortSuccessY),
+        ),
+        Port(
+          id: 'failure',
+          name: 'Fail()',
+          position: PortPosition.right,
+          type: PortType.output,
+          offset: const Offset(0, _kRequestPortFailY),
+        ),
+      ],
+      WorkflowNodeType.variable => [
+        Port(
+          id: 'in',
           name: 'In',
           position: PortPosition.left,
           type: PortType.input,
@@ -148,6 +158,41 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
           offset: const Offset(0, 50),
         ),
       ],
+      WorkflowNodeType.condition ||
+      WorkflowNodeType.transform ||
+      WorkflowNodeType.delay ||
+      WorkflowNodeType.loop => [
+        Port(
+          id: 'in',
+          name: 'In',
+          position: PortPosition.left,
+          type: PortType.input,
+          offset: const Offset(0, 50),
+        ),
+        if (nodeType == WorkflowNodeType.condition) ...[
+          Port(
+            id: 'true',
+            name: 'True',
+            position: PortPosition.right,
+            type: PortType.output,
+            offset: const Offset(-12, 36),
+          ),
+          Port(
+            id: 'false',
+            name: 'False',
+            position: PortPosition.right,
+            type: PortType.output,
+            offset: const Offset(12, 64),
+          ),
+        ] else
+          Port(
+            id: 'out',
+            name: 'Out',
+            position: PortPosition.right,
+            type: PortType.output,
+            offset: const Offset(0, 50),
+          ),
+      ],
       WorkflowNodeType.end => [
         Port(
           id: 'in',
@@ -159,10 +204,17 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       ],
     };
 
+    final nodeSize = switch (nodeType) {
+      WorkflowNodeType.request => const Size(_kRequestNodeWidth, _kRequestNodeHeight),
+      WorkflowNodeType.start || WorkflowNodeType.end => const Size(170, 96),
+      _ => const Size(210, 110),
+    };
+
     return Node<WorkflowNodeData>(
       id: nodeId,
       type: nodeType.name,
       position: position,
+      size: nodeSize,
       data: WorkflowNodeData(
         nodeType: nodeType,
         label: _defaultLabel(nodeType),
@@ -177,8 +229,18 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         return 'Start';
       case WorkflowNodeType.request:
         return 'Request';
+      case WorkflowNodeType.variable:
+        return 'Variable';
       case WorkflowNodeType.end:
-        return 'End';
+        return 'Stop';
+      case WorkflowNodeType.condition:
+        return 'Condition';
+      case WorkflowNodeType.transform:
+        return 'Transform';
+      case WorkflowNodeType.delay:
+        return 'Delay';
+      case WorkflowNodeType.loop:
+        return 'Loop';
     }
   }
 
@@ -187,143 +249,640 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final node = _createNode(nodeType: type, position: center.offset);
     _controller.addNode(node);
     setState(() => _selectedNodeId = node.id);
+    _saveWorkflowSnapshot();
   }
 
-  void _updateSelectedNodeData(WorkflowNodeData newData) {
-    final nodeId = _selectedNodeId;
-    if (nodeId == null) return;
+  Future<void> _openGuidedNextNodeFlow({
+    String? fromNodeId,
+    String? sourcePortId,
+    Offset? preferredPosition,
+  }) async {
+    final resolvedFromNodeId = fromNodeId ?? _selectedNodeId;
+    final selectedType = await showDialog<WorkflowNodeType>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("What's your next node?"),
+        content: SizedBox(
+          width: 360,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _nodeChoiceChip(context, WorkflowNodeType.request),
+              _nodeChoiceChip(context, WorkflowNodeType.variable),
+              _nodeChoiceChip(context, WorkflowNodeType.condition),
+              _nodeChoiceChip(context, WorkflowNodeType.delay),
+              _nodeChoiceChip(context, WorkflowNodeType.loop),
+              _nodeChoiceChip(context, WorkflowNodeType.end),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (selectedType == null) return;
+
+    final center = _controller.getViewportCenter();
+    final node = _createNode(
+      nodeType: selectedType,
+      position: preferredPosition ?? center.offset,
+    );
+
+    WorkflowNodeData nodeData = node.data;
+    if (selectedType == WorkflowNodeType.request) {
+      final picked = await _pickRequestForNode();
+      if (picked == null) return;
+      nodeData = nodeData.copyWith(
+        linkedRequestId: picked.requestId,
+        linkedCollectionId: picked.collectionId,
+      );
+    }
+
+    _controller.addNode(
+      Node<WorkflowNodeData>(
+        id: node.id,
+        type: node.type,
+        position: node.position.value,
+        data: nodeData,
+        ports: node.ports,
+        size: node.size.value,
+      ),
+    );
+
+    if (resolvedFromNodeId != null &&
+        _controller.nodes.containsKey(resolvedFromNodeId)) {
+      final sourceNode = _controller.nodes[resolvedFromNodeId]!;
+      final sourcePort =
+          sourcePortId ?? _defaultOutputPortForNode(sourceNode.data.nodeType);
+      final targetPort = _defaultInputPortForNode(nodeData.nodeType);
+      if (sourcePort != null && targetPort != null) {
+        _controller.addConnection(
+          Connection(
+            id: 'c-${DateTime.now().microsecondsSinceEpoch}',
+            sourceNodeId: resolvedFromNodeId,
+            sourcePortId: sourcePort,
+            targetNodeId: node.id,
+            targetPortId: targetPort,
+          ),
+        );
+      }
+    }
+
+    setState(() => _selectedNodeId = node.id);
+    _saveWorkflowSnapshot();
+  }
+
+  NodeFlowEvents<WorkflowNodeData, dynamic> _editorEvents() {
+    return NodeFlowEvents(
+      node: NodeEvents<WorkflowNodeData>(
+        onTap: (node) => setState(() => _selectedNodeId = node.id),
+        onDragStop: (_) => _saveWorkflowSnapshot(),
+      ),
+      connection: ConnectionEvents<WorkflowNodeData, dynamic>(
+        onCreated: (_) => _saveWorkflowSnapshot(),
+        onConnectStart: (sourceNode, sourcePort) {
+          _pendingConnectSourceNodeId = sourceNode.id;
+          _pendingConnectSourcePortId = sourcePort.id;
+        },
+        onConnectEnd: (targetNode, _, position) {
+          final sourceNodeId = _pendingConnectSourceNodeId;
+          final sourcePortId = _pendingConnectSourcePortId;
+          _pendingConnectSourceNodeId = null;
+          _pendingConnectSourcePortId = null;
+          if (targetNode != null) return;
+          if (sourceNodeId == null || sourcePortId == null) return;
+          _openGuidedNextNodeFlow(
+            fromNodeId: sourceNodeId,
+            sourcePortId: sourcePortId,
+            preferredPosition: Offset(position.dx, position.dy),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _nodeChoiceChip(BuildContext context, WorkflowNodeType type) {
+    return ActionChip(
+      label: Text(_defaultLabel(type)),
+      onPressed: () => Navigator.of(context).pop(type),
+    );
+  }
+
+  Future<({String collectionId, String requestId})?> _pickRequestForNode() async {
+    final collections = ref.read(collectionsStateProvider);
+    final activeCollectionId = ref.read(activeCollectionIdStateProvider);
+    if (collections.isEmpty || activeCollectionId == null) return null;
+    final selectedCollectionId = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick collection'),
+        content: SizedBox(
+          width: 420,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: collections.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final item = collections.entries.elementAt(index);
+              return ListTile(
+                title: Text(item.value.name),
+                subtitle: Text('Requests: ${item.value.requestIds.length}'),
+                onTap: () => Navigator.of(context).pop(item.key),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (selectedCollectionId == null) return null;
+
+    final notifier = ref.read(collectionStateNotifierProvider.notifier);
+    if (ref.read(activeCollectionIdStateProvider) != selectedCollectionId) {
+      notifier.switchCollection(selectedCollectionId);
+    }
+    final activeCollection = ref.read(collectionsStateProvider)[selectedCollectionId];
+    if (activeCollection == null) return null;
+    final requestMap = ref.read(collectionStateNotifierProvider) ?? {};
+    final requestIds = activeCollection.requestIds
+        .where(requestMap.containsKey)
+        .toList(growable: false);
+    if (requestIds.isEmpty) return null;
+
+    final requestId = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pick request'),
+        content: SizedBox(
+          width: 760,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        'Request',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 4,
+                      child: Text(
+                        'URL',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        'Variables',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: requestIds.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final id = requestIds[index];
+                    final req = requestMap[id]!;
+                    final name = req.name.trim().isEmpty ? id : req.name.trim();
+                    final variableNames = _variableNamesForRequest(req);
+                    final variablesLabel = variableNames.isEmpty
+                        ? 'None'
+                        : '${variableNames.length}: ${variableNames.take(3).join(', ')}${variableNames.length > 3 ? ', ...' : ''}';
+                    return InkWell(
+                      onTap: () => Navigator.of(context).pop(id),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: Text(
+                                name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 4,
+                              child: Text(
+                                req.httpRequestModel?.url ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 3,
+                              child: Text(
+                                variablesLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+    if (requestId == null) return null;
+    return (collectionId: selectedCollectionId, requestId: requestId);
+  }
+
+  List<String> _variableNamesForRequest(RequestModel request) {
+    final http = request.httpRequestModel;
+    if (http == null) return const <String>[];
+    final regex = RegExp(r'\{\{\s*([^}]+?)\s*\}\}');
+    final set = <String>{};
+    void scanText(String part) {
+      for (final match in regex.allMatches(part)) {
+        final key = match.group(1)?.trim();
+        if (key != null && key.isNotEmpty) {
+          set.add(key);
+        }
+      }
+    }
+
+    void scanAny(dynamic value) {
+      if (value == null) return;
+      if (value is String) {
+        scanText(value);
+        return;
+      }
+      if (value is Map) {
+        for (final entry in value.entries) {
+          scanAny(entry.key);
+          scanAny(entry.value);
+        }
+        return;
+      }
+      if (value is Iterable) {
+        for (final item in value) {
+          scanAny(item);
+        }
+      }
+    }
+
+    scanText(http.url);
+    scanText(http.body ?? '');
+    scanText(http.query ?? '');
+    for (final h in http.headers ?? const []) {
+      scanText(h.name);
+      scanText(h.value ?? '');
+    }
+    for (final p in http.params ?? const []) {
+      scanText(p.name);
+      scanText(p.value ?? '');
+    }
+    for (final f in http.formData ?? const []) {
+      scanText(f.name);
+      scanAny(f.value);
+    }
+    scanAny(http.authModel?.toJson());
+
+    return set.toList()..sort();
+  }
+
+  String? _defaultOutputPortForNode(WorkflowNodeType type) {
+    switch (type) {
+      case WorkflowNodeType.start:
+        return 'next';
+      case WorkflowNodeType.request:
+        return 'success';
+      case WorkflowNodeType.variable:
+      case WorkflowNodeType.transform:
+      case WorkflowNodeType.delay:
+      case WorkflowNodeType.loop:
+        return 'out';
+      case WorkflowNodeType.condition:
+        return 'true';
+      case WorkflowNodeType.end:
+        return null;
+    }
+  }
+
+  String? _defaultInputPortForNode(WorkflowNodeType type) {
+    switch (type) {
+      case WorkflowNodeType.start:
+        return null;
+      case WorkflowNodeType.request:
+        return 'trigger';
+      case WorkflowNodeType.end:
+      case WorkflowNodeType.condition:
+      case WorkflowNodeType.variable:
+      case WorkflowNodeType.transform:
+      case WorkflowNodeType.delay:
+      case WorkflowNodeType.loop:
+        return 'in';
+    }
+  }
+
+  void _updateNodeData(String nodeId, WorkflowNodeData data) {
     final existing = _controller.nodes[nodeId];
     if (existing == null) return;
-
     final replacement = Node<WorkflowNodeData>(
       id: existing.id,
       type: existing.type,
       position: existing.position.value,
-      data: newData,
+      data: data,
       ports: existing.ports,
       size: existing.size.value,
       initialZIndex: existing.zIndex.value,
       theme: existing.theme,
       widgetBuilder: existing.widgetBuilder,
     );
-
     _controller.addNode(replacement);
+    setState(() {});
+    _saveWorkflowSnapshot();
+  }
+
+  Future<void> _saveWorkflowSnapshot() async {
+    final workflowId = _workflowId;
+    if (workflowId == null) return;
+    await ref.read(workflowsStateProvider.notifier).saveGraph(
+          workflowId: workflowId,
+          graphData: _serializeGraph(),
+        );
+  }
+
+  Map<String, dynamic> _serializeGraph() {
+    return <String, dynamic>{
+      'nodes': _controller.nodes.values
+          .map(
+            (node) => <String, dynamic>{
+              'id': node.id,
+              'type': node.type,
+              'x': node.position.value.dx,
+              'y': node.position.value.dy,
+              'data': node.data.toJson(),
+            },
+          )
+          .toList(growable: false),
+      'connections': _controller.connections
+          .map(
+            (c) => <String, dynamic>{
+              'id': c.id,
+              'sourceNodeId': c.sourceNodeId,
+              'sourcePortId': c.sourcePortId,
+              'targetNodeId': c.targetNodeId,
+              'targetPortId': c.targetPortId,
+            },
+          )
+          .toList(growable: false),
+    };
+  }
+
+  void _hydrateFromGraph(Map<String, dynamic> graphData) {
+    final nodesRaw = graphData['nodes'];
+    final connectionsRaw = graphData['connections'];
+    if (nodesRaw is! List || connectionsRaw is! List) return;
+    final nodes = <Node<WorkflowNodeData>>[];
+    for (final item in nodesRaw.whereType<Map>()) {
+      final json = item.map((k, v) => MapEntry(k.toString(), v));
+      final type = WorkflowNodeData.fromJson(
+        (json['data'] as Map?)?.map((k, v) => MapEntry(k.toString(), v)) ??
+            const <String, dynamic>{'nodeType': 'start'},
+      ).nodeType;
+      final node = _createNode(
+        nodeType: type,
+        position: Offset(
+          (json['x'] as num?)?.toDouble() ?? 0,
+          (json['y'] as num?)?.toDouble() ?? 0,
+        ),
+        id: json['id'] as String?,
+      );
+      final dataMap = (json['data'] as Map?)?.map((k, v) => MapEntry(k.toString(), v));
+      final hydrated = Node<WorkflowNodeData>(
+        id: node.id,
+        type: node.type,
+        position: node.position.value,
+        data: dataMap == null ? node.data : WorkflowNodeData.fromJson(dataMap),
+        ports: node.ports,
+      );
+      nodes.add(hydrated);
+    }
+    final conns = <Connection<dynamic>>[];
+    for (final item in connectionsRaw.whereType<Map>()) {
+      final json = item.map((k, v) => MapEntry(k.toString(), v));
+      conns.add(
+        Connection(
+          id: json['id'] as String,
+          sourceNodeId: json['sourceNodeId'] as String,
+          sourcePortId: json['sourcePortId'] as String,
+          targetNodeId: json['targetNodeId'] as String,
+          targetPortId: json['targetPortId'] as String,
+        ),
+      );
+    }
+    for (final key in _controller.nodes.keys.toList()) {
+      _controller.removeNode(key);
+    }
+    for (final node in nodes) {
+      _controller.addNode(node);
+    }
+    for (final c in _controller.connections.toList()) {
+      _controller.removeConnection(c.id);
+    }
+    for (final c in conns) {
+      _controller.addConnection(c);
+    }
+  }
+
+  Future<void> _bootstrapWorkflowState() async {
+    final workflowNotifier = ref.read(workflowsStateProvider.notifier);
+    if (ref.read(workflowsStateProvider).isEmpty) {
+      workflowNotifier.createDefault();
+    }
+    final activeWorkflowId = ref.read(workflowIdStateProvider);
+    if (activeWorkflowId == null) return;
+    _workflowId = activeWorkflowId;
+    final workflow = ref.read(workflowsStateProvider)[activeWorkflowId];
+    if (workflow != null) {
+      _hydrateFromGraph(workflow.graphData);
+    }
+    _loadRunHistoryFromHive(activeWorkflowId);
+    if (mounted) setState(() {});
+  }
+
+  void _loadRunHistoryFromHive(String workflowId) {
+    final raw = hiveHandler.getWorkflowRunHistory(workflowId);
+    if (raw is! List) return;
+    _runHistory
+      ..clear()
+      ..addAll(
+        raw.whereType<Map>().map(
+              (m) => _WorkflowRunRecord.fromJson(
+                m.map((k, v) => MapEntry(k.toString(), v)),
+              ),
+            ),
+      );
+  }
+
+  Future<void> _persistRunHistory() async {
+    final workflowId = _workflowId;
+    if (workflowId == null) return;
+    final runs = _runHistory.map((r) => r.toJson()).toList(growable: false);
+    await hiveHandler.setWorkflowRunHistory(workflowId, runs);
   }
 
   Future<void> _runWorkflow() async {
     if (_isRunning) return;
-    final collection = ref.read(collectionStateNotifierProvider);
-    if (collection == null || collection.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Add at least one request in the collection.')),
-        );
-      }
-      return;
-    }
-
     setState(() {
       _isRunning = true;
       _runningNodeId = null;
       _nodeSuccess.clear();
+      _nodeOutputs.clear();
+      _runEvents.clear();
     });
-
-    final startNode = _pickRunnableStartNode();
-    if (startNode == null) {
-      setState(() => _isRunning = false);
+    final previousSelectedId = ref.read(selectedIdStateProvider);
+    try {
+      final result = await _executionService.run(
+        nodes: _controller.nodes,
+        connections: _controller.connections.toList(),
+        delegate: _WorkflowRunDelegate(
+          runRequestById: _runRequestById,
+        ),
+        onNodeUpdate: (nodeId, nodeResult) {
+          if (!mounted) return;
+          setState(() {
+            _runningNodeId =
+                nodeResult.status == WorkflowNodeRunStatus.running ? nodeId : null;
+            _nodeSuccess[nodeId] = _statusToBool(nodeResult.status);
+            if (nodeResult.message != null) {
+              _nodeOutputs[nodeId] = _NodeRunOutput(
+                requestId: _controller.nodes[nodeId]?.data.linkedRequestId ?? '',
+                statusCode: null,
+                timeMs: null,
+                bodyPreview: nodeResult.message,
+              );
+            }
+          });
+        },
+        onEvent: (event) {
+          if (!mounted) return;
+          setState(() => _runEvents.insert(0, event));
+        },
+      );
+      final record = _WorkflowRunRecord(
+        startedAt: result.startedAt,
+        endedAt: result.endedAt,
+        success: result.isSuccess,
+        error: result.error,
+        nodeCount: result.nodeResults.length,
+      );
+      _lastRunVariables = Map<String, dynamic>.from(result.context.variables);
+      _lastRunResults = Map<String, dynamic>.from(result.context.results);
+      _runHistory.insert(0, record);
+      if (_runHistory.length > 20) {
+        _runHistory.removeRange(20, _runHistory.length);
+      }
+      await _persistRunHistory();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No runnable node found. Add/Select a Request node.')),
+          SnackBar(
+            content: Text(
+              result.isSuccess
+                  ? 'Workflow run complete'
+                  : 'Workflow failed: ${result.error ?? 'unknown error'}',
+            ),
+          ),
         );
       }
-      return;
-    }
-
-    final previousSelectedId = ref.read(selectedIdStateProvider);
-
-    try {
-      await _runFromNode(startNodeId: startNode.id, collection: collection);
     } finally {
       ref.read(selectedIdStateProvider.notifier).state = previousSelectedId;
       setState(() => _isRunning = false);
     }
   }
 
-  Node<WorkflowNodeData>? _pickRunnableStartNode() {
-    // 1) If user selected a Request node, start there.
-    final selectedId = _selectedNodeId;
-    if (selectedId != null) {
-      final sel = _controller.nodes[selectedId];
-      if (sel != null && sel.data.nodeType == WorkflowNodeType.request) {
-        return sel;
-      }
+  bool? _statusToBool(WorkflowNodeRunStatus status) {
+    switch (status) {
+      case WorkflowNodeRunStatus.success:
+        return true;
+      case WorkflowNodeRunStatus.failed:
+        return false;
+      default:
+        return null;
     }
-
-    // 2) If graph has a Start node, start from it.
-    final start = _controller.nodes.values
-        .cast<Node<WorkflowNodeData>>()
-        .where((n) => n.data.nodeType == WorkflowNodeType.start)
-        .toList();
-    if (start.isNotEmpty) {
-      return start.first;
-    }
-
-    // 3) Fallback: if there's any Request node, start from it.
-    final requestNodes = _controller.nodes.values
-        .where((n) => n.data.nodeType == WorkflowNodeType.request)
-        .toList();
-    return requestNodes.isNotEmpty ? requestNodes.first : null;
   }
 
-  Future<void> _runFromNode({
-    required String startNodeId,
-    required Map<String, dynamic> collection,
+  Future<WorkflowRequestResult> _runRequestById({
+    required String nodeId,
+    required String requestId,
+    required WorkflowExecutionContext context,
   }) async {
-    final visited = <String>{};
-    var current = _controller.nodes[startNodeId];
-
-    while (current != null && !visited.contains(current.id)) {
-      visited.add(current.id);
-
-      if (current.data.nodeType == WorkflowNodeType.end) {
-        setState(() => _runningNodeId = null);
-        return;
-      }
-
-      if (current.data.nodeType == WorkflowNodeType.request) {
-        final ok = await _runSingleRequestNode(current, collection);
-        if (!ok) return; // stop on first failure for now (clear demo behavior)
-      }
-
-      current = _nextNodeFrom(current.id);
+    final previousCollectionId = ref.read(activeCollectionIdStateProvider);
+    final targetCollectionId =
+        _controller.nodes[nodeId]?.data.linkedCollectionId ?? previousCollectionId;
+    if (targetCollectionId != null &&
+        targetCollectionId != ref.read(activeCollectionIdStateProvider)) {
+      ref.read(collectionStateNotifierProvider.notifier).switchCollection(targetCollectionId);
     }
-  }
 
-  Future<bool> _runSingleRequestNode(
-    Node<WorkflowNodeData> requestNode,
-    Map<String, dynamic> collection,
-  ) async {
-    String? linkedId = requestNode.data.linkedRequestId;
-    if (linkedId == null || linkedId.isEmpty) {
+    final collection = ref.read(collectionStateNotifierProvider);
+    if (collection == null || collection.isEmpty) {
+      return const WorkflowRequestResult(
+        ok: false,
+        message: 'Add at least one request in the collection.',
+      );
+    }
+    String linkedId = requestId;
+    if (linkedId.isEmpty || !collection.containsKey(linkedId)) {
       linkedId = collection.keys.first;
     }
     if (!collection.containsKey(linkedId)) {
-      setState(() {
-        _nodeSuccess[requestNode.id] = false;
-        _runningNodeId = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Linked request not found in collection.')),
-        );
-      }
-      return false;
+      return const WorkflowRequestResult(
+        ok: false,
+        message: 'Linked request not found in collection.',
+      );
     }
 
     ref.read(selectedIdStateProvider.notifier).state = linkedId;
-    setState(() => _runningNodeId = requestNode.id);
-
     try {
+      final templateApplied = await _applyTemplateToRequest(
+        requestId: linkedId,
+        context: context,
+        requestVariableOverrides: _controller
+                .nodes[nodeId]
+                ?.data
+                .requestVariableValues ??
+            const <String, String>{},
+      );
       await ref.read(collectionStateNotifierProvider.notifier).sendRequest();
       final col = ref.read(collectionStateNotifierProvider);
       final req = col != null ? col[linkedId] : null;
@@ -331,57 +890,244 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       final timeMs = req?.httpResponseModel?.time?.inMilliseconds;
       final body =
           req?.httpResponseModel?.formattedBody ?? req?.httpResponseModel?.body;
+      final bodyForTransform =
+          req?.httpResponseModel?.body ?? req?.httpResponseModel?.formattedBody;
       final ok = status != null && status >= 200 && status < 300;
-      setState(() {
-        _nodeSuccess[requestNode.id] = ok;
-        _nodeOutputs[requestNode.id] = _NodeRunOutput(
-          requestId: linkedId!,
-          statusCode: status,
-          timeMs: timeMs,
-          bodyPreview: body != null && body.length > 600 ? '${body.substring(0, 600)}...' : body,
-        );
-        _runningNodeId = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              ok
-                  ? 'Request completed ($status${timeMs != null ? ', ${timeMs}ms' : ''})'
-                  : 'Request failed ($status${timeMs != null ? ', ${timeMs}ms' : ''})',
-            ),
-          ),
-        );
+      _nodeOutputs[nodeId] = _NodeRunOutput(
+        requestId: linkedId,
+        statusCode: status,
+        timeMs: timeMs,
+        bodyPreview: body != null && body.length > 600 ? '${body.substring(0, 600)}...' : body,
+      );
+      if (templateApplied != null) {
+        await _restoreRequestTemplate(requestId: linkedId, previous: templateApplied);
       }
-      return ok;
+      if (previousCollectionId != null &&
+          previousCollectionId != ref.read(activeCollectionIdStateProvider)) {
+        ref.read(collectionStateNotifierProvider.notifier).switchCollection(previousCollectionId);
+      }
+      return WorkflowRequestResult(
+        ok: ok,
+        statusCode: status,
+        message: body != null && body.length > 600 ? '${body.substring(0, 600)}...' : body,
+        responseBody: bodyForTransform,
+        extra: <String, dynamic>{
+          'requestId': linkedId,
+          if (timeMs != null) 'timeMs': timeMs,
+        },
+      );
     } catch (e) {
-      setState(() {
-        _nodeSuccess[requestNode.id] = false;
-        _nodeOutputs[requestNode.id] = _NodeRunOutput(
-          requestId: linkedId ?? '',
-          statusCode: null,
-          timeMs: null,
-          bodyPreview: 'Error: $e',
-        );
-        _runningNodeId = null;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+      if (previousCollectionId != null &&
+          previousCollectionId != ref.read(activeCollectionIdStateProvider)) {
+        ref.read(collectionStateNotifierProvider.notifier).switchCollection(previousCollectionId);
       }
-      return false;
+      return WorkflowRequestResult(
+        ok: false,
+        message: 'Error: $e',
+      );
     }
   }
 
-  Node<WorkflowNodeData>? _nextNodeFrom(String nodeId) {
-    for (final c in _controller.connections) {
-      if (c.sourceNodeId == nodeId) {
-        final target = _controller.nodes[c.targetNodeId];
-        if (target != null) return target;
+  Future<({String? url, String? body, String? query})?> _applyTemplateToRequest({
+    required String requestId,
+    required WorkflowExecutionContext context,
+    required Map<String, String> requestVariableOverrides,
+  }) async {
+    final collection = ref.read(collectionStateNotifierProvider);
+    final req = collection?[requestId];
+    final http = req?.httpRequestModel;
+    if (http == null) return null;
+    final original = (url: http.url, body: http.body, query: http.query);
+    final replacedUrl = _resolveTemplateString(
+      http.url,
+      context,
+      requestVariableOverrides,
+    );
+    final replacedBody = _resolveTemplateString(
+      http.body,
+      context,
+      requestVariableOverrides,
+    );
+    final replacedQuery = _resolveTemplateString(
+      http.query,
+      context,
+      requestVariableOverrides,
+    );
+    ref.read(collectionStateNotifierProvider.notifier).update(
+          id: requestId,
+          url: replacedUrl,
+          body: replacedBody,
+          query: replacedQuery,
+        );
+    return original;
+  }
+
+  Future<void> _restoreRequestTemplate({
+    required String requestId,
+    required ({String? url, String? body, String? query}) previous,
+  }) async {
+    ref.read(collectionStateNotifierProvider.notifier).update(
+          id: requestId,
+          url: previous.url ?? '',
+          body: previous.body,
+          query: previous.query,
+        );
+  }
+
+  String? _resolveTemplateString(
+    String? input,
+    WorkflowExecutionContext context,
+    Map<String, String> requestVariableOverrides,
+  ) {
+    if (input == null || input.isEmpty) return input;
+    return input.replaceAllMapped(RegExp(r'\{\{([^}]+)\}\}'), (m) {
+      final key = m.group(1)?.trim() ?? '';
+      if (key.isEmpty) return '';
+      if (requestVariableOverrides.containsKey(key)) {
+        return _resolveRequestOverrideValue(
+          requestVariableOverrides[key] ?? '',
+          context,
+        );
+      }
+      if (context.variables.containsKey(key)) {
+        return '${context.variables[key] ?? ''}';
+      }
+      return '';
+    });
+  }
+
+  String _resolveRequestOverrideValue(
+    String rawValue,
+    WorkflowExecutionContext context,
+  ) {
+    final source = rawValue.trim();
+    if (!source.startsWith('json:')) {
+      return rawValue;
+    }
+    final path = source.substring(5).trim();
+    if (path.isEmpty) return '';
+    final lastResult = context.results.values.isNotEmpty
+        ? context.results.values.last
+        : null;
+    if (lastResult is! Map<String, dynamic>) return '';
+    final body = lastResult['responseBody'];
+    if (body is! String || body.trim().isEmpty) return '';
+    try {
+      dynamic current = jsonDecode(body.trim());
+      for (final segment in path.split('.').where((e) => e.isNotEmpty)) {
+        if (current is Map && current.containsKey(segment)) {
+          current = current[segment];
+        } else {
+          return '';
+        }
+      }
+      return current?.toString() ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  Future<void> _exportWorkflowJson() async {
+    final workflowId = _workflowId;
+    if (workflowId == null) return;
+    final source = ref.read(workflowsStateProvider.notifier).exportToJson(workflowId);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Workflow Export JSON'),
+        content: SizedBox(
+          width: 680,
+          child: SelectableText(source),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _importWorkflowJson() async {
+    final controller = TextEditingController();
+    final source = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import Workflow JSON'),
+        content: SizedBox(
+          width: 680,
+          child: TextField(
+            controller: controller,
+            minLines: 10,
+            maxLines: 20,
+            decoration: const InputDecoration(
+              hintText: 'Paste workflow JSON',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Import'),
+          ),
+        ],
+      ),
+    );
+    if (source == null || source.isEmpty) return;
+    try {
+      await ref.read(workflowsStateProvider.notifier).importFromJson(source);
+      final workflowId = ref.read(workflowIdStateProvider);
+      if (workflowId != null) {
+        _workflowId = workflowId;
+        final workflow = ref.read(workflowsStateProvider)[workflowId];
+        if (workflow != null) {
+          _hydrateFromGraph(workflow.graphData);
+        }
+        _loadRunHistoryFromHive(workflowId);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Workflow imported')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Import failed: $e')),
+        );
       }
     }
-    return null;
+  }
+
+  Future<void> _toggleWebhookServer() async {
+    if (_webhookService.isRunning) {
+      await _webhookService.stop();
+      if (mounted) setState(() {});
+      return;
+    }
+    await _webhookService.start(
+      onTrigger: (trigger) {
+        if (trigger.workflowId != _workflowId) return;
+        _executionService.run(
+          nodes: _controller.nodes,
+          connections: _controller.connections.toList(),
+          delegate: _WorkflowRunDelegate(runRequestById: _runRequestById),
+          initialVariables: <String, dynamic>{'webhookPayload': trigger.payload},
+          onEvent: (event) {
+            if (!mounted) return;
+            setState(() => _runEvents.insert(0, event));
+          },
+        );
+      },
+    );
+    if (mounted) setState(() {});
   }
 
   @override
@@ -389,10 +1135,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final nodeFlowTheme = isDark ? NodeFlowTheme.dark : NodeFlowTheme.light;
-    final collection = ref.watch(collectionStateNotifierProvider);
+    final collection = ref.watch(collectionStateNotifierProvider) ?? {};
     final selectedNode =
-        _selectedNodeId != null ? _controller.nodes[_selectedNodeId!] : null;
-
+        _selectedNodeId == null ? null : _controller.nodes[_selectedNodeId!];
     return Scaffold(
       body: Column(
         children: [
@@ -416,20 +1161,186 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                       : const Icon(Icons.play_arrow, size: 20),
                   label: Text(_isRunning ? 'Running...' : 'Run'),
                 ),
+                const SizedBox(width: 12),
+                PopupMenuButton<WorkflowNodeType>(
+                  tooltip: 'Add node',
+                  onSelected: _addNode,
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: WorkflowNodeType.request,
+                      child: Text('Add Request node'),
+                    ),
+                    PopupMenuItem(
+                      value: WorkflowNodeType.variable,
+                      child: Text('Add Variable node'),
+                    ),
+                    PopupMenuItem(
+                      value: WorkflowNodeType.condition,
+                      child: Text('Add Condition node'),
+                    ),
+                    PopupMenuItem(
+                      value: WorkflowNodeType.delay,
+                      child: Text('Add Delay node'),
+                    ),
+                    PopupMenuItem(
+                      value: WorkflowNodeType.loop,
+                      child: Text('Add Loop node'),
+                    ),
+                    PopupMenuItem(
+                      value: WorkflowNodeType.end,
+                      child: Text('Add End node'),
+                    ),
+                  ],
+                  child: const Chip(label: Text('Add Node')),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _saveWorkflowSnapshot,
+                  child: const Text('Save'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _importWorkflowJson,
+                  child: const Text('Import'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton(
+                  onPressed: _exportWorkflowJson,
+                  child: const Text('Export'),
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: _toggleWebhookServer,
+                  icon: Icon(
+                    _webhookService.isRunning ? Icons.link_off : Icons.link,
+                  ),
+                  label: Text(_webhookService.isRunning ? 'Stop Webhook' : 'Start Webhook'),
+                ),
+              ],
+            ),
+          ),
+          if (_webhookService.isRunning && _workflowId != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SelectableText(
+                  _webhookService.endpointFor(_workflowId!),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: [
+                _MetricChip(
+                  label: 'Runs',
+                  value: '${_runHistory.length}',
+                ),
+                const SizedBox(width: 8),
+                _MetricChip(
+                  label: 'Success()',
+                  value:
+                      '${_runHistory.where((r) => r.success).length}/${_runHistory.length}',
+                ),
+                const SizedBox(width: 8),
+                _MetricChip(
+                  label: 'Avg Duration',
+                  value: _runHistory.isEmpty
+                      ? '-'
+                      : '${(_runHistory.map((r) => r.durationMs).reduce((a, b) => a + b) / _runHistory.length).round()}ms',
+                ),
               ],
             ),
           ),
           Expanded(
-            child: NodeFlowEditor<WorkflowNodeData, dynamic>(
-              controller: _controller,
-              theme: nodeFlowTheme,
-              nodeBuilder: (context, node) => _WorkflowNodeWidget(
-                node: node,
-                isRunning: _runningNodeId == node.id,
-                isSuccess: _nodeSuccess[node.id],
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: NodeFlowEditor<WorkflowNodeData, dynamic>(
+                    controller: _controller,
+                    theme: nodeFlowTheme,
+                    events: _editorEvents(),
+                    nodeBuilder: (context, node) => _WorkflowNodeWidget(
+                      node: node,
+                      isRunning: _runningNodeId == node.id,
+                      isSuccess: _nodeSuccess[node.id],
+                      isSelected: _selectedNodeId == node.id,
+                      onTap: () => setState(() => _selectedNodeId = node.id),
+                      onDuplicate: () {
+                        _controller.duplicateNode(node.id);
+                        _saveWorkflowSnapshot();
+                        setState(() {});
+                      },
+                      onDelete: () {
+                        _controller.removeNode(node.id);
+                        if (_selectedNodeId == node.id) {
+                          _selectedNodeId = null;
+                        }
+                        _saveWorkflowSnapshot();
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                ),
+                if (selectedNode != null)
+                  SizedBox(
+                    width: 320,
+                    child: _WorkflowNodeInspector(
+                      node: selectedNode,
+                      availableRequests: collection,
+                      output: _nodeOutputs[selectedNode.id],
+                      runHistory: _runHistory,
+                      runtimeVariables: _lastRunVariables,
+                      runtimeResults: _lastRunResults,
+                      templateVariablesForRequest: () {
+                        final requestId = selectedNode.data.linkedRequestId;
+                        if (requestId == null || requestId.isEmpty) return const <String>[];
+                        final request = collection[requestId];
+                        if (request == null) return const <String>[];
+                        return _variableNamesForRequest(request);
+                      }(),
+                      requestVariableValues:
+                          selectedNode.data.requestVariableValues ??
+                          const <String, String>{},
+                      onRequestVariableValueChanged: (key, value) {
+                        final current = selectedNode.data.requestVariableValues ??
+                            const <String, String>{};
+                        final updated = Map<String, String>.from(current);
+                        updated[key] = value;
+                        _updateNodeData(
+                          selectedNode.id,
+                          selectedNode.data.copyWith(
+                            requestVariableValues: updated,
+                          ),
+                        );
+                      },
+                      onUpdate: (data) => _updateNodeData(selectedNode.id, data),
+                    ),
+                  ),
+              ],
             ),
           ),
+          if (_runEvents.isNotEmpty)
+            SizedBox(
+              height: 140,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: _runEvents.length > 30 ? 30 : _runEvents.length,
+                itemBuilder: (context, index) {
+                  final e = _runEvents[index];
+                  return Text(
+                    '[${e.at.toIso8601String()}] ${e.nodeId}: ${e.message}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: e.isError ? theme.colorScheme.error : null,
+                    ),
+                  );
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -450,16 +1361,376 @@ class _NodeRunOutput {
   final String? bodyPreview;
 }
 
+class _WorkflowRunRecord {
+  const _WorkflowRunRecord({
+    required this.startedAt,
+    required this.endedAt,
+    required this.success,
+    this.error,
+    required this.nodeCount,
+  });
+
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final bool success;
+  final String? error;
+  final int nodeCount;
+
+  int get durationMs => endedAt.difference(startedAt).inMilliseconds;
+
+  Map<String, dynamic> toJson() => {
+        'startedAt': startedAt.toIso8601String(),
+        'endedAt': endedAt.toIso8601String(),
+        'success': success,
+        'error': error,
+        'nodeCount': nodeCount,
+      };
+
+  factory _WorkflowRunRecord.fromJson(Map<String, dynamic> json) =>
+      _WorkflowRunRecord(
+        startedAt: DateTime.parse(json['startedAt'] as String),
+        endedAt: DateTime.parse(json['endedAt'] as String),
+        success: json['success'] as bool? ?? false,
+        error: json['error'] as String?,
+        nodeCount: (json['nodeCount'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class _WorkflowRunDelegate implements WorkflowExecutionDelegate {
+  const _WorkflowRunDelegate({
+    required this.runRequestById,
+  });
+
+  final Future<WorkflowRequestResult> Function({
+    required String nodeId,
+    required String requestId,
+    required WorkflowExecutionContext context,
+  }) runRequestById;
+
+  @override
+  Future<WorkflowRequestResult> runRequest({
+    required String nodeId,
+    required String requestId,
+    required WorkflowExecutionContext context,
+  }) =>
+      runRequestById(
+        nodeId: nodeId,
+        requestId: requestId,
+        context: context,
+      );
+}
+
+class _WorkflowNodeInspector extends StatelessWidget {
+  const _WorkflowNodeInspector({
+    required this.node,
+    required this.availableRequests,
+    required this.output,
+    required this.runHistory,
+    required this.runtimeVariables,
+    required this.runtimeResults,
+    required this.templateVariablesForRequest,
+    required this.requestVariableValues,
+    required this.onRequestVariableValueChanged,
+    required this.onUpdate,
+  });
+
+  final Node<WorkflowNodeData> node;
+  final Map<String, RequestModel> availableRequests;
+  final _NodeRunOutput? output;
+  final List<_WorkflowRunRecord> runHistory;
+  final Map<String, dynamic> runtimeVariables;
+  final Map<String, dynamic> runtimeResults;
+  final List<String> templateVariablesForRequest;
+  final Map<String, String> requestVariableValues;
+  final void Function(String key, String value) onRequestVariableValueChanged;
+  final void Function(WorkflowNodeData data) onUpdate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final data = node.data;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: theme.dividerColor)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: ListView(
+        children: [
+          Text('Node Inspector', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 10),
+          TextField(
+            controller: TextEditingController(text: data.label),
+            decoration: const InputDecoration(
+              labelText: 'Label',
+              isDense: true,
+            ),
+            onSubmitted: (value) => onUpdate(data.copyWith(label: value.trim())),
+          ),
+          const SizedBox(height: 10),
+          if (data.nodeType == WorkflowNodeType.request)
+            DropdownButtonFormField<String>(
+              value: data.linkedRequestId != null &&
+                      availableRequests.containsKey(data.linkedRequestId)
+                  ? data.linkedRequestId
+                  : null,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Linked Request',
+                isDense: true,
+              ),
+              items: availableRequests.values
+                  .map(
+                    (req) => DropdownMenuItem<String>(
+                      value: req.id,
+                      child: Text(
+                        req.name.isEmpty ? req.id : req.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                onUpdate(data.copyWith(linkedRequestId: value));
+              },
+            ),
+          if (data.nodeType == WorkflowNodeType.request) ...[
+            const SizedBox(height: 8),
+            if (templateVariablesForRequest.isNotEmpty) ...[
+              Text(
+                'Request Variable Values',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...templateVariablesForRequest.map(
+                (key) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: TextField(
+                    controller: TextEditingController(
+                      text: requestVariableValues[key] ?? '',
+                    ),
+                    decoration: InputDecoration(
+                      labelText: key,
+                      hintText: 'Value or json:path (e.g. json:refreshToken)',
+                      isDense: true,
+                    ),
+                    onChanged: (value) => onRequestVariableValueChanged(key, value),
+                  ),
+                ),
+              ),
+            ],
+          ],
+          if (data.nodeType == WorkflowNodeType.condition)
+            TextField(
+              controller:
+                  TextEditingController(text: data.conditionExpression ?? ''),
+              decoration: const InputDecoration(
+                labelText: 'Condition',
+                hintText: 'status>=200&&status<300',
+                isDense: true,
+              ),
+              onSubmitted: (value) =>
+                  onUpdate(data.copyWith(conditionExpression: value.trim())),
+            ),
+          if (data.nodeType == WorkflowNodeType.variable)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: TextEditingController(text: data.variableKey ?? ''),
+                  decoration: const InputDecoration(
+                    labelText: 'Variable key',
+                    isDense: true,
+                  ),
+                  onSubmitted: (value) =>
+                      onUpdate(data.copyWith(variableKey: value.trim())),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller:
+                      TextEditingController(text: data.variableValue ?? ''),
+                  decoration: const InputDecoration(
+                    labelText: 'Literal value',
+                    hintText: 'token-value',
+                    isDense: true,
+                  ),
+                  onSubmitted: (value) =>
+                      onUpdate(data.copyWith(variableValue: value)),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller:
+                      TextEditingController(text: data.variableSource ?? ''),
+                  decoration: const InputDecoration(
+                    labelText: 'Source (optional)',
+                    hintText: 'json:refreshToken',
+                    isDense: true,
+                  ),
+                  onSubmitted: (value) =>
+                      onUpdate(data.copyWith(variableSource: value.trim())),
+                ),
+              ],
+            ),
+          if (data.nodeType == WorkflowNodeType.delay)
+            TextField(
+              controller: TextEditingController(text: '${data.delayMs ?? 0}'),
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Delay (ms)',
+                isDense: true,
+              ),
+              onSubmitted: (value) =>
+                  onUpdate(data.copyWith(delayMs: int.tryParse(value) ?? 0)),
+            ),
+          if (data.nodeType == WorkflowNodeType.loop)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller:
+                      TextEditingController(text: data.loopExpression ?? ''),
+                  decoration: const InputDecoration(
+                    labelText: 'Loop expression',
+                    hintText: 'var:items',
+                    isDense: true,
+                  ),
+                  onSubmitted: (value) =>
+                      onUpdate(data.copyWith(loopExpression: value.trim())),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Current format: var:<name> where variable is a List.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          if (output != null) ...[
+            const SizedBox(height: 16),
+            Text('Last Output', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            if (output!.requestId.isNotEmpty) Text('Request: ${output!.requestId}'),
+            if (output!.statusCode != null) Text('Status: ${output!.statusCode}'),
+            if (output!.timeMs != null) Text('Time: ${output!.timeMs} ms'),
+            if ((output!.bodyPreview ?? '').isNotEmpty)
+              Text(
+                output!.bodyPreview!,
+                maxLines: 6,
+                overflow: TextOverflow.ellipsis,
+              ),
+          ],
+          if (runHistory.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text('Recent Runs', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            ...runHistory.take(5).map(
+                  (r) => Text(
+                    '${r.success ? 'OK' : 'FAIL'} • ${r.durationMs}ms • ${r.startedAt.toLocal()}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+          ],
+          const SizedBox(height: 16),
+          Text('Runtime Context', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 6),
+          Text(
+            'Variables',
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (runtimeVariables.isEmpty)
+            Text(
+              'No runtime variables captured yet. This is separate from request template variables.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
+            ...runtimeVariables.entries.take(12).map(
+                  (entry) => Text(
+                    '${entry.key}: ${_previewValue(entry.value)}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+          const SizedBox(height: 10),
+          Text(
+            'Latest Results',
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (runtimeResults.isEmpty)
+            Text(
+              'No node results yet.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
+            ...runtimeResults.entries.take(8).map(
+                  (entry) => Text(
+                    '${entry.key}: ${_previewValue(entry.value)}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+
+  static String _previewValue(dynamic value) {
+    if (value == null) return 'null';
+    final raw = value is String ? value : value.toString();
+    return raw.length > 120 ? '${raw.substring(0, 120)}...' : raw;
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text('$label: $value'),
+    );
+  }
+}
+
 class _WorkflowNodeWidget extends StatelessWidget {
   const _WorkflowNodeWidget({
     required this.node,
     required this.isRunning,
     required this.isSuccess,
+    required this.isSelected,
+    required this.onTap,
+    required this.onDuplicate,
+    required this.onDelete,
   });
 
   final Node<WorkflowNodeData> node;
   final bool isRunning;
   final bool? isSuccess;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final VoidCallback onDuplicate;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -488,34 +1759,116 @@ class _WorkflowNodeWidget extends StatelessWidget {
           bg = theme.colorScheme.secondaryContainer;
           icon = Icons.http;
           break;
+        case WorkflowNodeType.variable:
+          bg = theme.colorScheme.primaryContainer;
+          icon = Icons.data_object;
+          break;
         case WorkflowNodeType.end:
           bg = theme.colorScheme.surfaceContainerHigh;
           icon = Icons.stop_circle;
           break;
+        case WorkflowNodeType.condition:
+          bg = theme.colorScheme.tertiaryContainer;
+          icon = Icons.rule;
+          break;
+        case WorkflowNodeType.transform:
+          bg = theme.colorScheme.secondaryContainer;
+          icon = Icons.transform;
+          break;
+        case WorkflowNodeType.delay:
+          bg = theme.colorScheme.surfaceContainerHighest;
+          icon = Icons.timer_outlined;
+          break;
+        case WorkflowNodeType.loop:
+          bg = theme.colorScheme.tertiaryContainer;
+          icon = Icons.loop;
+          break;
       }
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: isRunning ? theme.colorScheme.primary : theme.colorScheme.outline.withValues(alpha: 0.3),
-          width: isRunning ? 2 : 1,
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: SizedBox(
+            width: node.size.value.width,
+            height: node.size.value.height,
+            child: Container(
+        constraints: BoxConstraints(
+          minWidth: d.nodeType == WorkflowNodeType.request ? _kRequestNodeWidth : 150,
+          minHeight: d.nodeType == WorkflowNodeType.request ? _kRequestNodeHeight : 80,
         ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 22, color: theme.colorScheme.onSurface),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: theme.textTheme.titleSmall,
+        padding: d.nodeType == WorkflowNodeType.request
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? theme.colorScheme.primary
+                : isRunning
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outline.withValues(alpha: 0.3),
+            width: isSelected || isRunning ? 2 : 1,
           ),
-        ],
-      ),
+        ),
+        child: d.nodeType == WorkflowNodeType.request
+            ? _WorkflowHttpRequestNodeCard(
+                data: d,
+                icon: icon,
+                title: label == 'Request' ? 'HTTP Request' : label,
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 22, color: theme.colorScheme.onSurface),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (isSelected)
+          Positioned(
+            top: -30,
+            right: 6,
+            child: Material(
+              color: theme.colorScheme.surfaceContainerHighest,
+              elevation: 2,
+              borderRadius: BorderRadius.circular(12),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Duplicate',
+                    iconSize: 14,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDuplicate,
+                    icon: const Icon(Icons.copy_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Delete',
+                    iconSize: 14,
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -525,8 +1878,109 @@ class _WorkflowNodeWidget extends StatelessWidget {
         return 'Start';
       case WorkflowNodeType.request:
         return 'Request';
+      case WorkflowNodeType.variable:
+        return 'Variable';
       case WorkflowNodeType.end:
-        return 'End';
+        return 'Stop';
+      case WorkflowNodeType.condition:
+        return 'Condition';
+      case WorkflowNodeType.transform:
+        return 'Transform';
+      case WorkflowNodeType.delay:
+        return 'Delay';
+      case WorkflowNodeType.loop:
+        return 'Loop';
     }
+  }
+}
+
+class _WorkflowHttpRequestNodeCard extends StatelessWidget {
+  const _WorkflowHttpRequestNodeCard({
+    required this.data,
+    required this.icon,
+    required this.title,
+  });
+
+  final WorkflowNodeData data;
+  final IconData icon;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: _kRequestNodeWidth,
+      height: _kRequestNodeHeight,
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: theme.textTheme.titleSmall?.copyWith(fontSize: 8),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: theme.colorScheme.outline.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Text(
+                    data.linkedRequestId == null || data.linkedRequestId!.isEmpty
+                        ? 'Find or create request'
+                        : data.linkedRequestId!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 12,
+            top: _kRequestPortSendY - 8,
+            child: Text(
+              'Send',
+              style: theme.textTheme.bodySmall?.copyWith(fontSize: 8),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: _kRequestPortSuccessY - 8,
+            child: Text(
+              'Success()',
+              style: theme.textTheme.bodySmall?.copyWith(fontSize: 8),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: _kRequestPortFailY - 8,
+            child: Text(
+              'Fail()',
+              style: theme.textTheme.bodySmall?.copyWith(fontSize: 8),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

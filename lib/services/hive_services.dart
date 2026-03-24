@@ -10,6 +10,10 @@ const String kKeyActiveCollectionId = "activeCollectionId";
 const String kCollectionMetaPrefix = "collection_meta_";
 const String kCollectionRequestIdsPrefix = "collection_req_ids_";
 const String kCollectionRequestPrefix = "collection_req_";
+const String kWorkflowIds = "workflow_ids";
+const String kActiveWorkflowId = "active_workflow_id";
+const String kWorkflowPrefix = "workflow_";
+const String kWorkflowRunHistoryPrefix = "workflow_runs_";
 
 const String kEnvironmentBox = "apidash-environments";
 const String kKeyEnvironmentBoxIds = "environmentIds";
@@ -161,6 +165,30 @@ class HiveHandler {
         requestModelJson,
       );
 
+  dynamic getWorkflowIds() => dataBox.get(kWorkflowIds);
+  Future<void> setWorkflowIds(List<String>? ids) => dataBox.put(kWorkflowIds, ids);
+
+  String? getActiveWorkflowId() => dataBox.get(kActiveWorkflowId);
+  Future<void> setActiveWorkflowId(String? workflowId) =>
+      dataBox.put(kActiveWorkflowId, workflowId);
+
+  dynamic getWorkflow(String workflowId) => dataBox.get('$kWorkflowPrefix$workflowId');
+  Future<void> setWorkflow(String workflowId, Map<String, dynamic>? workflowJson) =>
+      dataBox.put('$kWorkflowPrefix$workflowId', workflowJson);
+
+  dynamic getWorkflowRunHistory(String workflowId) =>
+      dataBox.get('$kWorkflowRunHistoryPrefix$workflowId');
+  Future<void> setWorkflowRunHistory(
+    String workflowId,
+    List<Map<String, dynamic>>? runsJson,
+  ) =>
+      dataBox.put('$kWorkflowRunHistoryPrefix$workflowId', runsJson);
+
+  Future<void> deleteWorkflow(String workflowId) async {
+    await dataBox.delete('$kWorkflowPrefix$workflowId');
+    await dataBox.delete('$kWorkflowRunHistoryPrefix$workflowId');
+  }
+
   Future<void> deleteCollection(String collectionId) async {
     final ids = (getCollectionRequestIds(collectionId) as List?) ?? [];
     for (final requestId in ids.whereType<String>()) {
@@ -238,7 +266,14 @@ class HiveHandler {
         kKeyCollectionIds,
         kKeyActiveCollectionId,
         kKeyDataBoxIds,
+        kWorkflowIds,
+        kActiveWorkflowId,
       };
+      final workflowIds = (getWorkflowIds() as List?) ?? [];
+      for (final workflowId in workflowIds.whereType<String>()) {
+        validKeys.add('$kWorkflowPrefix$workflowId');
+        validKeys.add('$kWorkflowRunHistoryPrefix$workflowId');
+      }
       for (final cId in cIds) {
         validKeys.add('$kCollectionMetaPrefix$cId');
         validKeys.add('$kCollectionRequestIdsPrefix$cId');
@@ -257,6 +292,14 @@ class HiveHandler {
         if (key is String &&
             (key.startsWith(kCollectionMetaPrefix) ||
                 key.startsWith(kCollectionRequestIdsPrefix))) {
+          if (!validKeys.contains(key)) {
+            await dataBox.delete(key);
+          }
+          continue;
+        }
+        if (key is String &&
+            (key.startsWith(kWorkflowPrefix) ||
+                key.startsWith(kWorkflowRunHistoryPrefix))) {
           if (!validKeys.contains(key)) {
             await dataBox.delete(key);
           }

@@ -18,7 +18,7 @@ final workflowsStateProvider =
 
 class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   WorkflowStateNotifier(this.ref, this.hiveHandler) : super(const {}) {
-    load();
+    unawaited(_load());
   }
 
   final Ref ref;
@@ -26,11 +26,12 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
 
   String? get activeWorkflowId => ref.read(workflowIdStateProvider);
 
-  void load() {
+  Future<void> _load() async {
+    final storedIdsRaw = await hiveHandler.getWorkflowIds();
     final storedIds =
-        (hiveHandler.getWorkflowIds() as List?)?.whereType<String>().toList() ??
+        (storedIdsRaw as List?)?.whereType<String>().toList() ??
             const <String>[];
-    final activeId = hiveHandler.getActiveWorkflowId();
+    final activeId = await hiveHandler.getActiveWorkflowId();
     final ids = storedIds.isNotEmpty
         ? storedIds
         : <String>[
@@ -38,7 +39,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
           ];
     final workflows = <String, WorkflowModel>{};
     for (final id in ids) {
-      final raw = hiveHandler.getWorkflow(id);
+      final raw = await hiveHandler.getWorkflow(id);
       if (raw is Map) {
         final json = raw.map((k, v) => MapEntry(k.toString(), v));
         try {
@@ -79,7 +80,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   void setActive(String workflowId) {
     if (!state.containsKey(workflowId)) return;
     ref.read(workflowIdStateProvider.notifier).state = workflowId;
-    hiveHandler.setActiveWorkflowId(workflowId);
+    unawaited(hiveHandler.setActiveWorkflowId(workflowId));
   }
 
   Future<void> saveGraph({

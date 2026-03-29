@@ -124,9 +124,19 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
     final dropdownWorkflowId =
         ids.contains(effectiveId()) ? effectiveId() : ids.first;
     final selected = workflows[dropdownWorkflowId]!;
-    final data = buildWorkflowDashboardData(dropdownWorkflowId, selected);
 
-    return SingleChildScrollView(
+    return FutureBuilder<WorkflowDashboardData>(
+      key: ValueKey<String>(dropdownWorkflowId),
+      future: buildWorkflowDashboardData(dropdownWorkflowId, selected),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final data = snapshot.data;
+        if (data == null) {
+          return const Center(child: Text('Unable to load workflow analytics.'));
+        }
+        return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,6 +257,8 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
           ),
         ],
       ),
+    );
+      },
     );
   }
 

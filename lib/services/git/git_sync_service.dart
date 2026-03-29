@@ -37,7 +37,7 @@ class GitSyncService {
   }) async {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     final git = _getActiveGitConnection();
-    final localFiles = _buildFilesFromHiveSnapshot();
+    final localFiles = await _buildFilesFromHiveSnapshot();
 
     Map<String, String> remoteFiles = const <String, String>{};
     try {
@@ -92,18 +92,18 @@ class GitSyncService {
     return git;
   }
 
-  Map<String, String> _buildFilesFromHiveSnapshot() {
+  Future<Map<String, String>> _buildFilesFromHiveSnapshot() async {
     final activeCollection = _getActiveCollection();
     final collectionId = activeCollection.id;
 
-    final requestOrder = (hiveHandler.getCollectionRequestIds(collectionId) as List?)
+    final requestOrder = (await hiveHandler.getCollectionRequestIds(collectionId) as List?)
             ?.whereType<String>()
             .toList() ??
         const <String>[];
 
     final requestsById = <String, RequestModel>{};
     for (final requestId in requestOrder) {
-      final raw = hiveHandler.getCollectionRequestModel(collectionId, requestId);
+      final raw = await hiveHandler.getCollectionRequestModel(collectionId, requestId);
       if (raw is! Map) continue;
       try {
         final json = raw.map(
@@ -129,7 +129,7 @@ class GitSyncService {
       } catch (_) {}
     }
 
-    final collectionMeta = hiveHandler.getCollectionMeta(collectionId);
+    final collectionMeta = await hiveHandler.getCollectionMeta(collectionId);
     String collectionName = activeCollection.name;
     String collectionDescription = activeCollection.description;
     String? activeEnvironmentId = ref.read(activeEnvironmentIdStateProvider);
@@ -366,7 +366,7 @@ class GitSyncService {
       return;
     }
 
-    var files = _buildFilesFromHiveSnapshot();
+    var files = await _buildFilesFromHiveSnapshot();
     final isInitialRepoCommit = remoteHead == null;
     if (isInitialRepoCommit) {
       files = _withBootstrapRepoFiles(files);

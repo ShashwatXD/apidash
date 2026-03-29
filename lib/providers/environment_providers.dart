@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:apidash/consts.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/utils/file_utils.dart';
@@ -57,7 +59,11 @@ final StateNotifierProvider<
   Map<String, EnvironmentModel>?
 >
 environmentsStateNotifierProvider = StateNotifierProvider(
-  (ref) => EnvironmentsStateNotifier(ref, hiveHandler),
+  (ref) {
+    final notifier = EnvironmentsStateNotifier(ref, hiveHandler);
+    ref.onDispose(notifier.cancelEnvironmentAutosaveTimer);
+    return notifier;
+  },
 );
 
 class EnvironmentsStateNotifier
@@ -75,6 +81,39 @@ class EnvironmentsStateNotifier
 
   final Ref ref;
   final HiveHandler hiveHandler;
+
+  Timer? _envAutosaveTimer;
+
+  void cancelEnvironmentAutosaveTimer() {
+    _envAutosaveTimer?.cancel();
+    _envAutosaveTimer = null;
+  }
+
+  void _scheduleEnvironmentAutosave() {
+    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _envAutosaveTimer?.cancel();
+    _envAutosaveTimer = Timer(kAutosaveDebounce, () {
+      unawaited(_persistEnvironmentsDebounced());
+    });
+  }
+
+  Future<void> _persistEnvironmentsDebounced() async {
+    if (state == null) return;
+    ref.read(saveDataStateProvider.notifier).state = true;
+    try {
+      final environmentIds = ref.read(environmentSequenceProvider);
+      await hiveHandler.setEnvironmentIds(environmentIds);
+      for (final environmentId in environmentIds) {
+        await hiveHandler.setEnvironment(
+          environmentId,
+          state![environmentId]!.toJson(),
+        );
+      }
+    } finally {
+      ref.read(saveDataStateProvider.notifier).state = false;
+    }
+    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  }
 
   bool loadEnvironments() {
     List<String>? environmentIds = hiveHandler.getEnvironmentIds();
@@ -116,7 +155,7 @@ class EnvironmentsStateNotifier
         .update((state) => [...state, id]);
     ref.read(selectedEnvironmentIdStateProvider.notifier).state =
         newEnvironmentModel.id;
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _scheduleEnvironmentAutosave();
   }
 
   void updateEnvironment(
@@ -130,7 +169,7 @@ class EnvironmentsStateNotifier
       values: values ?? environment.values,
     );
     state = {...state!, id: updatedEnvironment};
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _scheduleEnvironmentAutosave();
   }
 
   void duplicateEnvironment(String id) {
@@ -152,7 +191,7 @@ class EnvironmentsStateNotifier
         .read(environmentSequenceProvider.notifier)
         .update((state) => [...environmentIds]);
     ref.read(selectedEnvironmentIdStateProvider.notifier).state = newId;
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _scheduleEnvironmentAutosave();
   }
 
   void removeEnvironment(String id) {
@@ -174,7 +213,7 @@ class EnvironmentsStateNotifier
 
     state = {...state!}..remove(id);
 
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _scheduleEnvironmentAutosave();
   }
 
   void reorder(int oldIdx, int newIdx) {
@@ -182,19 +221,24 @@ class EnvironmentsStateNotifier
     final id = environmentIds.removeAt(oldIdx);
     environmentIds.insert(newIdx, id);
     ref.read(environmentSequenceProvider.notifier).state = [...environmentIds];
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
+    _scheduleEnvironmentAutosave();
   }
 
   Future<void> saveEnvironments() async {
+    cancelEnvironmentAutosaveTimer();
+    if (state == null) return;
     ref.read(saveDataStateProvider.notifier).state = true;
-    final environmentIds = ref.read(environmentSequenceProvider);
-    await hiveHandler.setEnvironmentIds(environmentIds);
-    for (var environmentId in environmentIds) {
-      var environment = state![environmentId]!;
-      await hiveHandler.setEnvironment(environmentId, environment.toJson());
+    try {
+      final environmentIds = ref.read(environmentSequenceProvider);
+      await hiveHandler.setEnvironmentIds(environmentIds);
+      for (var environmentId in environmentIds) {
+        var environment = state![environmentId]!;
+        await hiveHandler.setEnvironment(environmentId, environment.toJson());
+      }
+      await hiveHandler.removeUnused();
+    } finally {
+      ref.read(saveDataStateProvider.notifier).state = false;
     }
-    await hiveHandler.removeUnused();
-    ref.read(saveDataStateProvider.notifier).state = false;
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }
 
@@ -205,6 +249,7 @@ class EnvironmentsStateNotifier
     required Map<String, EnvironmentModel> environmentsById,
     required List<String> environmentOrder,
   }) async {
+    cancelEnvironmentAutosaveTimer();
     final current = state ?? {};
 
     // Ensure global environment always exists (many parts assume it).

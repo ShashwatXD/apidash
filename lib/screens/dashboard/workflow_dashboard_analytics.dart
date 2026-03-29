@@ -49,13 +49,13 @@ class _WorkflowRunHistoryEntry {
   final int durationMs;
 }
 
-WorkflowDashboardData buildWorkflowDashboardData(
+Future<WorkflowDashboardData> buildWorkflowDashboardData(
   String workflowId,
   WorkflowModel workflow,
-) {
+) async {
   final nodes = workflow.graphData['nodes'];
   final nodeCount = nodes is List ? nodes.length : 0;
-  final raw = hiveHandler.getWorkflowRunHistory(workflowId);
+  final raw = await hiveHandler.getWorkflowRunHistory(workflowId);
   final runs = raw is List ? raw.whereType<Map>().toList(growable: false) : const <Map>[];
 
   final entries = <_WorkflowRunHistoryEntry>[];

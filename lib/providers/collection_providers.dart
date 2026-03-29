@@ -61,16 +61,7 @@ collectionStateNotifierProvider = StateNotifierProvider((ref) {
 class CollectionStateNotifier
     extends StateNotifier<Map<String, RequestModel>?> {
   CollectionStateNotifier(this.ref, this.hiveHandler) : super(null) {
-    loadData();
-    Future.microtask(() {
-      ref.read(collectionsStateProvider.notifier).state = _bootCollections;
-      ref.read(activeCollectionIdStateProvider.notifier).state =
-          _bootActiveCollectionId;
-      ref.read(requestSequenceProvider.notifier).state = _bootRequestSequence;
-      final sequence = _bootRequestSequence;
-      ref.read(selectedIdStateProvider.notifier).state =
-          sequence.isNotEmpty ? sequence.first : null;
-    });
+    unawaited(_bootstrapFromHive());
   }
 
   final Ref ref;
@@ -134,7 +125,7 @@ class CollectionStateNotifier
         await hiveHandler.setCollectionMeta(entry.key, collection.toJson());
         final ids = entry.key == activeCollectionId
             ? activeRequestIds
-            : ((hiveHandler.getCollectionRequestIds(entry.key) as List?)
+            : ((await hiveHandler.getCollectionRequestIds(entry.key) as List?)
                       ?.whereType<String>()
                       .toList() ??
                   collection.requestIds);
@@ -233,7 +224,7 @@ class CollectionStateNotifier
     cancelAutosaveTimer();
     await _persistCollectionsState(removeUnusedAfter: true);
     ref.read(activeCollectionIdStateProvider.notifier).state = collectionId;
-    _loadCollectionIntoState(collectionId);
+    await _loadCollectionIntoState(collectionId);
   }
 
   void addRequestModel(HttpRequestModel httpRequestModel, {String? name}) {
@@ -301,7 +292,7 @@ class CollectionStateNotifier
     ref.read(collectionsStateProvider.notifier).state = all;
     final nextId = all.keys.first;
     ref.read(activeCollectionIdStateProvider.notifier).state = nextId;
-    _loadCollectionIntoState(nextId);
+    await _loadCollectionIntoState(nextId);
     await hiveHandler.deleteCollection(collectionId);
     await _persistCollectionsState(removeUnusedAfter: true);
   }
@@ -760,9 +751,23 @@ class CollectionStateNotifier
     state = {};
   }
 
-  bool loadData() {
-    _initializeCollectionsStorage();
-    final collectionIds = (hiveHandler.getCollectionIds() as List?)?.whereType<String>().toList() ?? [];
+  void _applyBootProviders() {
+    Future.microtask(() {
+      ref.read(collectionsStateProvider.notifier).state = _bootCollections;
+      ref.read(activeCollectionIdStateProvider.notifier).state =
+          _bootActiveCollectionId;
+      ref.read(requestSequenceProvider.notifier).state = _bootRequestSequence;
+      final sequence = _bootRequestSequence;
+      ref.read(selectedIdStateProvider.notifier).state =
+          sequence.isNotEmpty ? sequence.first : null;
+    });
+  }
+
+  Future<void> _bootstrapFromHive() async {
+    await _initializeCollectionsStorage();
+    final collectionIdsRaw = await hiveHandler.getCollectionIds();
+    final collectionIds =
+        (collectionIdsRaw as List?)?.whereType<String>().toList() ?? [];
     if (collectionIds.isEmpty) {
       final defaultCollectionId = getNewUuid();
       final defaultRequestId = getNewUuid();
@@ -785,7 +790,6 @@ class CollectionStateNotifier
           httpRequestModel: const HttpRequestModel(),
         ),
       };
-      // Persist bootstrap state best-effort.
       unawaited(hiveHandler.setCollectionIds([defaultCollectionId]));
       unawaited(hiveHandler.setActiveCollectionId(defaultCollectionId));
       unawaited(
@@ -807,12 +811,13 @@ class CollectionStateNotifier
           state![defaultRequestId]!.toJson(),
         ),
       );
-      return true;
+      _applyBootProviders();
+      return;
     }
 
     final collections = <String, CollectionModel>{};
     for (final cId in collectionIds) {
-      final raw = hiveHandler.getCollectionMeta(cId);
+      final raw = await hiveHandler.getCollectionMeta(cId);
       if (raw == null) continue;
       try {
         final map = Map<String, dynamic>.from(raw);
@@ -862,17 +867,18 @@ class CollectionStateNotifier
           defaultRequest.toJson(),
         ),
       );
-      return true;
+      _applyBootProviders();
+      return;
     }
     _bootCollections = collections;
-    final active = hiveHandler.getActiveCollectionId();
+    final active = await hiveHandler.getActiveCollectionId();
     final activeId =
         active != null && collections.containsKey(active) ? active : collections.keys.first;
     _bootActiveCollectionId = activeId;
-    final loaded = _readCollectionData(activeId);
+    final loaded = await _readCollectionData(activeId);
     _bootRequestSequence = loaded.sequence;
     state = loaded.requestsById;
-    return false;
+    _applyBootProviders();
   }
 
   Future<void> saveData() async {
@@ -897,9 +903,9 @@ class CollectionStateNotifier
     return substituteHttpRequestModel(httpRequestModel, envMap, activeEnvId);
   }
 
-  void _initializeCollectionsStorage() {
-    final collectionIds = hiveHandler.getCollectionIds();
-    if (collectionIds is List && collectionIds.isNotEmpty) {
+  Future<void> _initializeCollectionsStorage() async {
+    final collectionIdsRaw = await hiveHandler.getCollectionIds();
+    if (collectionIdsRaw is List && collectionIdsRaw.isNotEmpty) {
       return;
     }
     final legacyIds = (hiveHandler.getIds() as List?)?.whereType<String>().toList() ?? [];
@@ -917,8 +923,8 @@ class CollectionStateNotifier
     unawaited(hiveHandler.setCollectionMeta(collectionId, collection.toJson()));
     unawaited(hiveHandler.setCollectionRequestIds(collectionId, legacyIds));
     for (final requestId in legacyIds) {
-      final legacy = hiveHandler.getRequestModel(requestId);
-      if (legacy != null) {
+      final legacy = await hiveHandler.getRequestModel(requestId);
+      if (legacy is Map) {
         unawaited(
           hiveHandler.setCollectionRequestModel(
             collectionId,
@@ -930,8 +936,8 @@ class CollectionStateNotifier
     }
   }
 
-  void _loadCollectionIntoState(String collectionId) {
-    final loaded = _readCollectionData(collectionId);
+  Future<void> _loadCollectionIntoState(String collectionId) async {
+    final loaded = await _readCollectionData(collectionId);
     ref.read(requestSequenceProvider.notifier).state = loaded.sequence;
     state = loaded.requestsById;
     final sequence = loaded.sequence;
@@ -963,14 +969,12 @@ class CollectionStateNotifier
     return 'request $idx';
   }
 
-  _LoadedCollectionData _readCollectionData(String collectionId) {
-    final ids = (hiveHandler.getCollectionRequestIds(collectionId) as List?)
-            ?.whereType<String>()
-            .toList() ??
-        [];
+  Future<_LoadedCollectionData> _readCollectionData(String collectionId) async {
+    final idsRaw = await hiveHandler.getCollectionRequestIds(collectionId);
+    final ids = (idsRaw as List?)?.whereType<String>().toList() ?? [];
     final map = <String, RequestModel>{};
     for (final id in ids) {
-      final raw = hiveHandler.getCollectionRequestModel(collectionId, id);
+      final raw = await hiveHandler.getCollectionRequestModel(collectionId, id);
       if (raw == null) continue;
       try {
         final jsonMap = Map<String, Object?>.from(raw);

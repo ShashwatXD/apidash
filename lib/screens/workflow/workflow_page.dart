@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -740,7 +741,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     _selectedNodeId = null;
     _runningNodeId = null;
     _isRunning = false;
-    _loadRunHistoryFromHive(workflowId);
+    unawaited(_loadRunHistoryFromHive(workflowId));
     if (mounted) setState(() {});
   }
 
@@ -756,7 +757,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     _selectedNodeId = null;
     _runningNodeId = null;
     _isRunning = false;
-    _loadRunHistoryFromHive(model.id);
+    unawaited(_loadRunHistoryFromHive(model.id));
     if (mounted) setState(() {});
   }
 
@@ -782,7 +783,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
       _hydrateFromGraph(workflow.graphData);
       _syncNodeCounterFromGraph();
     }
-    _loadRunHistoryFromHive(activeWorkflowId);
+    unawaited(_loadRunHistoryFromHive(activeWorkflowId));
     if (mounted) setState(() {});
   }
 
@@ -796,8 +797,8 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     ref.read(navRailIndexStateProvider.notifier).state = 5;
   }
 
-  void _loadRunHistoryFromHive(String workflowId) {
-    final raw = hiveHandler.getWorkflowRunHistory(workflowId);
+  Future<void> _loadRunHistoryFromHive(String workflowId) async {
+    final raw = await hiveHandler.getWorkflowRunHistory(workflowId);
     _runHistory.clear();
     if (raw is! List) return;
     _runHistory.addAll(
@@ -1241,7 +1242,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
         if (workflow != null) {
           _hydrateFromGraph(workflow.graphData);
         }
-        _loadRunHistoryFromHive(workflowId);
+        unawaited(_loadRunHistoryFromHive(workflowId));
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

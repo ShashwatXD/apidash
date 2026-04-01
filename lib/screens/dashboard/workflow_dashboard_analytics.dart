@@ -1,5 +1,5 @@
 import 'package:apidash/models/models.dart';
-import 'package:apidash/services/services.dart';
+import 'package:apidash/services/hive_services.dart';
 
 class WorkflowDashboardData {
   const WorkflowDashboardData({

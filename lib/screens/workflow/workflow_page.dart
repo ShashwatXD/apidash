@@ -6,7 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/services/services.dart';
+import 'package:apidash/services/hive_services.dart';
+import 'package:apidash/services/workflow_execution_service.dart';
 import 'package:apidash/screens/workflow/workflow_canvas_constants.dart';
 import 'package:apidash/screens/workflow/workflow_metric_chip.dart';
 import 'package:apidash/screens/workflow/workflow_node_inspector.dart';
@@ -38,6 +39,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   String? _pendingConnectSourceNodeId;
   String? _pendingConnectSourcePortId;
   String? _workflowId;
+  DateTime? _lastHydratedModifiedAt;
   final List<WorkflowRunRecord> _runHistory = [];
 
   @override
@@ -734,6 +736,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     if (workflow != null) {
       _hydrateFromGraph(workflow.graphData);
       _syncNodeCounterFromGraph();
+      _lastHydratedModifiedAt = workflow.modifiedAt;
     }
     _runEvents.clear();
     _nodeSuccess.clear();
@@ -751,6 +754,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     _workflowId = model.id;
     _hydrateFromGraph(model.graphData);
     _syncNodeCounterFromGraph();
+    _lastHydratedModifiedAt = model.modifiedAt;
     _runEvents.clear();
     _nodeSuccess.clear();
     _nodeOutputs.clear();
@@ -782,6 +786,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     if (workflow != null) {
       _hydrateFromGraph(workflow.graphData);
       _syncNodeCounterFromGraph();
+      _lastHydratedModifiedAt = workflow.modifiedAt;
     }
     unawaited(_loadRunHistoryFromHive(activeWorkflowId));
     if (mounted) setState(() {});
@@ -1269,6 +1274,21 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     final dropdownWorkflowId = _workflowId != null && workflows.containsKey(_workflowId)
         ? _workflowId!
         : (workflowIds.isNotEmpty ? workflowIds.first : null);
+
+    if (!_isRunning && dropdownWorkflowId != null) {
+      final w = workflows[dropdownWorkflowId];
+      if (w != null &&
+          (_lastHydratedModifiedAt == null || w.modifiedAt != _lastHydratedModifiedAt)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _hydrateFromGraph(w.graphData);
+          _syncNodeCounterFromGraph();
+          _lastHydratedModifiedAt = w.modifiedAt;
+          setState(() {});
+        });
+      }
+    }
+
     final selectedNode =
         _selectedNodeId == null ? null : _controller.nodes[_selectedNodeId!];
     final displayRunEvents = _runEventsForDisplay().reversed.toList();

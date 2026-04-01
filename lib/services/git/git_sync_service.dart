@@ -3,7 +3,8 @@ import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/collection_providers.dart';
 import 'package:apidash/providers/environment_providers.dart';
 import 'package:apidash/providers/settings_providers.dart';
-import 'package:apidash/services/services.dart';
+import 'package:apidash/services/git_collection_serializer.dart';
+import 'package:apidash/services/hive_services.dart';
 import 'package:apidash/services/git/github_api_adapter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

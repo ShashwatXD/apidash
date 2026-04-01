@@ -73,7 +73,8 @@ class _AppState extends ConsumerState<App> with WindowListener {
                 child: const Text('No'),
                 onPressed: () async {
                   Navigator.of(context).pop();
-                  await windowManager.destroy();
+                  await windowManager.setPreventClose(false);
+                  await windowManager.close();
                 },
               ),
               FilledButton(
@@ -83,15 +84,16 @@ class _AppState extends ConsumerState<App> with WindowListener {
                       .read(collectionStateNotifierProvider.notifier)
                       .saveData();
                   Navigator.of(context).pop();
-                  await windowManager.destroy();
+                  await windowManager.setPreventClose(false);
+                  await windowManager.close();
                 },
               ),
             ],
           ),
         );
       } else {
-        await ref.read(collectionStateNotifierProvider.notifier).saveData();
-        await windowManager.destroy();
+        await windowManager.setPreventClose(false);
+        await windowManager.close();
       }
     }
   }

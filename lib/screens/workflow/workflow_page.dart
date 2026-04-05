@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:vyuh_node_flow/vyuh_node_flow.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/services/hive_services.dart';
+import 'package:apidash/services/file_system_handler.dart';
 import 'package:apidash/services/workflow_execution_service.dart';
 import 'package:apidash/screens/workflow/workflow_canvas_constants.dart';
 import 'package:apidash/screens/workflow/workflow_metric_chip.dart';
@@ -803,7 +803,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
   }
 
   Future<void> _loadRunHistoryFromHive(String workflowId) async {
-    final raw = await hiveHandler.getWorkflowRunHistory(workflowId);
+    final raw = await fileSystemHandler.getWorkflowRunHistory(workflowId);
     _runHistory.clear();
     if (raw is! List) return;
     _runHistory.addAll(
@@ -915,7 +915,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
     if (workflowId == null) return;
     _workflowId ??= workflowId;
     final runs = _runHistory.map((r) => r.toJson()).toList(growable: false);
-    await hiveHandler.setWorkflowRunHistory(workflowId, runs);
+    await fileSystemHandler.setWorkflowRunHistory(workflowId, runs);
     ref.read(workflowRunHistoryRevisionProvider.notifier).state++;
   }
 

@@ -4,7 +4,7 @@ import 'package:apidash/providers/collection_providers.dart';
 import 'package:apidash/providers/environment_providers.dart';
 import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash/services/git_collection_serializer.dart';
-import 'package:apidash/services/hive_services.dart';
+import 'package:apidash/services/file_system_handler.dart';
 import 'package:apidash/services/git/github_api_adapter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -38,7 +38,7 @@ class GitSyncService {
   }) async {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     final git = _getActiveGitConnection();
-    final localFiles = await _buildFilesFromHiveSnapshot();
+    final localFiles = await _buildFilesFromLocalSnapshot();
 
     Map<String, String> remoteFiles = const <String, String>{};
     try {
@@ -93,18 +93,18 @@ class GitSyncService {
     return git;
   }
 
-  Future<Map<String, String>> _buildFilesFromHiveSnapshot() async {
+  Future<Map<String, String>> _buildFilesFromLocalSnapshot() async {
     final activeCollection = _getActiveCollection();
     final collectionId = activeCollection.id;
 
-    final requestOrder = (await hiveHandler.getCollectionRequestIds(collectionId) as List?)
+    final requestOrder = (await fileSystemHandler.getCollectionRequestIds(collectionId) as List?)
             ?.whereType<String>()
             .toList() ??
         const <String>[];
 
     final requestsById = <String, RequestModel>{};
     for (final requestId in requestOrder) {
-      final raw = await hiveHandler.getCollectionRequestModel(collectionId, requestId);
+      final raw = await fileSystemHandler.getCollectionRequestModel(collectionId, requestId);
       if (raw is! Map) continue;
       try {
         final json = raw.map(
@@ -114,13 +114,13 @@ class GitSyncService {
       } catch (_) {}
     }
 
-    final environmentOrder = (hiveHandler.getEnvironmentIds() as List?)
+    final environmentOrder = (fileSystemHandler.getEnvironmentIds() as List?)
             ?.whereType<String>()
             .toList() ??
         const <String>[];
     final environmentsById = <String, EnvironmentModel>{};
     for (final envId in environmentOrder) {
-      final raw = hiveHandler.getEnvironment(envId);
+      final raw = fileSystemHandler.getEnvironment(envId);
       if (raw is! Map) continue;
       try {
         final json = raw.map(
@@ -130,7 +130,7 @@ class GitSyncService {
       } catch (_) {}
     }
 
-    final collectionMeta = await hiveHandler.getCollectionMeta(collectionId);
+    final collectionMeta = await fileSystemHandler.getCollectionMeta(collectionId);
     String collectionName = activeCollection.name;
     String collectionDescription = activeCollection.description;
     String? activeEnvironmentId = ref.read(activeEnvironmentIdStateProvider);
@@ -367,7 +367,7 @@ class GitSyncService {
       return;
     }
 
-    var files = await _buildFilesFromHiveSnapshot();
+    var files = await _buildFilesFromLocalSnapshot();
     final isInitialRepoCommit = remoteHead == null;
     if (isInitialRepoCommit) {
       files = _withBootstrapRepoFiles(files);

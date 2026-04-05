@@ -42,7 +42,6 @@ final kHisScaffoldKey = GlobalKey<ScaffoldState>();
 
 const kTabAnimationDuration = Duration(milliseconds: 200);
 
-/// Debounced delay before writing the active collection to Hive (autosave).
 const kAutosaveDebounce = Duration(seconds: 2);
 const kTabHeight = 40.0;
 const kHeaderHeight = 32.0;

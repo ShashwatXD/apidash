@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:apidash/models/models.dart';
-import 'package:apidash/services/hive_services.dart';
+import 'package:apidash/services/file_system_handler.dart';
 import 'package:apidash/utils/utils.dart';
 
 final workflowIdStateProvider = StateProvider<String?>((ref) => null);
@@ -13,25 +13,25 @@ final workflowRunHistoryRevisionProvider = StateProvider<int>((ref) => 0);
 
 final workflowsStateProvider =
     StateNotifierProvider<WorkflowStateNotifier, Map<String, WorkflowModel>>(
-  (ref) => WorkflowStateNotifier(ref, hiveHandler),
+  (ref) => WorkflowStateNotifier(ref, fileSystemHandler),
 );
 
 class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
-  WorkflowStateNotifier(this.ref, this.hiveHandler) : super(const {}) {
+  WorkflowStateNotifier(this.ref, this.fileSystemHandler) : super(const {}) {
     unawaited(_load());
   }
 
   final Ref ref;
-  final HiveHandler hiveHandler;
+  final FileSystemHandler fileSystemHandler;
 
   String? get activeWorkflowId => ref.read(workflowIdStateProvider);
 
   Future<void> _load() async {
-    final storedIdsRaw = await hiveHandler.getWorkflowIds();
+    final storedIdsRaw = await fileSystemHandler.getWorkflowIds();
     final storedIds =
         (storedIdsRaw as List?)?.whereType<String>().toList() ??
             const <String>[];
-    final activeId = await hiveHandler.getActiveWorkflowId();
+    final activeId = await fileSystemHandler.getActiveWorkflowId();
     final ids = storedIds.isNotEmpty
         ? storedIds
         : <String>[
@@ -39,7 +39,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
           ];
     final workflows = <String, WorkflowModel>{};
     for (final id in ids) {
-      final raw = await hiveHandler.getWorkflow(id);
+      final raw = await fileSystemHandler.getWorkflow(id);
       if (raw is Map) {
         final json = raw.map((k, v) => MapEntry(k.toString(), v));
         try {
@@ -80,7 +80,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
   void setActive(String workflowId) {
     if (!state.containsKey(workflowId)) return;
     ref.read(workflowIdStateProvider.notifier).state = workflowId;
-    unawaited(hiveHandler.setActiveWorkflowId(workflowId));
+    unawaited(fileSystemHandler.setActiveWorkflowId(workflowId));
   }
 
   Future<void> saveGraph({
@@ -94,7 +94,7 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
       modifiedAt: DateTime.now(),
     );
     state = {...state, workflowId: updated};
-    await hiveHandler.setWorkflow(workflowId, updated.toJson());
+    await fileSystemHandler.setWorkflow(workflowId, updated.toJson());
   }
 
   Future<void> importFromJson(String source) async {
@@ -120,9 +120,9 @@ class WorkflowStateNotifier extends StateNotifier<Map<String, WorkflowModel>> {
 
   Future<void> _persistWorkflows() async {
     final ids = state.keys.toList(growable: false);
-    await hiveHandler.setWorkflowIds(ids);
+    await fileSystemHandler.setWorkflowIds(ids);
     for (final entry in state.entries) {
-      await hiveHandler.setWorkflow(entry.key, entry.value.toJson());
+      await fileSystemHandler.setWorkflow(entry.key, entry.value.toJson());
     }
   }
 }

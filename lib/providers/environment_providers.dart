@@ -6,7 +6,7 @@ import 'package:apidash/utils/file_utils.dart';
 import 'package:apidash_core/apidash_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import '../services/services.dart' show hiveHandler, HiveHandler;
+import '../services/services.dart' show fileSystemHandler, FileSystemHandler;
 
 final selectedEnvironmentIdStateProvider = StateProvider<String?>(
   (ref) => null,
@@ -50,7 +50,7 @@ final availableEnvironmentVariablesStateProvider =
     });
 
 final environmentSequenceProvider = StateProvider<List<String>>((ref) {
-  var ids = hiveHandler.getEnvironmentIds();
+  var ids = fileSystemHandler.getEnvironmentIds();
   return ids ?? [kGlobalEnvironmentId];
 });
 
@@ -60,7 +60,7 @@ final StateNotifierProvider<
 >
 environmentsStateNotifierProvider = StateNotifierProvider(
   (ref) {
-    final notifier = EnvironmentsStateNotifier(ref, hiveHandler);
+    final notifier = EnvironmentsStateNotifier(ref, fileSystemHandler);
     ref.onDispose(notifier.cancelEnvironmentAutosaveTimer);
     return notifier;
   },
@@ -68,7 +68,7 @@ environmentsStateNotifierProvider = StateNotifierProvider(
 
 class EnvironmentsStateNotifier
     extends StateNotifier<Map<String, EnvironmentModel>?> {
-  EnvironmentsStateNotifier(this.ref, this.hiveHandler) : super(null) {
+  EnvironmentsStateNotifier(this.ref, this.fileSystemHandler) : super(null) {
     var status = loadEnvironments();
     Future.microtask(() {
       if (status) {
@@ -80,7 +80,7 @@ class EnvironmentsStateNotifier
   }
 
   final Ref ref;
-  final HiveHandler hiveHandler;
+  final FileSystemHandler fileSystemHandler;
 
   Timer? _envAutosaveTimer;
 
@@ -102,9 +102,9 @@ class EnvironmentsStateNotifier
     ref.read(saveDataStateProvider.notifier).state = true;
     try {
       final environmentIds = ref.read(environmentSequenceProvider);
-      await hiveHandler.setEnvironmentIds(environmentIds);
+      await fileSystemHandler.setEnvironmentIds(environmentIds);
       for (final environmentId in environmentIds) {
-        await hiveHandler.setEnvironment(
+        await fileSystemHandler.setEnvironment(
           environmentId,
           state![environmentId]!.toJson(),
         );
@@ -116,7 +116,7 @@ class EnvironmentsStateNotifier
   }
 
   bool loadEnvironments() {
-    List<String>? environmentIds = hiveHandler.getEnvironmentIds();
+    List<String>? environmentIds = fileSystemHandler.getEnvironmentIds();
     if (environmentIds == null || environmentIds.isEmpty) {
       const globalEnvironment = EnvironmentModel(
         id: kGlobalEnvironmentId,
@@ -128,7 +128,7 @@ class EnvironmentsStateNotifier
     } else {
       Map<String, EnvironmentModel> environmentsMap = {};
       for (var environmentId in environmentIds) {
-        var jsonModel = hiveHandler.getEnvironment(environmentId);
+        var jsonModel = fileSystemHandler.getEnvironment(environmentId);
         if (jsonModel != null) {
           var jsonMap = Map<String, Object?>.from(jsonModel);
           var environmentModelFromJson = EnvironmentModel.fromJson(jsonMap);
@@ -230,12 +230,12 @@ class EnvironmentsStateNotifier
     ref.read(saveDataStateProvider.notifier).state = true;
     try {
       final environmentIds = ref.read(environmentSequenceProvider);
-      await hiveHandler.setEnvironmentIds(environmentIds);
+      await fileSystemHandler.setEnvironmentIds(environmentIds);
       for (var environmentId in environmentIds) {
         var environment = state![environmentId]!;
-        await hiveHandler.setEnvironment(environmentId, environment.toJson());
+        await fileSystemHandler.setEnvironment(environmentId, environment.toJson());
       }
-      await hiveHandler.removeUnused();
+      await fileSystemHandler.removeUnused();
     } finally {
       ref.read(saveDataStateProvider.notifier).state = false;
     }
@@ -275,11 +275,11 @@ class EnvironmentsStateNotifier
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
     ref.read(saveDataStateProvider.notifier).state = true;
 
-    await hiveHandler.setEnvironmentIds(mergedOrder);
+    await fileSystemHandler.setEnvironmentIds(mergedOrder);
     for (final id in mergedOrder) {
-      await hiveHandler.setEnvironment(id, merged[id]!.toJson());
+      await fileSystemHandler.setEnvironment(id, merged[id]!.toJson());
     }
-    await hiveHandler.removeUnused();
+    await fileSystemHandler.removeUnused();
 
     ref.read(saveDataStateProvider.notifier).state = false;
     ref.read(hasUnsavedChangesProvider.notifier).state = false;

@@ -39,7 +39,7 @@ final selectedSubstitutedHttpRequestModelProvider =
     });
 
 final requestSequenceProvider = StateProvider<List<String>>((ref) {
-  var ids = hiveHandler.getIds();
+  var ids = fileSystemHandler.getIds();
   return ids ?? [];
 });
 
@@ -53,19 +53,28 @@ final activeCollectionIdStateProvider = StateProvider<String?>((ref) => null);
 
 final StateNotifierProvider<CollectionStateNotifier, Map<String, RequestModel>?>
 collectionStateNotifierProvider = StateNotifierProvider((ref) {
-  final notifier = CollectionStateNotifier(ref, hiveHandler);
+  final notifier = CollectionStateNotifier(ref, fileSystemHandler);
   ref.onDispose(notifier.cancelAutosaveTimer);
   return notifier;
 });
 
 class CollectionStateNotifier
     extends StateNotifier<Map<String, RequestModel>?> {
-  CollectionStateNotifier(this.ref, this.hiveHandler) : super(null) {
-    unawaited(_bootstrapFromHive());
+  CollectionStateNotifier(this.ref, this.fileSystemHandler) : super(null) {
+    final snap = fileSystemHandler.loadBootstrapSnapshotSync();
+    if (snap != null) {
+      _bootCollections = snap.collections;
+      _bootActiveCollectionId = snap.activeCollectionId;
+      _bootRequestSequence = snap.requestSequence;
+      state = snap.requestsById;
+      _applyBootProviders();
+    } else {
+      unawaited(_bootstrapFromHive());
+    }
   }
 
   final Ref ref;
-  final HiveHandler hiveHandler;
+  final FileSystemHandler fileSystemHandler;
   final baseHttpResponseModel = const HttpResponseModel();
   Map<String, CollectionModel> _bootCollections = const {};
   String? _bootActiveCollectionId;
@@ -118,21 +127,21 @@ class CollectionStateNotifier
         ref.read(collectionsStateProvider.notifier).state = collections;
       }
 
-      await hiveHandler.setCollectionIds(collections.keys.toList());
-      await hiveHandler.setActiveCollectionId(activeCollectionId);
+      await fileSystemHandler.setCollectionIds(collections.keys.toList());
+      await fileSystemHandler.setActiveCollectionId(activeCollectionId);
       for (final entry in collections.entries) {
         final collection = entry.value;
-        await hiveHandler.setCollectionMeta(entry.key, collection.toJson());
+        await fileSystemHandler.setCollectionMeta(entry.key, collection.toJson());
         final ids = entry.key == activeCollectionId
             ? activeRequestIds
-            : ((await hiveHandler.getCollectionRequestIds(entry.key) as List?)
+            : ((await fileSystemHandler.getCollectionRequestIds(entry.key) as List?)
                       ?.whereType<String>()
                       .toList() ??
                   collection.requestIds);
-        await hiveHandler.setCollectionRequestIds(entry.key, ids);
+        await fileSystemHandler.setCollectionRequestIds(entry.key, ids);
         if (entry.key == activeCollectionId) {
           for (final id in ids) {
-            await hiveHandler.setCollectionRequestModel(
+            await fileSystemHandler.setCollectionRequestModel(
               entry.key,
               id,
               saveResponse
@@ -143,9 +152,9 @@ class CollectionStateNotifier
         }
       }
 
-      await hiveHandler.setIds(activeRequestIds);
+      await fileSystemHandler.setIds(activeRequestIds);
       for (final id in activeRequestIds) {
-        await hiveHandler.setRequestModel(
+        await fileSystemHandler.setRequestModel(
           id,
           saveResponse
               ? (state?[id])?.toJson()
@@ -153,7 +162,7 @@ class CollectionStateNotifier
         );
       }
       if (removeUnusedAfter) {
-        await hiveHandler.removeUnused();
+        await fileSystemHandler.removeUnused();
       }
     } finally {
       ref.read(saveDataStateProvider.notifier).state = false;
@@ -293,7 +302,7 @@ class CollectionStateNotifier
     final nextId = all.keys.first;
     ref.read(activeCollectionIdStateProvider.notifier).state = nextId;
     await _loadCollectionIntoState(nextId);
-    await hiveHandler.deleteCollection(collectionId);
+    await fileSystemHandler.deleteCollection(collectionId);
     await _persistCollectionsState(removeUnusedAfter: true);
   }
 
@@ -744,11 +753,30 @@ class CollectionStateNotifier
     cancelAutosaveTimer();
     ref.read(clearDataStateProvider.notifier).state = true;
     ref.read(selectedIdStateProvider.notifier).state = null;
-    await hiveHandler.clear();
+    await fileSystemHandler.clear();
     ref.read(clearDataStateProvider.notifier).state = false;
     ref.read(requestSequenceProvider.notifier).state = [];
     _syncActiveCollectionRequestIds(const []);
     state = {};
+  }
+
+  Future<void> _persistDefaultCollectionBootstrap({
+    required String defaultCollectionId,
+    required String defaultRequestId,
+    required CollectionModel defaultCollection,
+    required Map<String, dynamic> requestJson,
+  }) async {
+    await fileSystemHandler.setCollectionIds([defaultCollectionId]);
+    await fileSystemHandler.setActiveCollectionId(defaultCollectionId);
+    await fileSystemHandler.setCollectionMeta(
+      defaultCollectionId,
+      defaultCollection.toJson(),
+    );
+    await fileSystemHandler.setCollectionRequestModel(
+      defaultCollectionId,
+      defaultRequestId,
+      requestJson,
+    );
   }
 
   void _applyBootProviders() {
@@ -764,8 +792,7 @@ class CollectionStateNotifier
   }
 
   Future<void> _bootstrapFromHive() async {
-    await _initializeCollectionsStorage();
-    final collectionIdsRaw = await hiveHandler.getCollectionIds();
+    final collectionIdsRaw = await fileSystemHandler.getCollectionIds();
     final collectionIds =
         (collectionIdsRaw as List?)?.whereType<String>().toList() ?? [];
     if (collectionIds.isEmpty) {
@@ -790,26 +817,11 @@ class CollectionStateNotifier
           httpRequestModel: const HttpRequestModel(),
         ),
       };
-      unawaited(hiveHandler.setCollectionIds([defaultCollectionId]));
-      unawaited(hiveHandler.setActiveCollectionId(defaultCollectionId));
-      unawaited(
-        hiveHandler.setCollectionMeta(
-          defaultCollectionId,
-          defaultCollection.toJson(),
-        ),
-      );
-      unawaited(
-        hiveHandler.setCollectionRequestIds(
-          defaultCollectionId,
-          [defaultRequestId],
-        ),
-      );
-      unawaited(
-        hiveHandler.setCollectionRequestModel(
-          defaultCollectionId,
-          defaultRequestId,
-          state![defaultRequestId]!.toJson(),
-        ),
+      await _persistDefaultCollectionBootstrap(
+        defaultCollectionId: defaultCollectionId,
+        defaultRequestId: defaultRequestId,
+        defaultCollection: defaultCollection,
+        requestJson: state![defaultRequestId]!.toJson(),
       );
       _applyBootProviders();
       return;
@@ -817,7 +829,7 @@ class CollectionStateNotifier
 
     final collections = <String, CollectionModel>{};
     for (final cId in collectionIds) {
-      final raw = await hiveHandler.getCollectionMeta(cId);
+      final raw = await fileSystemHandler.getCollectionMeta(cId);
       if (raw == null) continue;
       try {
         final map = Map<String, dynamic>.from(raw);
@@ -846,32 +858,17 @@ class CollectionStateNotifier
       _bootActiveCollectionId = defaultCollectionId;
       _bootRequestSequence = [defaultRequestId];
       state = {defaultRequestId: defaultRequest};
-      unawaited(hiveHandler.setCollectionIds([defaultCollectionId]));
-      unawaited(hiveHandler.setActiveCollectionId(defaultCollectionId));
-      unawaited(
-        hiveHandler.setCollectionMeta(
-          defaultCollectionId,
-          defaultCollection.toJson(),
-        ),
-      );
-      unawaited(
-        hiveHandler.setCollectionRequestIds(
-          defaultCollectionId,
-          [defaultRequestId],
-        ),
-      );
-      unawaited(
-        hiveHandler.setCollectionRequestModel(
-          defaultCollectionId,
-          defaultRequestId,
-          defaultRequest.toJson(),
-        ),
+      await _persistDefaultCollectionBootstrap(
+        defaultCollectionId: defaultCollectionId,
+        defaultRequestId: defaultRequestId,
+        defaultCollection: defaultCollection,
+        requestJson: defaultRequest.toJson(),
       );
       _applyBootProviders();
       return;
     }
     _bootCollections = collections;
-    final active = await hiveHandler.getActiveCollectionId();
+    final active = await fileSystemHandler.getActiveCollectionId();
     final activeId =
         active != null && collections.containsKey(active) ? active : collections.keys.first;
     _bootActiveCollectionId = activeId;
@@ -901,39 +898,6 @@ class CollectionStateNotifier
     var activeEnvId = ref.read(activeEnvironmentIdStateProvider);
 
     return substituteHttpRequestModel(httpRequestModel, envMap, activeEnvId);
-  }
-
-  Future<void> _initializeCollectionsStorage() async {
-    final collectionIdsRaw = await hiveHandler.getCollectionIds();
-    if (collectionIdsRaw is List && collectionIdsRaw.isNotEmpty) {
-      return;
-    }
-    final legacyIds = (hiveHandler.getIds() as List?)?.whereType<String>().toList() ?? [];
-    final collectionId = getNewUuid();
-    final now = DateTime.now();
-    final collection = CollectionModel(
-      id: collectionId,
-      name: 'Default Collection',
-      requestIds: legacyIds,
-      createdAt: now,
-      updatedAt: now,
-    );
-    unawaited(hiveHandler.setCollectionIds([collectionId]));
-    unawaited(hiveHandler.setActiveCollectionId(collectionId));
-    unawaited(hiveHandler.setCollectionMeta(collectionId, collection.toJson()));
-    unawaited(hiveHandler.setCollectionRequestIds(collectionId, legacyIds));
-    for (final requestId in legacyIds) {
-      final legacy = await hiveHandler.getRequestModel(requestId);
-      if (legacy is Map) {
-        unawaited(
-          hiveHandler.setCollectionRequestModel(
-            collectionId,
-            requestId,
-            Map<String, dynamic>.from(legacy),
-          ),
-        );
-      }
-    }
   }
 
   Future<void> _loadCollectionIntoState(String collectionId) async {
@@ -970,11 +934,11 @@ class CollectionStateNotifier
   }
 
   Future<_LoadedCollectionData> _readCollectionData(String collectionId) async {
-    final idsRaw = await hiveHandler.getCollectionRequestIds(collectionId);
+    final idsRaw = await fileSystemHandler.getCollectionRequestIds(collectionId);
     final ids = (idsRaw as List?)?.whereType<String>().toList() ?? [];
     final map = <String, RequestModel>{};
     for (final id in ids) {
-      final raw = await hiveHandler.getCollectionRequestModel(collectionId, id);
+      final raw = await fileSystemHandler.getCollectionRequestModel(collectionId, id);
       if (raw == null) continue;
       try {
         final jsonMap = Map<String, Object?>.from(raw);
@@ -1024,16 +988,16 @@ class CollectionStateNotifier
     ref.read(selectedIdStateProvider.notifier).state =
         requestOrder.isNotEmpty ? requestOrder.first : null;
 
-    // Persist to Hive (replace the active collection contract).
+    // Persist to disk (replace the active collection contract).
     final saveResponses = ref.read(settingsProvider).saveResponses;
-    await hiveHandler.setCollectionRequestIds(
+    await fileSystemHandler.setCollectionRequestIds(
       activeCollectionId,
       requestOrder,
     );
     for (final id in requestOrder) {
       final model = requestsById[id];
       if (model == null) continue;
-      await hiveHandler.setCollectionRequestModel(
+      await fileSystemHandler.setCollectionRequestModel(
         activeCollectionId,
         id,
         saveResponses
@@ -1041,7 +1005,7 @@ class CollectionStateNotifier
             : model.copyWith(httpResponseModel: null).toJson(),
       );
     }
-    await hiveHandler.removeUnused();
+    await fileSystemHandler.removeUnused();
 
     return malformedRequests;
   }
@@ -1070,9 +1034,9 @@ class CollectionStateNotifier
 
     all[activeCollectionId] = updated;
     ref.read(collectionsStateProvider.notifier).state = all;
-    await hiveHandler.setCollectionIds(all.keys.toList());
-    await hiveHandler.setActiveCollectionId(activeCollectionId);
-    await hiveHandler.setCollectionMeta(activeCollectionId, updated.toJson());
+    await fileSystemHandler.setCollectionIds(all.keys.toList());
+    await fileSystemHandler.setActiveCollectionId(activeCollectionId);
+    await fileSystemHandler.setCollectionMeta(activeCollectionId, updated.toJson());
   }
 }
 

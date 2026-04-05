@@ -1,5 +1,5 @@
 import 'package:apidash/models/models.dart';
-import 'package:apidash/services/hive_services.dart';
+import 'package:apidash/services/file_system_handler.dart';
 
 class WorkflowDashboardData {
   const WorkflowDashboardData({
@@ -55,7 +55,7 @@ Future<WorkflowDashboardData> buildWorkflowDashboardData(
 ) async {
   final nodes = workflow.graphData['nodes'];
   final nodeCount = nodes is List ? nodes.length : 0;
-  final raw = await hiveHandler.getWorkflowRunHistory(workflowId);
+  final raw = await fileSystemHandler.getWorkflowRunHistory(workflowId);
   final runs = raw is List ? raw.whereType<Map>().toList(growable: false) : const <Map>[];
 
   final entries = <_WorkflowRunHistoryEntry>[];

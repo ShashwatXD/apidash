@@ -125,18 +125,14 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
         ids.contains(effectiveId()) ? effectiveId() : ids.first;
     final selected = workflows[dropdownWorkflowId]!;
 
-    return FutureBuilder<WorkflowDashboardData>(
-      key: ValueKey<String>(dropdownWorkflowId),
-      future: buildWorkflowDashboardData(dropdownWorkflowId, selected),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final data = snapshot.data;
-        if (data == null) {
-          return const Center(child: Text('Unable to load workflow analytics.'));
-        }
-        return SingleChildScrollView(
+    final asyncDashboard =
+        ref.watch(workflowDashboardDataProvider(dropdownWorkflowId));
+
+    return asyncDashboard.when(
+      // Avoid full-screen spinner flicker when dependencies (run history, graph)
+      // invalidate the future while we already have data to show.
+      skipLoadingOnReload: true,
+      data: (data) => SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -257,8 +253,10 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
           ),
         ],
       ),
-    );
-      },
+    ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, _) =>
+          const Center(child: Text('Unable to load workflow analytics.')),
     );
   }
 

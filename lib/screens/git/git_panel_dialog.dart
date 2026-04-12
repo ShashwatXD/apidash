@@ -305,6 +305,7 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
     });
     try {
       final payload = await _syncService.loadHistory(branch: _selectedBranch);
+      if (!mounted) return;
       setState(() {
         _historyRemoteHeadSha = payload.headSha;
         _historyCommits = payload.commits;
@@ -335,6 +336,7 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
     });
     try {
       final branches = await _syncService.loadBranches();
+      if (!mounted) return;
       setState(() {
         _branches = branches;
       });

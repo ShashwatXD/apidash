@@ -4,12 +4,27 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:apidash/models/models.dart';
+import 'package:apidash/screens/dashboard/workflow_dashboard_analytics.dart';
 import 'package:apidash/services/file_system_handler.dart';
 import 'package:apidash/utils/utils.dart';
 
 final workflowIdStateProvider = StateProvider<String?>((ref) => null);
 
 final workflowRunHistoryRevisionProvider = StateProvider<int>((ref) => 0);
+
+/// Loads workflow run analytics from disk; invalidates when run history revision
+/// or the selected workflow model changes (graph edits).
+final workflowDashboardDataProvider =
+    FutureProvider.family<WorkflowDashboardData, String>((ref, workflowId) async {
+  ref.keepAlive();
+  ref.watch(workflowRunHistoryRevisionProvider);
+  final model =
+      ref.watch(workflowsStateProvider.select((m) => m[workflowId]));
+  if (model == null) {
+    throw StateError('Workflow not found: $workflowId');
+  }
+  return buildWorkflowDashboardData(workflowId, model);
+});
 
 final workflowsStateProvider =
     StateNotifierProvider<WorkflowStateNotifier, Map<String, WorkflowModel>>(

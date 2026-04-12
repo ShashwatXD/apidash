@@ -777,10 +777,23 @@ class FileSystemHandler {
 
 Future<void> writeAtomicString(File target, String content) async {
   await target.parent.create(recursive: true);
-  final tmp = File('${target.path}.tmp');
+  final tmp = File('${target.path}.${getNewUuid()}.tmp');
   await tmp.writeAsString(content);
-  if (await target.exists()) {
-    await target.delete();
+  try {
+    if (await target.exists()) {
+      await target.delete();
+    }
+  } catch (_) {}
+  try {
+    await tmp.rename(target.path);
+  } catch (e) {
+    try {
+      await target.writeAsString(content);
+    } catch (_) {}
+    try {
+      if (await tmp.exists()) {
+        await tmp.delete();
+      }
+    } catch (_) {}
   }
-  await tmp.rename(target.path);
 }

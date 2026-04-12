@@ -129,8 +129,6 @@ class _WorkflowDashboardPageState extends ConsumerState<WorkflowDashboardPage> {
         ref.watch(workflowDashboardDataProvider(dropdownWorkflowId));
 
     return asyncDashboard.when(
-      // Avoid full-screen spinner flicker when dependencies (run history, graph)
-      // invalidate the future while we already have data to show.
       skipLoadingOnReload: true,
       data: (data) => SingleChildScrollView(
       padding: const EdgeInsets.all(20),

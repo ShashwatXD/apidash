@@ -12,8 +12,7 @@ final workflowIdStateProvider = StateProvider<String?>((ref) => null);
 
 final workflowRunHistoryRevisionProvider = StateProvider<int>((ref) => 0);
 
-/// Loads workflow run analytics from disk; invalidates when run history revision
-/// or the selected workflow model changes (graph edits).
+
 final workflowDashboardDataProvider =
     FutureProvider.family<WorkflowDashboardData, String>((ref, workflowId) async {
   ref.keepAlive();

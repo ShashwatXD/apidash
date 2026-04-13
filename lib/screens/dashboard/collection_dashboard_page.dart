@@ -1228,78 +1228,7 @@ _CollectionData _buildCollectionData({
     slowestRows: slowestRows.take(8).toList(growable: false),
     isDemoData: false,
   );
-  if (built.totalRequests >= 8) return built;
-  return _buildDemoCollectionData(collection, seedBase: built.totalRequests);
-}
-
-_CollectionData _buildDemoCollectionData(
-  CollectionModel collection, {
-  required int seedBase,
-}) {
-  final seed = collection.id.hashCode.abs() + seedBase * 17;
-  final methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-  const forced5xx = [500, 502, 500, 503];
-  final statuses = [200, 201, 204, 400, 401, 404, 500, 502];
-  final rows = <_RecentRow>[
-    for (var i = 0; i < 10; i++)
-      _RecentRow(
-        method: methods[(seed + i) % methods.length],
-        endpoint: '/${collection.name.toLowerCase().replaceAll(' ', '-')}/endpoint-${(i % 7) + 1}',
-        status: i < forced5xx.length
-            ? forced5xx[i]
-            : statuses[(seed + i * 3) % statuses.length],
-        mockLatencyMs: 80 + ((seed + i * 29) % 320),
-      ),
-  ];
-  final timings = rows.map((e) => e.mockLatencyMs).toList(growable: false);
-  final total = rows.length;
-  final success =
-      rows.where((r) => r.status >= 200 && r.status < 300).length;
-  final failures = rows.where((r) => r.status >= 400).length;
-  final statusBuckets = <String, int>{'2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0};
-  final methodBuckets = <String, int>{};
-  final endpointBuckets = <String, int>{};
-  for (final r in rows) {
-    if (r.status >= 200 && r.status < 300) {
-      statusBuckets['2xx'] = (statusBuckets['2xx'] ?? 0) + 1;
-    } else if (r.status >= 300 && r.status < 400) {
-      statusBuckets['3xx'] = (statusBuckets['3xx'] ?? 0) + 1;
-    } else if (r.status >= 400 && r.status < 500) {
-      statusBuckets['4xx'] = (statusBuckets['4xx'] ?? 0) + 1;
-    } else {
-      statusBuckets['5xx'] = (statusBuckets['5xx'] ?? 0) + 1;
-    }
-    methodBuckets[r.method] = (methodBuckets[r.method] ?? 0) + 1;
-    endpointBuckets[r.endpoint] = (endpointBuckets[r.endpoint] ?? 0) + 1;
-  }
-  final topEndpoints = endpointBuckets.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
-  final sortedTimings = [...timings]..sort();
-  final p95 = sortedTimings[((sortedTimings.length - 1) * 0.95).floor()];
-  final avg = (timings.reduce((a, b) => a + b) / timings.length).round();
-  final max = timings.reduce((a, b) => a > b ? a : b);
-  final healthy = (statusBuckets['2xx'] ?? 0) + (statusBuckets['3xx'] ?? 0);
-  final slowestRows = [...rows]..sort((a, b) => b.mockLatencyMs.compareTo(a.mockLatencyMs));
-
-  return _CollectionData(
-    name: collection.name,
-    totalRequests: total,
-    successCount: success,
-    failures: failures,
-    successRate: total == 0 ? 0 : success / total,
-    p95Ms: p95,
-    mockTimingsMs: timings.take(24).toList(growable: false),
-    recentRows: rows,
-    statusBuckets: statusBuckets,
-    methodBuckets: methodBuckets,
-    topEndpoints: topEndpoints.take(8).map((e) => (e.key, e.value)).toList(),
-    avgMs: avg,
-    maxMs: max,
-    healthyCount: healthy,
-    lastRunLabel: '2m ago',
-    slowestRows: slowestRows.take(8).toList(growable: false),
-    isDemoData: true,
-  );
+  return built;
 }
 
 int _mockLatencyMs(HistoryMetaModel h, int index) {

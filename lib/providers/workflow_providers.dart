@@ -12,7 +12,6 @@ final workflowIdStateProvider = StateProvider<String?>((ref) => null);
 
 final workflowRunHistoryRevisionProvider = StateProvider<int>((ref) => 0);
 
-
 final workflowDashboardDataProvider =
     FutureProvider.family<WorkflowDashboardData, String>((ref, workflowId) async {
   ref.keepAlive();

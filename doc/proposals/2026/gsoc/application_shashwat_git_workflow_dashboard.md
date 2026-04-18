@@ -115,39 +115,40 @@ API Dash currently stores all requests in a flat local list with no version cont
 ##### Pillar 1: Git Support - Version Control for Collections
 
 **Problem:**
-API Dash stores all data locally in Hive. There is no way to version-control requests, share collections with teammates, or roll back to a previous state. For teams, this means manually exporting and importing API collections, which is error-prone and fragile.
+API Dash stores all data locally inside a single Hive box. There is no way to version-control requests, share collections with teammates, or roll back to a previous state. For teams, this means manually exporting and importing API collections, which is error-prone and fragile.
 
-Before Git support or collections can work, the storage layer needs to change. Today the app uses a **Load All / Save All** model: `dataBox` is a regular Hive `Box` that loads every request into memory at startup, and `saveData()` re-serializes the entire map back to Hive when the user clicks Save. Every mutation calls `unsave()` which only sets a dirty flag, nothing is persisted until the manual save.
+Before Git support or collections can work, the storage layer needs to change. Today the app uses a **Load All / Save All** model: `dataBox` is a Hive `Box` that loads every request into memory at startup, and `saveData()` re-serializes the entire map back to Hive when the user clicks Save. Every mutation calls `unsave()` which only sets a dirty flag, nothing is persisted until the manual save.
 
 This breaks Git support in two ways:
 1. **No per-request persistence** - Git push needs to know which specific requests changed since the last commit. With bulk save, there's no granular change tracking.
 2. **Data loss risk** - If the app is killed, all unsaved changes are lost. Collections that sync with GitHub cannot afford silent data loss.
 
-The fix is a **Lazy Load / Granular Save** architecture: change `dataBox` from `Box` to `LazyBox`, load only request metadata (id, name, method, URL) at startup, load full request data on demand when the user opens a request, and save each individual request to Hive immediately on every change (debounced). This approach updates `CollectionStateNotifier` to call `hiveHandler.setCollectionRequestModel()` directly on each mutation instead of bulk-saving.
+The fix is to replace Hive with a **filesystem-backed store** (`FileSystemHandler`) that keeps each request, environment, workflow, and history entry in its own JSON file under a single root (`apidash_data/` in app documents, or `.apidash_data/` inside the open workspace). Every collection becomes a folder on disk whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`), so the local tree is a Git-ready mirror of one collection per repo. `CollectionStateNotifier` calls `fileSystemHandler.setCollectionRequestModel()` (atomic temp-file + rename) on every mutation instead of bulk-saving.
 
-This autosave refactoring is the first deliverable of GSoC and unblocks everything else.
+This filesystem refactor is the first deliverable of GSoC and unblocks everything else.
 
 **Design Principle:**
-Hive remains the single source of truth. There are no local Git repositories, no on-disk files to sync, no file watchers. Everything goes through the GitHub REST API over HTTPS. This means Git Support works identically on macOS, Windows, Linux, Android, iOS, and web.
+The local filesystem is the single source of truth. There is no in-process Git daemon, no `git` binary dependency, and no file watchers, all remote operations go through the GitHub REST API over HTTPS. This means Git Support works identically on macOS, Windows, Linux, Android, and iOS (web is deferred since `dart:io` is unavailable on that platform).
 
-**Why a serialization layer is needed:**
-Hive stores data in a proprietary binary format that is not human-readable or diffable. Every request is serialized to clean JSON before push, and deserialized on pull or rollback. GitHub sees readable JSON files; the app keeps using Hive locally.
+**Why the on-disk layout matches Git:**
+Each collection lives in `collections/<id>/` with `collection.json`, `environments.json`, and `requests/<id>.json`, the exact paths Git pushes. Pushing means uploading these files as blobs; pulling means writing them back atomically. There is no separate "serialize binary store → JSON" step at sync time because the local store is already JSON. `GitCollectionSerializer` only handles model ↔ JSON conversions and import deduplication.
 
 **Architecture:**
 
 ```
-┌─────────────────┐     serialize      ┌──────────────────────┐
-│  Hive (SSOT)    │ ─────────────────→ │  JSON Files          │
-│  dataBox (Lazy) │                    │  collection.json     │
-│  environmentBox │ ←───────────────── │  requests/*.json     │
-└─────────────────┘     deserialize    │  environments.json   │
-        │ autosave on                  └──────────┬───────────┘
-        │ every mutation                          │ GitHub REST API
-        │                              ┌───────────▼───────────┐
-        └──────────────────────────    │  GitHub Repository     │
-          (granular per-request save)  │  blob → tree → commit  │
-                                       │  → update ref          │
-                                       └───────────────────────┘
+┌─────────────────────────────┐                   ┌──────────────────────┐
+│  FileSystemHandler (SSOT)   │  ←── matches ──→  │  GitHub Repository   │
+│  apidash_data/              │                   │  collection.json     │
+│   └─ collections/<id>/      │                   │  environments.json   │
+│        ├─ collection.json   │  ── REST API ──→  │  requests/*.json     │
+│        ├─ environments.json │                   │  blob → tree →       │
+│        └─ requests/*.json   │  ←── REST API ──  │   commit → ref       │
+└─────────────┬───────────────┘                   └──────────────────────┘
+              │ atomic per-file writes
+              │ (per-request, per-env, per-workflow)
+              ▼
+        Riverpod providers
+        (CollectionStateNotifier, EnvironmentsStateNotifier, …)
 ```
 
 **CollectionModel: Introducing the Collection Concept**
@@ -173,7 +174,7 @@ A collection dropdown sits above the sidebar's request list. Each collection has
 
 - **Connected** - The collection is linked to a GitHub repo. Clicking opens a **Git panel** with three tabs:
   - **Push** - Shows a preview of added, modified, or deleted requests since last push. User writes a commit message and pushes. One atomic operation.
-  - **History** - Scrollable list of commits (message, author, timestamp). Click any commit for one-click rollback: API Dash fetches that commit's tree, deserializes, and replaces the collection in Hive.
+  - **History** - Scrollable list of commits (message, author, timestamp). Click any commit for one-click rollback: API Dash fetches that commit's tree, writes the JSON files atomically into the collection folder, and reloads providers from disk.
   - **Branches** - Lists remote branches. User can switch, create from current HEAD, or delete.
 
 **GitHub API Adapter: Technical Implementation**
@@ -192,13 +193,13 @@ A `GitHubApiAdapter` class handles all GitHub communication:
   This is a single atomic operation, either the entire commit succeeds or nothing changes.
 
 - **How changed files are tracked before push (preview logic):**
-  The implementation will build a local Git file snapshot from Hive (`collection.json`, `environments.json`, `requests/*.json`) and use a SHA-first diff strategy against the remote branch tree. It will first compare path-level tree/blob SHAs and fetch full file content only for candidate changed files. Final change type is computed as:
+  The implementation reads `collection.json`, `environments.json`, and `requests/*.json` directly from the active collection's folder on disk and uses a SHA-first diff strategy against the remote branch tree. It first compares path-level tree/blob SHAs and fetches full file content only for candidate changed files. Final change type is computed as:
   - path in local only -> `added`
   - path in remote only -> `deleted`
   - path in both but different content -> `modified`
   This result powers the "Changes to push" preview card before commit.
 
-- **Pull / Rollback / Branch switch:** Fetch tree at target commit, get blobs, deserialize JSON, replace collection in Hive.
+- **Pull / Rollback / Branch switch:** Fetch tree at target commit, get blobs, write JSON files atomically into the collection folder, and reload providers from disk.
 
 - **Conflict detection:** Before push, compare local `lastSyncedCommitSha` with remote HEAD. If they differ, someone else pushed. Show a conflict dialog with options to pull first or view commits.
 
@@ -208,7 +209,7 @@ A `GitHubApiAdapter` class handles all GitHub communication:
 
 **Serialization Layer: `GitCollectionSerializer`**
 
-Converts Hive data to/from Git-friendly JSON files:
+Converts in-memory models to/from the on-disk Git-friendly JSON files:
 - `collection.json` - collection metadata and request order
 - `requests/{slug}.json` - individual request files (human-readable slugified names)
 - `environments.json` - all environments with variable values
@@ -303,7 +304,7 @@ The canvas uses `vyuh_node_flow` for node rendering, drag-and-drop positioning, 
 - **Request picker** - When adding a Request node, a dialog shows all collections and requests with their URLs and detected variables
 - **Node inspector** - Side panel for editing node properties (expression, delay, variable source)
 - **Run controls** - Play button validates and runs the workflow, nodes animate in real-time
-- **Run history** - Each run is saved to Hive with duration, success/failure, timestamps, viewable in a scrollable list
+- **Run history** - Each run is appended to `workflows/runs_<workflowId>.json` with duration, success/failure, and timestamps, viewable in a scrollable list
 - **Import/Export** - Workflows serialize to JSON for sharing
 
 **Usage: Workflow Builder**
@@ -318,7 +319,7 @@ The canvas uses `vyuh_node_flow` for node rendering, drag-and-drop positioning, 
 API Dash has no unified view of how your API collections are performing. Users cannot see success rates, failure patterns, response time trends, or status code distributions without manually checking each request's history individually. The official idea also asks for automated reports via Webhooks.
 
 **Design Principle:**
-The dashboard is a new section in the navigation rail that aggregates data from request history and workflow run history stored in Hive. It provides two views: **Collection Dashboard** (API health metrics) and **Workflow Dashboard** (workflow run analytics). Both support webhook-based automated reporting.
+The dashboard is a new section in the navigation rail that aggregates data from request history (`history/*.json`) and workflow run history (`workflows/runs_*.json`) on disk. It provides two views: **Collection Dashboard** (API health metrics) and **Workflow Dashboard** (workflow run analytics). Both support webhook-based automated reporting.
 
 **Collection Dashboard: What it shows**
 
@@ -403,13 +404,13 @@ My goals for bonding are to learn more about the project and to gel with the tea
 
 ---
 
-##### Milestone 1: Autosave & Git Support (Weeks 1-4, May 25 - June 21)
-> Highest priority since autosave changes the core storage layer, and Git involves external GitHub API, OAuth device flow, and end-to-end sync.
+##### Milestone 1: Filesystem Storage & Git Support (Weeks 1-4, May 25 - June 21)
+> Highest priority since the storage migration changes the core persistence layer, and Git involves the external GitHub API, OAuth device flow, and end-to-end sync.
 
-* **Week 1 (May 25 - May 31): Autosave & Collection Foundation**
-  - Complete the `Box` to `LazyBox` migration with backward compatibility (detect old format, convert on first launch). Replace every `unsave()` call in `CollectionStateNotifier` with immediate per-request `hiveHandler.setCollectionRequestModel()`. Add debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing. Remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, collection dropdown UI, collection CRUD (create, rename, delete), multi-collection navigation.
+* **Week 1 (May 25 - May 31): Filesystem Storage & Collection Foundation**
+  - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash_data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
 
-  **Deliverable:** App autosaves every request change immediately. Opening with old-format data migrates seamlessly. Users can create, rename, switch, and delete named collections in the sidebar.
+  **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
 
 * **Week 2 (June 1 - June 7): GitHub Auth & Push**
   - Polish Device Flow OAuth, `GitHubApiAdapter` hardening, atomic push flow, push preview UI showing added/modified/deleted requests.
@@ -443,7 +444,7 @@ My goals for bonding are to learn more about the project and to gel with the tea
 > **Midterm Evaluation (July 6 - July 10):**
 
 * **Week 7 (July 6 - July 12): Workflow Advanced**
-  - Condition evaluation with proper expression parsing (replacing hardcoded patterns), transform scripts, delay/loop nodes, run history persistence in Hive, real-time canvas status updates (green/red nodes).
+  - Condition evaluation with proper expression parsing (replacing hardcoded patterns), transform scripts, delay/loop nodes, run history persistence to `workflows/runs_<workflowId>.json` on disk, real-time canvas status updates (green/red nodes).
 
   **Deliverable:** Condition nodes handle arbitrary status-code and variable expressions. Run history is persisted and viewable. Canvas animates node status during execution.
 

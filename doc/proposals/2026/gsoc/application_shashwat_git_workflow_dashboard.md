@@ -128,7 +128,7 @@ The fix is to replace Hive with a **filesystem-backed store** (`FileSystemHandle
 This filesystem refactor is the first deliverable of GSoC and unblocks everything else.
 
 **Design Principle:**
-The local filesystem is the single source of truth. There is no in-process Git daemon, no `git` binary dependency, and no file watchers, all remote operations go through the GitHub REST API over HTTPS. This means Git Support works identically on macOS, Windows, Linux, Android, and iOS (web is deferred since `dart:io` is unavailable on that platform).
+The local filesystem is the single source of truth. . This means Git Support works identically on macOS, Windows, Linux, Android, and iOS.
 
 **Why the on-disk layout matches Git:**
 Each collection lives in `collections/<id>/` with `collection.json`, `environments.json`, and `requests/<id>.json`, the exact paths Git pushes. Pushing means uploading these files as blobs; pulling means writing them back atomically. There is no separate "serialize binary store → JSON" step at sync time because the local store is already JSON. `GitCollectionSerializer` only handles model ↔ JSON conversions and import deduplication.

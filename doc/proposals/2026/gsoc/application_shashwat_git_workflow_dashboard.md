@@ -445,8 +445,8 @@ My goals for bonding are to learn more about the project and to gel with the tea
 > **Midterm Evaluation (July 6 - July 10):**
 
 * **Week 7 (July 6 - July 12): Import & export**
-  - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, **Hurl** ([#123](https://github.com/foss42/apidash/issues/123)). Optional **linear workflow** from file order.
-  - **Out:** Round-trip exports (APIDash JSON, cURL, HAR, workflow graph JSON) + user docs.
+  - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, Hurl(new). Optional **linear workflow** from file order.
+  - **Out:** Round-trip exports (cURL, HAR, workflow graph JSON) + user docs.
 
   **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
 

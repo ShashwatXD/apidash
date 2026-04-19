@@ -448,7 +448,7 @@ My goals for bonding are to learn more about the project and to gel with the tea
   - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, Hurl(new). Optional **linear workflow** from file order.
   - **Out:** Round-trip exports (cURL, HAR, workflow graph JSON) + user docs.
 
-  **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
+  **Deliverable:** Reliable **import/export**; **Hurl** shipped; collections and workflows portable.
 
 * **Week 8 (July 13 - July 19): Workflow AI & Polish**
   - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), guided "What's Next?" flow, workflow unit tests.

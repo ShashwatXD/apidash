@@ -89,34 +89,39 @@ class CollectionModel {
   }
 }
 
+/// Local Git working copy (any host: add `git remote` yourself). Not GitHub-API-specific.
 class GitConnectionModel {
   const GitConnectionModel({
-    required this.owner,
-    required this.repo,
+    required this.localRepoPath,
+    this.repoDisplayName,
     this.branch = 'main',
     this.lastSyncedCommitSha,
     this.lastPushedAt,
     this.lastPulledAt,
   });
 
-  final String owner;
-  final String repo;
+  /// Absolute path to the repository root (folder that contains `.git`).
+  final String localRepoPath;
+
+  /// Short label for UI (e.g. folder name). Optional.
+  final String? repoDisplayName;
+
   final String branch;
   final String? lastSyncedCommitSha;
   final DateTime? lastPushedAt;
   final DateTime? lastPulledAt;
 
   GitConnectionModel copyWith({
-    String? owner,
-    String? repo,
+    String? localRepoPath,
+    String? repoDisplayName,
     String? branch,
     String? lastSyncedCommitSha,
     DateTime? lastPushedAt,
     DateTime? lastPulledAt,
   }) {
     return GitConnectionModel(
-      owner: owner ?? this.owner,
-      repo: repo ?? this.repo,
+      localRepoPath: localRepoPath ?? this.localRepoPath,
+      repoDisplayName: repoDisplayName ?? this.repoDisplayName,
       branch: branch ?? this.branch,
       lastSyncedCommitSha:
           lastSyncedCommitSha ?? this.lastSyncedCommitSha,
@@ -126,8 +131,8 @@ class GitConnectionModel {
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'owner': owner,
-        'repo': repo,
+        'localRepoPath': localRepoPath,
+        if (repoDisplayName != null) 'repoDisplayName': repoDisplayName,
         'branch': branch,
         if (lastSyncedCommitSha != null) 'lastSyncedCommitSha': lastSyncedCommitSha,
         if (lastPushedAt != null) 'lastPushedAt': lastPushedAt!.toIso8601String(),
@@ -135,9 +140,25 @@ class GitConnectionModel {
       };
 
   factory GitConnectionModel.fromJson(Map<String, dynamic> json) {
+    final localPath = json['localRepoPath'] as String?;
+    if (localPath != null && localPath.isNotEmpty) {
+      return GitConnectionModel(
+        localRepoPath: localPath,
+        repoDisplayName: json['repoDisplayName'] as String?,
+        branch: json['branch'] as String? ?? 'main',
+        lastSyncedCommitSha: json['lastSyncedCommitSha'] as String?,
+        lastPushedAt: CollectionModel._parseDateTime(json['lastPushedAt']),
+        lastPulledAt: CollectionModel._parseDateTime(json['lastPulledAt']),
+      );
+    }
+
+    final owner = json['owner'] as String? ?? '';
+    final repo = json['repo'] as String? ?? '';
+    final legacyLabel =
+        owner.isNotEmpty && repo.isNotEmpty ? '$owner/$repo' : null;
     return GitConnectionModel(
-      owner: json['owner'] as String,
-      repo: json['repo'] as String,
+      localRepoPath: '',
+      repoDisplayName: legacyLabel,
       branch: json['branch'] as String? ?? 'main',
       lastSyncedCommitSha: json['lastSyncedCommitSha'] as String?,
       lastPushedAt: CollectionModel._parseDateTime(json['lastPushedAt']),

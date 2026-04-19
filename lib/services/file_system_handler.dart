@@ -39,6 +39,15 @@ abstract final class FsLayout {
   static const String dashbotMessages = 'dashbot/messages.json';
 }
 
+/// Absolute folder where a collection is stored (`.apidash_data/collections/<id>`).
+String collectionStorageDirectory(String collectionId) {
+  return p.join(
+    fileSystemHandler.root.path,
+    FsLayout.collectionsDir,
+    collectionId,
+  );
+}
+
 Future<bool> initFileSystemHandler(
   bool initializeUsingPath,
   String? workspaceFolderPath,

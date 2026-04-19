@@ -3,10 +3,12 @@ import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/collection_providers.dart';
 import 'package:apidash/providers/environment_providers.dart';
 import 'package:apidash/providers/settings_providers.dart';
-import 'package:apidash/services/git_collection_serializer.dart';
 import 'package:apidash/services/file_system_handler.dart';
-import 'package:apidash/services/git/github_api_adapter.dart';
+import 'package:apidash/services/git/git_remote_types.dart';
+import 'package:apidash/services/git/local_git_adapter.dart';
+import 'package:apidash/services/git_collection_serializer.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 class GitSyncNotConnectedException implements Exception {
   GitSyncNotConnectedException(this.message);
@@ -24,32 +26,29 @@ class GitSyncConflictException implements Exception {
 }
 
 class GitSyncService {
-  GitSyncService(this.ref, this.api);
+  GitSyncService(this.ref);
 
   final WidgetRef ref;
-  final GitHubApiAdapter api;
 
   final GitCollectionSerializer _serializer = const GitCollectionSerializer();
   static const String _repoReadmePath = 'README.md';
-  static const String _repoWorkflowPath = '.github/workflows/apidash-git-sync.yml';
+
+  LocalGitAdapter _adapter(GitConnectionModel git) =>
+      LocalGitAdapter(git.localRepoPath);
 
   Future<PushPreview> getPushPreview({
     required String branch,
   }) async {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     final git = _getActiveGitConnection();
+    final adapter = _adapter(git);
     final localFiles = await _buildFilesFromLocalSnapshot();
 
     Map<String, String> remoteFiles = const <String, String>{};
     try {
-      final pull = await api.pullCollectionAtBranchHead(
-        owner: git.owner,
-        repo: git.repo,
-        branch: branch,
-      );
+      final pull = await adapter.pullCollectionAtBranchHead(branch: branch);
       remoteFiles = pull.files;
-    } on GitHubApiException catch (e) {
-      if (e.statusCode != 404 && e.statusCode != 409) rethrow;
+    } on GitSyncRemoteException {
       remoteFiles = const <String, String>{};
     }
 
@@ -87,8 +86,10 @@ class GitSyncService {
   GitConnectionModel _getActiveGitConnection() {
     final c = _getActiveCollection();
     final git = c.gitConnection;
-    if (git == null || git.owner.isEmpty || git.repo.isEmpty) {
-      throw GitSyncNotConnectedException('Collection is not connected to GitHub');
+    if (git == null || git.localRepoPath.isEmpty) {
+      throw GitSyncNotConnectedException(
+        'Collection is not connected to a local Git repository',
+      );
     }
     return git;
   }
@@ -165,36 +166,23 @@ class GitSyncService {
     return files.files;
   }
 
+  /// Creates a new Git repo at [localRepoPath] (or uses an existing one), then pushes the collection.
   Future<void> connectAndPushActiveCollection({
-    required String repoInput,
+    required String localRepoPath,
     required String branch,
-    required bool isPrivate,
-    required void Function(String userCode, String verificationUri) onShowDeviceCode,
-    bool autoOpenBrowser = true,
+    required bool initRepoIfNeeded,
     String? commitMessage,
   }) async {
-    final activeCollection = _getActiveCollection();
+    final normalized = p.normalize(p.absolute(localRepoPath.trim()));
 
-    final connected = await api.isAuthenticated();
-    if (!connected) {
-      await api.authenticateWithDeviceFlow(
-        onShowCode: onShowDeviceCode,
-        autoOpenBrowser: autoOpenBrowser,
-      );
+    if (initRepoIfNeeded) {
+      await LocalGitAdapter.init(normalized, initialBranch: branch);
     }
-    await api.ensureRequiredScopes();
 
-    final existingGit = activeCollection.gitConnection;
-    final repo = existingGit != null
-        ? <String, String>{
-            'owner': existingGit.owner,
-            'repo': existingGit.repo,
-          }
-        : await _resolveOrCreateRepo(repoInput: repoInput, private: isPrivate);
-
+    final displayName = p.basename(normalized);
     final gitConnection = GitConnectionModel(
-      owner: repo['owner']!,
-      repo: repo['repo']!,
+      localRepoPath: normalized,
+      repoDisplayName: displayName,
       branch: branch,
       lastSyncedCommitSha: null,
       lastPushedAt: null,
@@ -207,37 +195,26 @@ class GitSyncService {
 
     await pushActiveCollection(
       branch: branch,
-      commitMessage: commitMessage ?? 'Initial Commit',
+      commitMessage: commitMessage ?? 'Initial commit',
     );
   }
 
+  /// Imports from an existing local clone.
   Future<List<MalformedRequestFile>> connectAndImportActiveCollection({
-    required String repoInput,
+    required String localRepoPath,
     required String branch,
-    required void Function(String userCode, String verificationUri) onShowDeviceCode,
-    bool autoOpenBrowser = true,
   }) async {
-    final activeCollection = _getActiveCollection();
-    final connected = await api.isAuthenticated();
-    if (!connected) {
-      await api.authenticateWithDeviceFlow(
-        onShowCode: onShowDeviceCode,
-        autoOpenBrowser: autoOpenBrowser,
+    final normalized = p.normalize(p.absolute(localRepoPath.trim()));
+    if (!await LocalGitAdapter.isGitDirectory(normalized)) {
+      throw GitSyncNotConnectedException(
+        'Not a Git repository (run `git init` or clone a repo first): $normalized',
       );
     }
-    await api.ensureRequiredScopes();
-
-    final existingGit = activeCollection.gitConnection;
-    final repo = existingGit != null
-        ? <String, String>{
-            'owner': existingGit.owner,
-            'repo': existingGit.repo,
-          }
-        : await _resolveExistingRepo(repoInput: repoInput);
+    final displayName = p.basename(normalized);
 
     final gitConnection = GitConnectionModel(
-      owner: repo['owner']!,
-      repo: repo['repo']!,
+      localRepoPath: normalized,
+      repoDisplayName: displayName,
       branch: branch,
       lastSyncedCommitSha: null,
       lastPushedAt: null,
@@ -251,98 +228,18 @@ class GitSyncService {
     return pullLatestToActiveCollection(branch: branch);
   }
 
-  Future<Map<String, String>> _resolveOrCreateRepo({
-    required String repoInput,
-    required bool private,
-  }) async {
-    final trimmed = repoInput.trim();
-    final parsed = _parseGitHubRepoInput(trimmed);
-    final owner = parsed.$1;
-    final repo = parsed.$2;
-
-    if (repo != null && owner != null) {
-      final ownerName = owner;
-      final repoName = repo;
-      await api.getRepository(ownerName, repoName);
-      return {'owner': ownerName, 'repo': repoName};
-    }
-
-    final repoName = trimmed;
-    if (repoName.isEmpty) {
-      throw ArgumentError('repoInput is empty');
-    }
-    final userLogin = await api.getCurrentUserLogin();
-    try {
-      await api.getRepository(userLogin, repoName);
-    } on GitHubApiException catch (e) {
-      if (e.statusCode == 404) {
-        await api.createRepository(name: repoName, private: private);
-      } else {
-        rethrow;
-      }
-    }
-    return {'owner': userLogin, 'repo': repoName};
-  }
-
-  Future<Map<String, String>> _resolveExistingRepo({
-    required String repoInput,
-  }) async {
-    final trimmed = repoInput.trim();
-    final parsed = _parseGitHubRepoInput(trimmed);
-    final owner = parsed.$1;
-    final repo = parsed.$2;
-
-    if (repo == null || owner == null) {
-      throw ArgumentError('Provide repository as owner/repo');
-    }
-
-    final ownerName = owner;
-    final repoName = repo;
-    await api.getRepository(ownerName, repoName);
-    return {'owner': ownerName, 'repo': repoName};
-  }
-
-  (String?, String?) _parseGitHubRepoInput(String input) {
-    if (input.isEmpty) return (null, null);
-
-    final uri = Uri.tryParse(input);
-    if (uri != null && uri.host.toLowerCase().contains('github.com')) {
-      final parts = uri.pathSegments.where((p) => p.isNotEmpty).toList();
-      if (parts.length >= 2) {
-        final owner = parts[0];
-        final repo = parts[1].replaceAll(RegExp(r'\.git$'), '');
-        return (owner, repo);
-      }
-    }
-
-    if (input.contains('/')) {
-      final parts = input.split('/').where((p) => p.isNotEmpty).toList();
-      if (parts.length >= 2) {
-        final owner = parts[0];
-        final repo = parts[1].replaceAll(RegExp(r'\.git$'), '');
-        return (owner, repo);
-      }
-    }
-
-    return (null, null);
-  }
-
   Future<void> pushActiveCollection({
     required String branch,
     String? commitMessage,
   }) async {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     final git = _getActiveGitConnection();
+    final adapter = _adapter(git);
 
     String? remoteHead;
     try {
-      remoteHead = await api.getBranchHeadSha(
-        owner: git.owner,
-        repo: git.repo,
-        branch: branch,
-      );
-    } on GitHubApiException catch (e) {
-      if (e.statusCode != 404 && e.statusCode != 409) rethrow;
+      remoteHead = await adapter.getBranchHeadSha(branch);
+    } on GitSyncRemoteException {
       remoteHead = null;
     }
 
@@ -373,13 +270,13 @@ class GitSyncService {
       files = _withBootstrapRepoFiles(files);
     }
 
-    final newCommitSha = await api.pushFiles(
-      owner: git.owner,
-      repo: git.repo,
+    final newCommitSha = await adapter.commitCollectionFiles(
       branch: branch,
       files: files,
-      commitMessage: commitMessage ?? 'Initial Commit',
+      commitMessage: commitMessage ?? 'Update API Dash collection',
     );
+
+    await adapter.pushIfRemote(branch);
 
     final updatedGit = git.copyWith(
       lastSyncedCommitSha: newCommitSha,
@@ -393,52 +290,15 @@ class GitSyncService {
   Map<String, String> _withBootstrapRepoFiles(Map<String, String> files) {
     final out = Map<String, String>.from(files);
     out[_repoReadmePath] = _initialReadmeContent;
-    out[_repoWorkflowPath] = _initialWorkflowContent;
     return out;
   }
 
   static const String _initialReadmeContent = '''
-# API Dash Collection Repository
+# API Dash collection
 
-This repository is managed by API Dash for one collection sync.
+Plain JSON files in this folder are produced by API Dash. Use any Git host (GitHub, GitLab, etc.) by adding a remote:
 
-## Files
-
-- `collection.json` - collection metadata and request order
-- `environments.json` - environments and variables
-- `requests/*.json` - individual requests
-
-You can now manage this repository and workflow as needed.
-''';
-
-  static const String _initialWorkflowContent = r'''
-name: API Dash Git Sync
-
-on:
-  push:
-    branches:
-      - '**'
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-
-jobs:
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Print event summary
-        run: |
-          echo "event: ${{ github.event_name }}"
-          echo "repo: ${{ github.repository }}"
-          echo "actor: ${{ github.actor }}"
-          echo "ref: ${{ github.ref }}"
-          echo "sha: ${{ github.sha }}"
-      - name: PR merge info
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "pr: #${{ github.event.pull_request.number }}"
-          echo "merged: ${{ github.event.pull_request.merged }}"
-          echo "base: ${{ github.event.pull_request.base.ref }}"
-          echo "head: ${{ github.event.pull_request.head.ref }}"
+`git remote add origin <url>`
 ''';
 
   Future<List<MalformedRequestFile>> pullLatestToActiveCollection({
@@ -446,11 +306,10 @@ jobs:
     String? commitMessage,
   }) async {
     final git = _getActiveGitConnection();
-    final pull = await api.pullCollectionAtBranchHead(
-      owner: git.owner,
-      repo: git.repo,
-      branch: branch,
-    );
+    final adapter = _adapter(git);
+    await adapter.pullWithFfOnly(branch);
+
+    final pull = await adapter.pullCollectionAtBranchHead(branch: branch);
 
     final activeCollection = _getActiveCollection();
     final import = _serializer.fromGitFiles(
@@ -497,11 +356,8 @@ jobs:
     required String branch,
   }) async {
     final git = _getActiveGitConnection();
-    final pull = await api.pullCollectionAtCommit(
-      owner: git.owner,
-      repo: git.repo,
-      commitSha: commitSha,
-    );
+    final adapter = _adapter(git);
+    final pull = await adapter.pullCollectionAtCommit(commitSha: commitSha);
 
     final activeCollection = _getActiveCollection();
     final import = _serializer.fromGitFiles(
@@ -547,29 +403,40 @@ jobs:
     required String branch,
   }) async {
     final git = _getActiveGitConnection();
+    final adapter = _adapter(git);
     String? headSha;
     try {
-      headSha = await api.getBranchHeadSha(
-        owner: git.owner,
-        repo: git.repo,
-        branch: branch,
-      );
-    } on GitHubApiException catch (e) {
-      if (e.statusCode != 404 && e.statusCode != 409) rethrow;
+      headSha = await adapter.getBranchHeadSha(branch);
+    } on GitSyncRemoteException {
       return (headSha: null, commits: const <CommitInfo>[]);
     }
-    final commits = await api.getCommitHistory(
-      owner: git.owner,
-      repo: git.repo,
-      branch: branch,
-      perPage: 30,
-    );
+    final commits = await adapter.getCommitHistory(branch: branch, perPage: 30);
     return (headSha: headSha, commits: commits);
   }
 
   Future<List<BranchInfo>> loadBranches() async {
     final git = _getActiveGitConnection();
-    return api.listBranches(owner: git.owner, repo: git.repo);
+    final adapter = _adapter(git);
+    return adapter.listBranches();
+  }
+
+  Future<void> createBranch({
+    required String fromBranch,
+    required String newBranchName,
+  }) async {
+    final git = _getActiveGitConnection();
+    final adapter = _adapter(git);
+    final headSha = await adapter.getBranchHeadSha(fromBranch);
+    await adapter.createBranch(
+      branchName: newBranchName,
+      fromSha: headSha,
+    );
+  }
+
+  Future<void> deleteBranch(String branchName) async {
+    final git = _getActiveGitConnection();
+    final adapter = _adapter(git);
+    await adapter.deleteBranch(branchName);
   }
 }
 
@@ -599,4 +466,3 @@ class PushPreview {
   int get deletedCount =>
       changes.where((c) => c.type == PushChangeType.deleted).length;
 }
-

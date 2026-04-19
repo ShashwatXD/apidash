@@ -7,8 +7,11 @@ import 'package:apidash/importer/import_dialog.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/consts.dart';
+import 'package:apidash/services/file_system_handler.dart';
+import 'package:apidash/utils/focus_integrated_shell.dart';
 import 'package:apidash_core/apidash_core.dart';
 import '../common_widgets/common_widgets.dart';
+import '../git/collection_share_dialog.dart';
 import '../git/git_panel_dialog.dart';
 
 class CollectionPane extends ConsumerWidget {
@@ -112,6 +115,7 @@ class CollectionPane extends ConsumerWidget {
             onAddNew: () async {
               final import = await _showNewCollectionChoiceDialog(context);
               if (import == null) return;
+              if (!context.mounted) return;
               await _showCreateCollectionDialog(
                 context,
                 ref,
@@ -208,6 +212,8 @@ class _CollectionsTreeListState extends ConsumerState<CollectionsTreeList> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _CollectionHeaderRow(
+                collectionId: entry.key,
+                anchorContext: context,
                 name: entry.value.name,
                 requestCount: requestCount,
                 isExpanded: isExpanded,
@@ -243,12 +249,6 @@ class _CollectionsTreeListState extends ConsumerState<CollectionsTreeList> {
                           setState(() => expandedCollectionId = null);
                         }
                       },
-                onOpenGit: () {
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => GitPanelDialog(collectionId: entry.key),
-                  );
-                },
               ),
               if (isExpanded)
                 if (!isActive)
@@ -286,24 +286,71 @@ class _CollectionsTreeListState extends ConsumerState<CollectionsTreeList> {
   }
 }
 
-class _CollectionHeaderRow extends StatelessWidget {
+class _CollectionHeaderRow extends ConsumerStatefulWidget {
   const _CollectionHeaderRow({
+    required this.collectionId,
+    required this.anchorContext,
     required this.name,
     required this.requestCount,
     required this.isExpanded,
     required this.onTap,
     required this.onAddRequest,
     required this.onDeleteCollection,
-    required this.onOpenGit,
   });
 
+  final String collectionId;
+  final BuildContext anchorContext;
   final String name;
   final int requestCount;
   final bool isExpanded;
   final VoidCallback onTap;
   final VoidCallback onAddRequest;
   final VoidCallback? onDeleteCollection;
-  final VoidCallback onOpenGit;
+
+  @override
+  ConsumerState<_CollectionHeaderRow> createState() =>
+      _CollectionHeaderRowState();
+}
+
+class _CollectionHeaderRowState extends ConsumerState<_CollectionHeaderRow> {
+  bool _quickActionsExpanded = false;
+
+  Future<void> _openShare() async {
+    setState(() => _quickActionsExpanded = false);
+    await ref
+        .read(collectionStateNotifierProvider.notifier)
+        .switchCollection(widget.collectionId);
+    if (!mounted || !widget.anchorContext.mounted) return;
+    await showDialog<void>(
+      context: widget.anchorContext,
+      builder: (context) => CollectionShareDialog(
+        collectionId: widget.collectionId,
+        anchorContext: widget.anchorContext,
+      ),
+    );
+  }
+
+  Future<void> _openInTerminal() async {
+    setState(() => _quickActionsExpanded = false);
+    await ref
+        .read(collectionStateNotifierProvider.notifier)
+        .switchCollection(widget.collectionId);
+    if (!mounted) return;
+    final git =
+        ref.read(collectionsStateProvider)[widget.collectionId]?.gitConnection;
+    final cwd = (git != null && git.localRepoPath.isNotEmpty)
+        ? git.localRepoPath
+        : collectionStorageDirectory(widget.collectionId);
+    focusIntegratedShell(ref, cwd);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Expand the integrated $kLabelShell at the bottom of the window — cwd uses this folder.',
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -315,13 +362,13 @@ class _CollectionHeaderRow extends StatelessWidget {
           Expanded(
             child: InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: onTap,
+              onTap: widget.onTap,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 child: Row(
                   children: [
                     Icon(
-                      isExpanded ? Icons.expand_more : Icons.chevron_right,
+                      widget.isExpanded ? Icons.expand_more : Icons.chevron_right,
                       size: 18,
                     ),
                     const SizedBox(width: 4),
@@ -329,7 +376,7 @@ class _CollectionHeaderRow extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        name,
+                        widget.name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleSmall?.copyWith(
@@ -338,7 +385,7 @@ class _CollectionHeaderRow extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '$requestCount',
+                      '${widget.requestCount}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                       ),
@@ -348,31 +395,40 @@ class _CollectionHeaderRow extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 4),
-          IconButton(
-            tooltip: 'Add request',
-            onPressed: onAddRequest,
-            icon: const Icon(Icons.add, size: 18),
-          ),
-          if (onDeleteCollection != null)
-            IconButton(
-              tooltip: 'Delete collection',
-              onPressed: onDeleteCollection,
-              icon: const Icon(Icons.delete_outline, size: 18),
-            ),
           const SizedBox(width: 2),
           IconButton(
-            tooltip: 'GitHub sync',
-            onPressed: onOpenGit,
-            icon: SizedBox(
-              width: 18,
-              height: 18,
-              child: Image.asset(
-                'assets/25231.png',
-                fit: BoxFit.contain,
-              ),
+            tooltip: _quickActionsExpanded ? 'Hide share & terminal' : 'Share & terminal',
+            onPressed: () =>
+                setState(() => _quickActionsExpanded = !_quickActionsExpanded),
+            icon: Icon(
+              _quickActionsExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 20,
             ),
           ),
+          if (_quickActionsExpanded) ...[
+            IconButton(
+              tooltip: 'Share',
+              onPressed: () => unawaited(_openShare()),
+              icon: const Icon(Icons.share_outlined, size: 18),
+            ),
+            IconButton(
+              tooltip: 'Open in terminal',
+              onPressed: () => unawaited(_openInTerminal()),
+              icon: const Icon(Icons.terminal_outlined, size: 18),
+            ),
+          ],
+          const SizedBox(width: 2),
+          IconButton(
+            tooltip: 'Add request',
+            onPressed: widget.onAddRequest,
+            icon: const Icon(Icons.add, size: 18),
+          ),
+          if (widget.onDeleteCollection != null)
+            IconButton(
+              tooltip: 'Delete collection',
+              onPressed: widget.onDeleteCollection,
+              icon: const Icon(Icons.delete_outline, size: 18),
+            ),
         ],
       ),
     );

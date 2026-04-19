@@ -1019,11 +1019,10 @@ class CollectionStateNotifier
     final existingGit = existing.gitConnection;
     if (existingGit != null &&
         gitConnection != null &&
-        (existingGit.owner != gitConnection.owner ||
-            existingGit.repo != gitConnection.repo)) {
+        existingGit.localRepoPath != gitConnection.localRepoPath) {
       throw StateError(
-        'This collection is already connected to ${existingGit.owner}/${existingGit.repo}. '
-        'Changing remote is not allowed.',
+        'This collection is already connected to ${existingGit.localRepoPath}. '
+        'Changing the linked repository path is not allowed.',
       );
     }
 

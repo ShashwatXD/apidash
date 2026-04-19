@@ -107,6 +107,7 @@ API Dash currently stores all requests in a flat local list with no version cont
 - **Shared Community Collections** [#964](https://github.com/foss42/apidash/issues/964) - Enabled by Git Support, collections shared via GitHub repos
 - **Git support and version control** [#502](https://github.com/foss42/apidash/issues/502) - Core issue for repository-backed collaboration and history.
 - **Dashboard and analytics visibility** [#120](https://github.com/foss42/apidash/issues/120) - Tracks monitoring/reporting expectations for collection and workflow health.
+- **Hurl import** ([#123](https://github.com/foss42/apidash/issues/123))
 
 #### 3. Detailed Description
 
@@ -404,8 +405,8 @@ My goals for bonding are to learn more about the project and to gel with the tea
 
 ---
 
-##### Milestone 1: Filesystem Storage & Git Support (Weeks 1-4, May 25 - June 21)
-> Highest priority since the storage migration changes the core persistence layer, and Git involves the external GitHub API, OAuth device flow, and end-to-end sync.
+##### Milestone 1: Filesystem Storage & Git Support (Weeks 1-3, May 25 - June 14)
+> Core persistence + GitHub API / Device Flow;
 
 * **Week 1 (May 25 - May 31): Filesystem Storage & Collection Foundation**
   - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash_data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
@@ -413,45 +414,46 @@ My goals for bonding are to learn more about the project and to gel with the tea
   **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
 
 * **Week 2 (June 1 - June 7): GitHub Auth & Push**
-  - Polish Device Flow OAuth, `GitHubApiAdapter` hardening, atomic push flow, push preview UI showing added/modified/deleted requests.
+  - Polish Device Flow OAuth, `GitHubApiAdapter` hardening, atomic push flow, push preview UI showing added/modified/deleted requests. Smoke on **Android/iOS**.
 
-  **Deliverable:** A user can authenticate with GitHub via Device Flow and push a collection as JSON to a new repo in one click.
+  **Deliverable:** Authenticate via Device Flow and push a collection to a new repo **(desktop + mobile)**.
 
-* **Week 3 (June 8 - June 14): Pull, Rollback & Branches**
-  - Pull flow, one-click rollback from commit history, branch list/create/switch/delete, import collection from a GitHub URL.
+* **Week 3 (June 8 - June 14): Pull, Rollback, Branches & Git QA**
+  - Pull, rollback, branches, import from GitHub URL. **Divergence guard** (no merge UI); `GitCollectionSerializer` versioning; unit + E2E vs a test repo.
 
-  **Deliverable:** A user can pull remote changes, roll back to any previous commit, and switch branches, all from the Git panel.
-
-* **Week 4 (June 15 - June 21): Git Testing & Conflict Handling**
-  - Conflict detection UI (local vs remote HEAD mismatch), `GitCollectionSerializer` schema versioning, unit tests for all git services using mock HTTP client.
-
-  **Deliverable:** Git Support is tested end-to-end against a real GitHub repo. Conflict detection warns before overwriting remote changes. Unit tests cover push, pull, rollback, and branch operations.
+  **Deliverable:** Pull/rollback/branches from the Git panel; Git path **verified** end-to-end; tests for push/pull/rollback/branches.
 
 ---
 
-##### Milestone 2: Visual Workflow Builder (Weeks 5-8, June 22 - July 19)
+##### Milestone 2: Visual Workflow Builder & import/export (Weeks 4-8, June 15 - July 19)
 
-* **Week 5 (June 22 - June 28): Workflow Foundation**
+* **Week 4 (June 15 - June 21): Workflow Foundation**
   - `WorkflowModel` + `WorkflowNodeData` finalization, canvas integration, all 6 node types with inspector panel.
 
   **Deliverable:** Users can add all 6 node types to the canvas, connect them via ports, and edit properties in the inspector panel.
 
-* **Week 6 (June 29 - July 5): Execution Engine**
+* **Week 5 (June 22 - June 28): Execution Engine**
   - `WorkflowExecutionService` BFS engine, `WorkflowRunDelegateBridge` for real HTTP request execution, shared context and variable extraction via `json:` syntax.
 
   **Deliverable:** Workflows execute real HTTP requests. Responses are stored in shared context and downstream nodes can extract values (e.g., tokens) from previous responses.
 
-> **Midterm Evaluation (July 6 - July 10):**
-
-* **Week 7 (July 6 - July 12): Workflow Advanced**
+* **Week 6 (June 29 - July 5): Workflow Advanced**
   - Condition evaluation with proper expression parsing (replacing hardcoded patterns), transform scripts, delay/loop nodes, run history persistence to `workflows/runs_<workflowId>.json` on disk, real-time canvas status updates (green/red nodes).
 
   **Deliverable:** Condition nodes handle arbitrary status-code and variable expressions. Run history is persisted and viewable. Canvas animates node status during execution.
 
-* **Week 8 (July 13 - July 19): Workflow AI & Polish**
-  - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), import/export JSON, guided "What's Next?" flow, workflow unit tests.
+> **Midterm Evaluation (July 6 - July 10):**
 
-  **Deliverable:** Workflows can be imported/exported as JSON. DashBot can scaffold a workflow from a natural language prompt. Unit tests cover execution engine validation and graph walking.
+* **Week 7 (July 6 - July 12): Import & export**
+  - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, **Hurl** ([#123](https://github.com/foss42/apidash/issues/123)). Optional **linear workflow** from file order.
+  - **Out:** Round-trip exports (APIDash JSON, cURL, HAR, workflow graph JSON) + user docs.
+
+  **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
+
+* **Week 8 (July 13 - July 19): Workflow AI & Polish**
+  - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), guided "What's Next?" flow, workflow unit tests.
+
+  **Deliverable:** DashBot can scaffold a workflow from a natural language prompt; tests cover execution engine validation and graph walking.
 
 ---
 

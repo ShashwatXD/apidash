@@ -421,7 +421,7 @@ My goals for bonding are to learn more about the project and to gel with the tea
 * **Week 13 (August 17 - August 23): Testing, Reliability & Documentation**
   - End-to-end tests, widget tests for dashboard components, integration tests for Git and Workflow flows on both adapters. User-facing documentation and developer guide.
   - Performance pass on filesystem autosave and workflow execution hot paths.
-  - Resolve mentor-priority defects with a strict triage SLA (critical: same day, major: within 48h).
+  - Resolve mentor-priority defects.
 
   **Deliverable:** Cross-platform test suites pass; docs complete; reliability/performance baseline published.
 

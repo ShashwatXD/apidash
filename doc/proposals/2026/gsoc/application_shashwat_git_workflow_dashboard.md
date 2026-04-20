@@ -339,21 +339,21 @@ My goals for bonding are to learn more about the project and to gel with the tea
 * **Week 1 (May 25 - May 31): Filesystem Storage & Collection Foundation**
   - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash-data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
 
-  **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
+  **Deliverable:** File-based autosave is live; collection CRUD works; no Hive I/O on edited paths.
 
 * **Week 2 (June 1 - June 7): Git Abstraction + Desktop Adapter**
   - Introduce `GitAdapter` contract and wire `GitSyncService` to use adapter injection instead of direct shell calls.
   - Implement `LocalGitAdapter` parity for current desktop flows (`status`, `add`, `commit`, `pull`, `push`, `log`, branches).
   - Add adapter-level unit tests and fixture repositories for deterministic behavior.
 
-  **Deliverable:** Desktop Git works via `GitAdapter`, with tested parity for existing flows.
+  **Deliverable:** Desktop `status/add/commit/pull/push/log/branch` flows pass through `GitAdapter`.
 
-* **Week 3 (June 8 - June 14): Mobile Git Adapter (`git2dart`)**
+* **Week 3 (June 8 - June 14): Mobile Git Adapter**
   - Add dependency `git2dart: ^0.4.0` and implement `Git2DartAdapter` for mobile-safe clone/fetch/pull/push/log/branch operations.
   - Implement auth plumbing (PAT/token and SSH key paths as supported by `git2dart`) and validate repository init/import flows on mobile.
   - Add conflict/error mapping so adapter exceptions surface actionable UI messages.
 
-  **Deliverable:** In-app Git operations run on mobile through `git2dart`.
+  **Deliverable:** Mobile clone/fetch/pull/push/log/branch flows run through `git2dart`.
 
 * **Week 4 (June 15 - June 21): Git Panel UX + Cross-Platform QA**
   - Harden `GitSyncService` for connect/init, serialize/commit, push preview/push, pull/rollback/branches, conflict guard, and import from existing clones across both adapters.
@@ -361,7 +361,7 @@ My goals for bonding are to learn more about the project and to gel with the tea
   - Ship Git panel UX with clear pending-change diff states, commit history timeline, rollback entry points, and conflict messaging.
   - Add integration tests covering adapter parity on desktop + mobile critical paths.
 
-  **Deliverable:** Full in-app Git panel flow with first-class **diff UI** + **history** on both desktop and mobile.
+  **Deliverable:** Desktop+mobile Git panel ships with diff, history, commit, push/pull, rollback, conflict UX.
 ---
 
 ##### Milestone 2: Visual Workflow Builder & import/export (Weeks 5-9, June 22 - July 26)
@@ -369,17 +369,17 @@ My goals for bonding are to learn more about the project and to gel with the tea
 * **Week 5 (June 22 - June 28): Workflow Foundation**
   - `WorkflowModel` + `WorkflowNodeData` finalization, canvas integration, all 6 node types with inspector panel.
 
-  **Deliverable:** Users can add all 6 node types to the canvas, connect them via ports, and edit properties in the inspector panel.
+  **Deliverable:** All 6 node types are creatable, connectable, and editable on the canvas.
 
 * **Week 6 (June 29 - July 5): Execution Engine**
   - `WorkflowExecutionService` BFS engine, `WorkflowRunDelegateBridge` for real HTTP request execution, shared context and variable extraction via `json:` syntax.
 
-  **Deliverable:** Workflows execute real HTTP requests. Responses are stored in shared context and downstream nodes can extract values (e.g., tokens) from previous responses.
+  **Deliverable:** Engine executes real requests with shared context and working variable extraction.
 
 * **Week 7 (July 6 - July 12): Workflow Advanced**
   - Condition evaluation with proper expression parsing (replacing hardcoded patterns), transform scripts, delay/loop nodes, run history persistence to `workflows/runs_<workflowId>.json` on disk, real-time canvas status updates (green/red nodes).
 
-  **Deliverable:** Condition nodes handle arbitrary status-code and variable expressions. Run history is persisted and viewable. Canvas animates node status during execution.
+  **Deliverable:** Conditions/delay/loop work; run history persists; canvas runtime status updates correctly.
 
 > **Midterm Evaluation Window:**
 
@@ -388,12 +388,12 @@ My goals for bonding are to learn more about the project and to gel with the tea
   - **Workflow-local requests:** avoid polluting collection requests during workflow imports. Store HTTP steps inside each workflow and edit them in workflow-scoped UI (request-like fields), keeping collections untouched by default.
   - **Out:** Round-trip exports (cURL, HAR, workflow graph JSON) + user docs.
 
-  **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
+  **Deliverable:** Postman/Insomnia/cURL/HAR/APIDash/Hurl import-export works with verified mappings.
 
 * **Week 9 (July 20 - July 26): Workflow AI & Polish**
   - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), guided "What's Next?" flow, workflow unit tests.
 
-  **Deliverable:** DashBot can scaffold a workflow from a natural language prompt; tests cover execution engine validation and graph walking.
+  **Deliverable:** AI workflow scaffold works with validation guardrails and targeted engine tests.
 
 ---
 
@@ -402,17 +402,17 @@ My goals for bonding are to learn more about the project and to gel with the tea
 * **Week 10 (July 27 - August 2): Collection Dashboard**
   - `CollectionDashboardPage` with KPI cards (requests, success rate, failures, 5xx errors), health score, overview strip, response timing trend chart.
 
-  **Deliverable:** Collection dashboard displays live metrics from request history. Health score is computed and color-coded.
+  **Deliverable:** Collection dashboard KPIs and health score render from real history data.
 
 * **Week 11 (August 3 - August 9): Dashboard Charts & Tables**
   - Status code distribution bar chart, method distribution bar chart, top endpoints table, slowest requests table, recent requests with errors.
 
-  **Deliverable:** All dashboard charts and tables render real data.
+  **Deliverable:** Status/method charts and endpoint/latency tables render and refresh correctly.
 
 * **Week 12 (August 10 - August 16): Workflow Dashboard & Webhooks**
   - `WorkflowDashboardPage` with run KPIs, duration trend chart, success/fail pie chart, recent runs table. Webhook reporting service for both dashboards with configurable URL, interval, and auto-send.
 
-  **Deliverable:** Both dashboards are fully functional. Webhook reports can be sent on schedule to Slack, Discord, or any HTTP endpoint.
+  **Deliverable:** Workflow dashboard and scheduled webhook reporting are fully operational.
 
 ---
 
@@ -423,7 +423,7 @@ My goals for bonding are to learn more about the project and to gel with the tea
   - Performance pass on filesystem autosave and workflow execution hot paths.
   - Resolve mentor-priority defects with a strict triage SLA (critical: same day, major: within 48h).
 
-  **Deliverable:** All features tested and documented with reliability and performance baseline recorded.
+  **Deliverable:** Cross-platform test suites pass; docs complete; reliability/performance baseline published.
 
 * **Week 14 (August 24 - August 30): Final Stabilization & Handover**
   - Final polish and regression sweep, release checklist completion, demo recordings, project report, and handover notes for maintainers.

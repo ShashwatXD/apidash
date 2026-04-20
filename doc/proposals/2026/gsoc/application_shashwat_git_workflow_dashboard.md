@@ -119,7 +119,7 @@ API Dash currently stores all requests in a flat local list with no version cont
 API Dash previously stored data in ways that made version control awkward (e.g. bulk save / Hive). There was no clean way to treat a collection as a set of plain files that any Git host could track.
 
 **Design principle (git-friendly, not host-specific):**  
-The **local filesystem** under **`apidash-data/`** is the source of truth. Sync with **any** remote (GitHub, GitLab, Codeberg, self-hosted) is done with normal **`git remote`** in a **local clone**, not via a single vendor's REST API. The app focuses on **serializing collections to JSON** and **invoking Git on disk**; heavy merge/conflict resolution can stay in **external Git clients** or a terminal on desktop.
+The **local filesystem** under **`apidash-data/`** is the source of truth. Sync with **any** remote (GitHub, GitLab, Codeberg, self-hosted) is done through standard Git semantics in a local repository, not via a single vendor's REST API. The app focuses on **serializing collections to JSON** and using a pluggable Git engine: desktop can use the system git binary, and mobile uses embedded Git via `git2dart`.
 
 **Filesystem layout (`FileSystemHandler`):**  
 Data lives under **`apidash-data/`** (app documents or workspace). Each collection is **`collections/<collection-id>/`** with **`collection.json`**, **`requests/<request-id>.json`**, etc. Collection **`id`** is a **filesystem-safe slug** from the display name (unique names); request files keep stable ids inside JSON. Each collection folder gets a **`.gitignore`**. Writes use **atomic temp + rename** where applicable.
@@ -147,9 +147,11 @@ class GitConnectionModel {
 **UI flow (Git panel):**  
 Collections are listed in the sidebar; opening **Git / Share** goes to the **Git panel** for that collection. The user **connects a collection to a directory on disk** that is (or becomes) a Git repository: **init** if empty, or **import from an existing clone**. Tabs include **CLI context** (read-only `git remote` / `status` via subprocess), **Push** (preview of file changes, then commit), **History** (commits; rollback to a revision reloads JSON into the active collection), and **Branches** (list / create / delete, via **`LocalGitAdapter`**). **Push** may run **`git push`** when a remote is configured, and the host is whatever the user added with `git remote add`.
 
-**Implementation: `LocalGitAdapter` + `GitSyncService`:**  
-- **`LocalGitAdapter`** (`lib/services/git/local_git_adapter.dart`) runs the **`git`** binary: status, remotes, commit a map of paths → contents, log, branches, read tree at branch head or at a commit SHA.  
-- **`GitSyncService`** (`lib/services/git/git_sync_service.dart`) builds the portable file set with **`GitCollectionSerializer.toGitFiles`**, connects/disconnects **`GitConnectionModel`**, **push** / **pull** / **rollback**, and surfaces **`GitSyncConflictException`** when remote moved past **`lastSyncedCommitSha`**.  
+**Implementation: `GitAdapter` abstraction + `GitSyncService`:**  
+- **`GitAdapter`** interface defines: status, remotes, branch ops, commit, log, push, pull/fetch, rollback, and read-tree primitives.  
+- **`LocalGitAdapter`** (`lib/services/git/local_git_adapter.dart`) runs the system **`git`** binary on desktop platforms.  
+- **`Git2DartAdapter`** (`lib/services/git/git2dart_adapter.dart`) uses **`git2dart: ^0.4.0`** for mobile-safe Git operations (clone/fetch/pull/push/log/branch) without shelling out.  
+- **`GitSyncService`** (`lib/services/git/git_sync_service.dart`) builds the portable file set with **`GitCollectionSerializer.toGitFiles`**, connects/disconnects **`GitConnectionModel`**, performs **push** / **pull** / **rollback**, and surfaces **`GitSyncConflictException`** when remote moved past **`lastSyncedCommitSha`**.  
 - **`GitCollectionSerializer`:** maps models ↔ **`collection.json`**, **`environments.json`**, **`requests/*.json`**, plus **`.gitignore`** in the committed bundle. On import, **`fromGitFiles`** always uses the **local collection folder id** as **`CollectionModel.id`** so a legacy UUID in an old `collection.json` cannot desync the on-disk path. After a pull, **`replaceActiveCollectionFromGit`** updates state and persists **`collection.json`**; if the imported **name** would duplicate another collection, the name is **disambiguated** (e.g. `Name (2)`).
 
 **Import / collaboration:**  
@@ -313,13 +315,14 @@ For more related designs see [**Figma**](https://www.figma.com/design/frCBBxeXgc
 
 #### New Dependencies
 
+- [git2dart: ^0.4.0](https://pub.dev/packages/git2dart) - mobile Git operations through libgit2 bindings (clone/fetch/pull/push/log/branch) without requiring shell access
 - [vyuh_node_flow](https://pub.dev/packages/vyuh_node_flow) - node-based canvas for the Workflow Builder (drag-and-drop, port connections)
 - [fl_chart](https://pub.dev/packages/fl_chart) - charts for Collection and Workflow Dashboards (line, bar, pie)
 ---
 
 #### 4. Timeline
 
-**Project Size:** Medium (175 hours, 12 weeks)
+**Project Size:** Medium - Hard (14 weeks)
 [GSoC 2026 Timeline](https://developers.google.com/open-source/gsoc/timeline) for reference.
 
 ---
@@ -330,91 +333,101 @@ My goals for bonding are to learn more about the project and to gel with the tea
 
 ---
 
-##### Milestone 1: Filesystem Storage & Git Support (Weeks 1-3, May 25 - June 14)
-> Core persistence + **local `git`** (no GitHub/vendor REST APIs for sync);
+##### Milestone 1: Filesystem Storage + Cross-Platform Git Foundation (Weeks 1-4, May 25 - June 21)
+> Core persistence + Git engine abstraction for desktop and mobile.
 
 * **Week 1 (May 25 - May 31): Filesystem Storage & Collection Foundation**
   - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash-data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
 
   **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
 
-* **Week 2 (June 1 - June 7): Integrated terminal & CLI (`apidash_cli`)**
-  - Add a multi-session bottom shell so users can run **`git`** and other tools inside API Dash.
-  - Build **`packages/apidash_cli`** for session/workspace resolution and active-collection switch via **`apidash-data/manifest.json`**.
-  - Enable filesystem-first Git commands (`status`, `add`, `commit`, `pull`, `push`) from the integrated terminal.
-  - Polish shell prompt/session lifecycle and keep CLI + GUI state in sync.
+* **Week 2 (June 1 - June 7): Git Abstraction + Desktop Adapter**
+  - Introduce `GitAdapter` contract and wire `GitSyncService` to use adapter injection instead of direct shell calls.
+  - Implement `LocalGitAdapter` parity for current desktop flows (`status`, `add`, `commit`, `pull`, `push`, `log`, branches).
+  - Add adapter-level unit tests and fixture repositories for deterministic behavior.
 
-  **Deliverable:** From a terminal, users can see the active collection, switch it, and complete basic Git workflows on the filesystem.
+  **Deliverable:** Desktop Git works via `GitAdapter`, with tested parity for existing flows.
 
-* **Week 3 (June 8 - June 14): Local Git in-app, diff UI, history, sync & QA**
-  - Harden **`LocalGitAdapter`** + **`GitSyncService`** for connect/init, serialize/commit, push preview/push, pull/rollback/branches, conflict guard, and import from existing clones.
+* **Week 3 (June 8 - June 14): Mobile Git Adapter (`git2dart`)**
+  - Add dependency `git2dart: ^0.4.0` and implement `Git2DartAdapter` for mobile-safe clone/fetch/pull/push/log/branch operations.
+  - Implement auth plumbing (PAT/token and SSH key paths as supported by `git2dart`) and validate repository init/import flows on mobile.
+  - Add conflict/error mapping so adapter exceptions surface actionable UI messages.
+
+  **Deliverable:** In-app Git operations run on mobile through `git2dart`.
+
+* **Week 4 (June 15 - June 21): Git Panel UX + Cross-Platform QA**
+  - Harden `GitSyncService` for connect/init, serialize/commit, push preview/push, pull/rollback/branches, conflict guard, and import from existing clones across both adapters.
+  - Build mobile UI for file edits, commit, push, pull, and conflict handling.
   - Ship Git panel UX with clear pending-change diff states, commit history timeline, rollback entry points, and conflict messaging.
-  - Add mobile fallback with simple collection import/export for sharing when Git workflows are desktop-only.
+  - Add integration tests covering adapter parity on desktop + mobile critical paths.
 
-  **Deliverable:** Full in-app Git panel flow with first-class **diff UI** + **history**, plus end-to-end checks for push/pull/rollback/branches.
+  **Deliverable:** Full in-app Git panel flow with first-class **diff UI** + **history** on both desktop and mobile.
 ---
 
-##### Milestone 2: Visual Workflow Builder & import/export (Weeks 4-8, June 15 - July 19)
+##### Milestone 2: Visual Workflow Builder & import/export (Weeks 5-9, June 22 - July 26)
 
-* **Week 4 (June 15 - June 21): Workflow Foundation**
+* **Week 5 (June 22 - June 28): Workflow Foundation**
   - `WorkflowModel` + `WorkflowNodeData` finalization, canvas integration, all 6 node types with inspector panel.
 
   **Deliverable:** Users can add all 6 node types to the canvas, connect them via ports, and edit properties in the inspector panel.
 
-* **Week 5 (June 22 - June 28): Execution Engine**
+* **Week 6 (June 29 - July 5): Execution Engine**
   - `WorkflowExecutionService` BFS engine, `WorkflowRunDelegateBridge` for real HTTP request execution, shared context and variable extraction via `json:` syntax.
 
   **Deliverable:** Workflows execute real HTTP requests. Responses are stored in shared context and downstream nodes can extract values (e.g., tokens) from previous responses.
 
-* **Week 6 (June 29 - July 5): Workflow Advanced**
+* **Week 7 (July 6 - July 12): Workflow Advanced**
   - Condition evaluation with proper expression parsing (replacing hardcoded patterns), transform scripts, delay/loop nodes, run history persistence to `workflows/runs_<workflowId>.json` on disk, real-time canvas status updates (green/red nodes).
 
   **Deliverable:** Condition nodes handle arbitrary status-code and variable expressions. Run history is persisted and viewable. Canvas animates node status during execution.
 
-> **Midterm Evaluation (July 6 - July 10):**
+> **Midterm Evaluation Window:**
 
-* **Week 7 (July 6 - July 12): Import & export**
+* **Week 8 (July 13 - July 19): Import & export**
   - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, Hurl(new). Optional **linear workflow** from file order.
   - **Workflow-local requests:** avoid polluting collection requests during workflow imports. Store HTTP steps inside each workflow and edit them in workflow-scoped UI (request-like fields), keeping collections untouched by default.
   - **Out:** Round-trip exports (cURL, HAR, workflow graph JSON) + user docs.
 
   **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
 
-* **Week 8 (July 13 - July 19): Workflow AI & Polish**
+* **Week 9 (July 20 - July 26): Workflow AI & Polish**
   - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), guided "What's Next?" flow, workflow unit tests.
 
   **Deliverable:** DashBot can scaffold a workflow from a natural language prompt; tests cover execution engine validation and graph walking.
 
 ---
 
-##### Milestone 3: Collection & Workflow Dashboard (Weeks 9-11, July 20 - August 9)
+##### Milestone 3: Collection & Workflow Dashboard (Weeks 10-12, July 27 - August 16)
 
-* **Week 9 (July 20 - July 26): Collection Dashboard**
+* **Week 10 (July 27 - August 2): Collection Dashboard**
   - `CollectionDashboardPage` with KPI cards (requests, success rate, failures, 5xx errors), health score, overview strip, response timing trend chart.
 
   **Deliverable:** Collection dashboard displays live metrics from request history. Health score is computed and color-coded.
 
-* **Week 10 (July 27 - August 2): Dashboard Charts & Tables**
+* **Week 11 (August 3 - August 9): Dashboard Charts & Tables**
   - Status code distribution bar chart, method distribution bar chart, top endpoints table, slowest requests table, recent requests with errors.
 
   **Deliverable:** All dashboard charts and tables render real data.
 
-* **Week 11 (August 3 - August 9): Workflow Dashboard & Webhooks**
+* **Week 12 (August 10 - August 16): Workflow Dashboard & Webhooks**
   - `WorkflowDashboardPage` with run KPIs, duration trend chart, success/fail pie chart, recent runs table. Webhook reporting service for both dashboards with configurable URL, interval, and auto-send.
 
   **Deliverable:** Both dashboards are fully functional. Webhook reports can be sent on schedule to Slack, Discord, or any HTTP endpoint.
 
 ---
 
-##### Milestone 4: Testing, Polish & Documentation (Week 12, August 10 - August 24)
+##### Milestone 4: Hardening, Performance & Release Readiness (Weeks 13-14, August 17 - August 30)
 
-* **Week 12 (August 10 - August 16): Testing & Docs**
-  - End-to-end tests, widget tests for dashboard components, integration tests for Git and Workflow flows. User-facing documentation and developer guide.
+* **Week 13 (August 17 - August 23): Testing, Reliability & Documentation**
+  - End-to-end tests, widget tests for dashboard components, integration tests for Git and Workflow flows on both adapters. User-facing documentation and developer guide.
+  - Performance pass on filesystem autosave and workflow execution hot paths.
+  - Resolve mentor-priority defects with a strict triage SLA (critical: same day, major: within 48h).
 
-  **Deliverable:** All features tested and documented. Final bug fixes from mentor feedback.
+  **Deliverable:** All features tested and documented with reliability and performance baseline recorded.
 
-* **Final Week (August 17 - August 24)**
-  - Submit final work product and mentor evaluation. Final polish, any remaining bug fixes, project report.
+* **Week 14 (August 24 - August 30): Final Stabilization & Handover**
+  - Final polish and regression sweep, release checklist completion, demo recordings, project report, and handover notes for maintainers.
+  - Buffer is reserved only for high-priority blocking issues (not for planned feature spillover).
 
 ---
 

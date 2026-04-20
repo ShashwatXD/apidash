@@ -339,19 +339,19 @@ My goals for bonding are to learn more about the project and to gel with the tea
   **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
 
 * **Week 2 (June 1 - June 7): Integrated terminal & CLI (`apidash_cli`)**
-  - **Bottom shell** in the app (multi-session terminal) so users can run **`git`** and other tools next to API Dash without leaving the workspace.
-  - **`packages/apidash_cli`**: named sessions, workspace / `apidash-data` path resolution, reading and updating **`apidash-data/manifest.json`** (active collection, collection list, `collection use` / `switch` from the terminal). Align env vars and docs with **`doc/progress/integrated_terminal_and_cli.md`**.
-  - **Filesystem-first Git flow:** users can run standard `git` commands (`status`, `add`, `commit`, `pull`, `push`) directly from the integrated terminal against the collection files on disk.
-  - Polish prompt behavior (shell-specific), session lifecycle, and any UX needed so CLI and GUI stay in sync.
+  - Add a multi-session bottom shell so users can run **`git`** and other tools inside API Dash.
+  - Build **`packages/apidash_cli`** for session/workspace resolution and active-collection switch via **`apidash-data/manifest.json`**.
+  - Enable filesystem-first Git commands (`status`, `add`, `commit`, `pull`, `push`) from the integrated terminal.
+  - Polish shell prompt/session lifecycle and keep CLI + GUI state in sync.
 
-  **Deliverable:** From a terminal, users can see which collection is active and complete Git workflows on the filesystem..
+  **Deliverable:** From a terminal, users can see the active collection, switch it, and complete basic Git workflows on the filesystem.
 
 * **Week 3 (June 8 - June 14): Local Git in-app, diff UI, history, sync & QA**
-  - Harden **`LocalGitAdapter`** + **`GitSyncService`**: connect a collection to a **local repo path**, `git init` when needed, serialize with **`GitCollectionSerializer`**, commit file set, push preview, optional **`git push`** when a remote exists; **pull / rollback / branches** via **`git`**; **divergence guard** (`GitSyncConflictException` vs `lastSyncedCommitSha`); import from an **existing clone**; provider merge rules; unit + E2E against a **local test repo** (remote can be any empty bare or file remote).
-  - **Git panel UX:** beyond path lists, a real **diff-oriented view** for pending changes (e.g. per-file unified or side-by-side text diff for **modified** JSON files, clear states for **added** / **deleted**); **commit history** with a clear timeline and rollback-to-revision; empty states, grouping, and conflict/divergence messaging so users know **what will ship** vs **what is already synced**.
-  - **Mobile:** because full local Git workflows are desktop-first, add simple **collection import/export** on mobile so users can still move and share collections.
+  - Harden **`LocalGitAdapter`** + **`GitSyncService`** for connect/init, serialize/commit, push preview/push, pull/rollback/branches, conflict guard, and import from existing clones.
+  - Ship Git panel UX with clear pending-change diff states, commit history timeline, rollback entry points, and conflict messaging.
+  - Add mobile fallback with simple collection import/export for sharing when Git workflows are desktop-only.
 
-  **Deliverable:** Full Git panel flow ; **diff UI** + **history** as first-class; end-to-end verification; tests for push/pull/rollback/branches where feasible.
+  **Deliverable:** Full in-app Git panel flow with first-class **diff UI** + **history**, plus end-to-end checks for push/pull/rollback/branches.
 ---
 
 ##### Milestone 2: Visual Workflow Builder & import/export (Weeks 4-8, June 15 - July 19)

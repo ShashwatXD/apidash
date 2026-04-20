@@ -194,14 +194,30 @@ class CollectionStateNotifier
     add();
   }
 
-  Future<String> addCollection({String? name}) async {
-    final id = getNewUuid();
+  /// Returns the new collection id, or `null` if [name] duplicates an existing
+  /// collection name (case-insensitive).
+  Future<String?> addCollection({String? name}) async {
+    final existing = ref.read(collectionsStateProvider);
+    late final String displayName;
+    if (name != null && name.trim().isNotEmpty) {
+      displayName = name.trim();
+      if (existing.values
+          .any((c) => collectionDisplayNamesEqual(c.name, displayName))) {
+        return null;
+      }
+    } else {
+      displayName = _nextUniqueNewCollectionDisplayName();
+    }
+    final id = uniqueCollectionFolderId(
+      displayName,
+      existing.keys.toSet(),
+    );
     final firstRequestId = getNewUuid();
     final now = DateTime.now();
     const firstRequestName = 'request 1';
     final model = CollectionModel(
       id: id,
-      name: name?.trim().isNotEmpty == true ? name!.trim() : 'New Collection',
+      name: displayName,
       requestIds: [firstRequestId],
       createdAt: now,
       updatedAt: now,
@@ -225,6 +241,21 @@ class CollectionStateNotifier
     };
     unsave();
     return id;
+  }
+
+  String _nextUniqueNewCollectionDisplayName() {
+    const base = 'New Collection';
+    final taken = ref
+        .read(collectionsStateProvider)
+        .values
+        .map((c) => c.name.trim().toLowerCase())
+        .toSet();
+    if (!taken.contains(base.toLowerCase())) return base;
+    var n = 2;
+    while (taken.contains('${base.toLowerCase()} $n')) {
+      n++;
+    }
+    return '$base $n';
   }
 
   Future<void> switchCollection(String collectionId) async {
@@ -796,7 +827,8 @@ class CollectionStateNotifier
     final collectionIds =
         (collectionIdsRaw as List?)?.whereType<String>().toList() ?? [];
     if (collectionIds.isEmpty) {
-      final defaultCollectionId = getNewUuid();
+      final defaultCollectionId =
+          collectionFolderIdFromDisplayName('Default Collection');
       final defaultRequestId = getNewUuid();
       final now = DateTime.now();
       final defaultCollection = CollectionModel(
@@ -838,7 +870,8 @@ class CollectionStateNotifier
       } catch (_) {}
     }
     if (collections.isEmpty) {
-      final defaultCollectionId = getNewUuid();
+      final defaultCollectionId =
+          collectionFolderIdFromDisplayName('Default Collection');
       final defaultRequestId = getNewUuid();
       final now = DateTime.now();
       final defaultCollection = CollectionModel(
@@ -957,6 +990,8 @@ class CollectionStateNotifier
     );
   }
 
+  /// If Git sends a [remoteCollection.name] that matches another collection
+  /// (case-insensitive), the active collection is renamed with a ` (2)` suffix.
   Future<List<MalformedRequestFile>> replaceActiveCollectionFromGit({
     required CollectionModel remoteCollection,
     required List<String> requestOrder,
@@ -970,13 +1005,21 @@ class CollectionStateNotifier
       return const <MalformedRequestFile>[];
     }
 
-    // Keep local git connection (if any) but update the collection metadata.
+    final others = Map<String, CollectionModel>.from(existingCollections)
+      ..remove(activeCollectionId);
+    final resolvedName = _disambiguateCollectionDisplayName(
+      remoteCollection.name,
+      others,
+    );
+
+    // Keep local folder id ([existing.id]); Git may carry a legacy UUID in JSON.
     final updatedCollection = existing.copyWith(
-      name: remoteCollection.name,
+      name: resolvedName,
       description: remoteCollection.description,
       requestIds: requestOrder,
       activeEnvironmentId: remoteCollection.activeEnvironmentId,
       gitConnection: existing.gitConnection,
+      updatedAt: DateTime.now(),
     );
 
     existingCollections[activeCollectionId] = updatedCollection;
@@ -1005,9 +1048,30 @@ class CollectionStateNotifier
             : model.copyWith(httpResponseModel: null).toJson(),
       );
     }
+    await fileSystemHandler.setCollectionMeta(
+      activeCollectionId,
+      updatedCollection.toJson(),
+    );
     await fileSystemHandler.removeUnused();
 
     return malformedRequests;
+  }
+
+  String _disambiguateCollectionDisplayName(
+    String desired,
+    Map<String, CollectionModel> otherCollections,
+  ) {
+    final taken = otherCollections.values
+        .map((c) => c.name.trim().toLowerCase())
+        .toSet();
+    final base = desired.trim();
+    if (base.isEmpty) return desired;
+    if (!taken.contains(base.toLowerCase())) return base;
+    var n = 2;
+    while (taken.contains('$base ($n)'.toLowerCase())) {
+      n++;
+    }
+    return '$base ($n)';
   }
 
   Future<void> setActiveCollectionGitConnection(GitConnectionModel? gitConnection) async {

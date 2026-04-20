@@ -312,6 +312,7 @@ Plain JSON files in this folder are produced by API Dash. Use any Git host (GitH
     final pull = await adapter.pullCollectionAtBranchHead(branch: branch);
 
     final activeCollection = _getActiveCollection();
+    // Local folder id (slug) is authoritative; remote collection.json may omit id or use a legacy UUID.
     final import = _serializer.fromGitFiles(
       files: pull.files,
       fallbackCollectionId: activeCollection.id,
@@ -360,6 +361,7 @@ Plain JSON files in this folder are produced by API Dash. Use any Git host (GitH
     final pull = await adapter.pullCollectionAtCommit(commitSha: commitSha);
 
     final activeCollection = _getActiveCollection();
+    // Local folder id (slug) is authoritative; remote collection.json may omit id or use a legacy UUID.
     final import = _serializer.fromGitFiles(
       files: pull.files,
       fallbackCollectionId: activeCollection.id,

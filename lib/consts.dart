@@ -11,6 +11,10 @@ const kLearnScriptingUrl =
 const kIssueUrl = "$kGitUrl/issues";
 const kDefaultUri = "api.apidash.dev";
 
+/// Collections, manifest, environments, etc. live under `<workspace>/apidash-data/`
+/// or `<Documents>/apidash-data/` when no workspace is set.
+const kApidashDataDirectoryName = 'apidash-data';
+
 const kAssetIntroMd = "assets/intro.md";
 const kAssetSendingLottie = "assets/sending.json";
 const kAssetSavingLottie = "assets/saving.json";

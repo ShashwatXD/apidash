@@ -6,11 +6,15 @@ import 'package:apidash_core/apidash_core.dart';
 class GitCollectionPaths {
   static const String collection = 'collection.json';
   static const String environments = 'environments.json';
+  static const String gitignore = '.gitignore';
   static const String requestsDir = 'requests';
 
   static String requestFilePath(String requestFileName) =>
       '$requestsDir/$requestFileName.json';
 }
+
+/// Same contents as `collections/<id>/.gitignore` on disk ([FileSystemHandler]).
+const String kGitCollectionGitignoreContents = '# macOS Finder\n.DS_Store\n';
 
 class GitCollectionFiles {
   const GitCollectionFiles({
@@ -59,6 +63,9 @@ class GitCollectionSerializer {
   }) {
     final files = <String, String>{};
 
+    files[GitCollectionPaths.gitignore] = kGitCollectionGitignoreContents;
+
+    // [collection.id] is the workspace folder name (slug), not a random UUID.
     files[GitCollectionPaths.collection] = _encodePretty(<String, dynamic>{
       'id': collection.id,
       'name': collection.name,
@@ -99,6 +106,9 @@ class GitCollectionSerializer {
     return GitCollectionFiles(files: files);
   }
 
+  /// [fallbackCollectionId] is always used as [CollectionModel.id]: it must match
+  /// `apidash-data/collections/<id>/` on disk (slug from the collection name).
+  /// Remote `collection.json` may still contain a legacy UUID `id`; that value is ignored.
   GitCollectionImportResult fromGitFiles({
     required Map<String, String> files,
     required String fallbackCollectionId,
@@ -200,7 +210,7 @@ class GitCollectionSerializer {
     }
 
     final collection = CollectionModel(
-      id: (collectionData['id'] as String?) ?? fallbackCollectionId,
+      id: fallbackCollectionId,
       name: (collectionData['name'] as String?) ?? fallbackCollectionName,
       description: (collectionData['description'] as String?) ?? '',
       requestIds: normalizedOrder,

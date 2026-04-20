@@ -9,6 +9,7 @@ import 'package:apidash/models/models.dart';
 import 'package:apidash/consts.dart';
 import 'package:apidash/services/file_system_handler.dart';
 import 'package:apidash/utils/focus_integrated_shell.dart';
+import 'package:apidash/utils/open_external_terminal.dart';
 import 'package:apidash_core/apidash_core.dart';
 import '../common_widgets/common_widgets.dart';
 import '../git/collection_share_dialog.dart';
@@ -50,15 +51,14 @@ class CollectionPane extends ConsumerWidget {
       final collectionId = await ref
           .read(collectionStateNotifierProvider.notifier)
           .addCollection(name: null);
-      if (context.mounted) {
-        showDialog<void>(
-          context: context,
-          builder: (context) => GitPanelDialog(
-            collectionId: collectionId,
-            startInImportMode: true,
-          ),
-        );
-      }
+      if (!context.mounted || collectionId == null) return;
+      showDialog<void>(
+        context: context,
+        builder: (context) => GitPanelDialog(
+          collectionId: collectionId,
+          startInImportMode: true,
+        ),
+      );
       return;
     }
 
@@ -92,9 +92,17 @@ class CollectionPane extends ConsumerWidget {
     );
     final normalized = name?.trim();
     if (normalized == null || normalized.isEmpty) return;
-    await ref
+    final newId = await ref
         .read(collectionStateNotifierProvider.notifier)
         .addCollection(name: normalized);
+    if (!context.mounted) return;
+    if (newId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A collection with that name already exists.'),
+        ),
+      );
+    }
   }
 
   @override
@@ -330,7 +338,7 @@ class _CollectionHeaderRowState extends ConsumerState<_CollectionHeaderRow> {
     );
   }
 
-  Future<void> _openInTerminal() async {
+  Future<void> _openExternalTerminal() async {
     setState(() => _quickActionsExpanded = false);
     await ref
         .read(collectionStateNotifierProvider.notifier)
@@ -341,7 +349,34 @@ class _CollectionHeaderRowState extends ConsumerState<_CollectionHeaderRow> {
     final cwd = (git != null && git.localRepoPath.isNotEmpty)
         ? git.localRepoPath
         : collectionStorageDirectory(widget.collectionId);
-    focusIntegratedShell(ref, cwd);
+    await openExternalTerminal(cwd);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Opened your default terminal for .command files in this folder.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openIntegratedShell() async {
+    setState(() => _quickActionsExpanded = false);
+    await ref
+        .read(collectionStateNotifierProvider.notifier)
+        .switchCollection(widget.collectionId);
+    if (!mounted) return;
+    final git =
+        ref.read(collectionsStateProvider)[widget.collectionId]?.gitConnection;
+    final cwd = (git != null && git.localRepoPath.isNotEmpty)
+        ? git.localRepoPath
+        : collectionStorageDirectory(widget.collectionId);
+    focusIntegratedShell(
+      ref,
+      cwd,
+      collectionId: widget.collectionId,
+      label: widget.name,
+    );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -411,10 +446,23 @@ class _CollectionHeaderRowState extends ConsumerState<_CollectionHeaderRow> {
               onPressed: () => unawaited(_openShare()),
               icon: const Icon(Icons.share_outlined, size: 18),
             ),
-            IconButton(
-              tooltip: 'Open in terminal',
-              onPressed: () => unawaited(_openInTerminal()),
+            PopupMenuButton<int>(
+              tooltip: 'Terminal',
               icon: const Icon(Icons.terminal_outlined, size: 18),
+              onSelected: (value) {
+                if (value == 0) unawaited(_openExternalTerminal());
+                if (value == 1) unawaited(_openIntegratedShell());
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 0,
+                  child: Text('External terminal (default for .command)'),
+                ),
+                PopupMenuItem(
+                  value: 1,
+                  child: Text('Integrated $kLabelShell (bottom panel)'),
+                ),
+              ],
             ),
           ],
           const SizedBox(width: 2),

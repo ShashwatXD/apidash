@@ -135,7 +135,11 @@ class LocalGitAdapter {
   }
 
   bool _isTrackedCollectionPath(String path) {
-    if (path == 'collection.json' || path == 'environments.json') return true;
+    if (path == '.gitignore' ||
+        path == 'collection.json' ||
+        path == 'environments.json') {
+      return true;
+    }
     return path.startsWith('requests/') && path.endsWith('.json');
   }
 

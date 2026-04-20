@@ -106,10 +106,15 @@ class _ShellTerminalViewState extends State<ShellTerminalView> {
 
   /// Pass a full environment map: the native PTY layer only merges a subset from
   /// [Platform.environment] unless we supply overrides for everything we need.
-  Map<String, String>? _ptyEnvironment() {
+  ///
+  /// In zsh, [PS1] is an alias for [PROMPT]; setting both overwrites with two
+  /// different formats. Bash-style `\u@\h` in [PS1] is printed literally by zsh.
+  Map<String, String>? _ptyEnvironment(String shellExecutable) {
     if (kIsWeb) return null;
     if (Platform.isWindows) return null;
     final env = Map<String, String>.from(Platform.environment);
+    env.remove('PROMPT');
+    env.remove('PS1');
     if (env['PATH']?.trim().isEmpty ?? true) {
       env['PATH'] =
           '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
@@ -120,6 +125,14 @@ class _ShellTerminalViewState extends State<ShellTerminalView> {
     env['TERM'] = 'xterm-256color';
     if (env['LANG']?.trim().isEmpty ?? true) {
       env['LANG'] = 'en_US.UTF-8';
+    }
+    // Startup files are skipped (-f / --norc); set one prompt format per shell.
+    final shellBase = p.basename(shellExecutable);
+    if (shellBase == 'zsh') {
+      env['PROMPT'] = r'%n@%m %~ %# ';
+    } else {
+      // bash, sh, dash, etc.
+      env['PS1'] = r'\u@\h:\w\$ ';
     }
     return env;
   }
@@ -145,7 +158,7 @@ class _ShellTerminalViewState extends State<ShellTerminalView> {
         shell,
         arguments: args,
         workingDirectory: cwd,
-        environment: _ptyEnvironment(),
+        environment: _ptyEnvironment(shell),
         columns: cols,
         rows: rows,
       );

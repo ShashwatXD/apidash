@@ -503,7 +503,16 @@ class _GitPanelDialogState extends ConsumerState<GitPanelDialog>
           children: [
             FilledButton.icon(
               onPressed: () {
-                focusIntegratedShell(ref, git.localRepoPath);
+                final col = ref.read(collectionsStateProvider)[widget.collectionId];
+                final label = (col?.name.trim().isNotEmpty == true)
+                    ? col!.name
+                    : p.basename(git.localRepoPath);
+                focusIntegratedShell(
+                  ref,
+                  git.localRepoPath,
+                  collectionId: widget.collectionId,
+                  label: label,
+                );
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

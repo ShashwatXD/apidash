@@ -82,7 +82,14 @@ class _CollectionShareDialogState extends ConsumerState<CollectionShareDialog> {
 
   void _openShellAndOptionalClose({required bool pop}) {
     final git = ref.read(collectionsStateProvider)[widget.collectionId]?.gitConnection;
-    focusIntegratedShell(ref, _workingDirectory(git));
+    final col = ref.read(collectionsStateProvider)[widget.collectionId];
+    final label = (col?.name.trim().isNotEmpty == true) ? col!.name : 'Collection';
+    focusIntegratedShell(
+      ref,
+      _workingDirectory(git),
+      collectionId: widget.collectionId,
+      label: label,
+    );
     if (pop && mounted) Navigator.of(context).pop();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

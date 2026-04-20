@@ -3,7 +3,14 @@ import 'dart:io';
 
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
-import 'package:apidash/utils/utils.dart' show getNewUuid;
+import 'package:apidash/services/git_collection_serializer.dart'
+    show kGitCollectionGitignoreContents;
+import 'package:apidash/utils/utils.dart'
+    show
+        collectionFolderIdFromDisplayName,
+        collectionIdLooksLikeUuid,
+        getNewUuid,
+        uniqueCollectionFolderId;
 import 'package:apidash_core/apidash_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
@@ -39,7 +46,7 @@ abstract final class FsLayout {
   static const String dashbotMessages = 'dashbot/messages.json';
 }
 
-/// Absolute folder where a collection is stored (`.apidash_data/collections/<id>`).
+/// Absolute folder where a collection is stored (`apidash-data/collections/<id>`).
 String collectionStorageDirectory(String collectionId) {
   return p.join(
     fileSystemHandler.root.path,
@@ -47,6 +54,9 @@ String collectionStorageDirectory(String collectionId) {
     collectionId,
   );
 }
+
+Directory _apidashDataDirectoryUnder(Directory parent) =>
+    Directory(p.join(parent.path, kApidashDataDirectoryName));
 
 Future<bool> initFileSystemHandler(
   bool initializeUsingPath,
@@ -105,24 +115,27 @@ class FileSystemHandler {
   }) async {
     if (initializeUsingPath) {
       if (workspaceFolderPath != null) {
-        _root = Directory(p.join(workspaceFolderPath, '.apidash_data'));
+        _root = _apidashDataDirectoryUnder(Directory(workspaceFolderPath));
       } else {
         throw StateError('workspaceFolderPath required when initializeUsingPath');
       }
     } else {
       final doc = await getApplicationDocumentsDirectory();
-      _root = Directory(p.join(doc.path, 'apidash_data'));
+      _root = _apidashDataDirectoryUnder(Directory(doc.path));
     }
     await root.create(recursive: true);
     await _loadManifest();
+    await _migrateUuidCollectionFoldersToSlugIds();
     await _ensureGlobalEnvironment();
     if (_collectionIds.isEmpty) {
       await _seedDefaultCollectionIfEmpty();
     }
+    await _ensureAllCollectionGitignores();
   }
 
   Future<void> _seedDefaultCollectionIfEmpty() async {
-    final collectionId = getNewUuid();
+    final collectionId =
+        collectionFolderIdFromDisplayName('Default Collection');
     final requestId = getNewUuid();
     final now = DateTime.now();
     final collection = CollectionModel(
@@ -370,6 +383,7 @@ class FileSystemHandler {
     await file.parent.create(recursive: true);
     await _writeJsonFile(file, requestModelJson);
     _putRequestMetaForRequestMap(requestId, requestModelJson);
+    await _writeCollectionGitignore(collectionId);
   }
 
   Future<dynamic> getCollectionRequestModel(
@@ -432,6 +446,22 @@ class FileSystemHandler {
     }
     await file.parent.create(recursive: true);
     await _writeJsonFile(file, collectionMetaJson);
+    await _writeCollectionGitignore(collectionId);
+  }
+
+  Future<void> _writeCollectionGitignore(String collectionId) async {
+    final dir = Directory(
+      p.join(root.path, FsLayout.collectionsDir, collectionId),
+    );
+    if (!await dir.exists()) return;
+    final gf = File(p.join(dir.path, '.gitignore'));
+    await gf.writeAsString(kGitCollectionGitignoreContents);
+  }
+
+  Future<void> _ensureAllCollectionGitignores() async {
+    for (final id in List<String>.from(_collectionIds)) {
+      await _writeCollectionGitignore(id);
+    }
   }
 
   Future<dynamic> getCollectionRequestIds(String collectionId) async {
@@ -780,6 +810,56 @@ class FileSystemHandler {
           }
         }
       }
+    }
+  }
+
+  /// One-time migration: `collections/<uuid>/` → `collections/<slug-from-name>/`.
+  Future<void> _migrateUuidCollectionFoldersToSlugIds() async {
+    var ids = [..._collectionIds];
+    final used = ids.toSet();
+    var changed = false;
+    for (var i = 0; i < ids.length; i++) {
+      final oldId = ids[i];
+      if (!collectionIdLooksLikeUuid(oldId)) continue;
+      final raw = await getCollectionMeta(oldId);
+      if (raw is! Map) continue;
+      final name = raw['name'] as String? ?? 'Collection';
+      final others = used.difference({oldId});
+      final newId = uniqueCollectionFolderId(name, others);
+      if (newId == oldId) continue;
+      final ok = await _renameCollectionRootOnDisk(oldId, newId);
+      if (!ok) continue;
+      ids[i] = newId;
+      used.remove(oldId);
+      used.add(newId);
+      if (_activeCollectionId == oldId) {
+        _activeCollectionId = newId;
+      }
+      final meta = Map<String, dynamic>.from(
+        raw.map((k, v) => MapEntry(k.toString(), v)),
+      );
+      meta['id'] = newId;
+      await setCollectionMeta(newId, meta);
+      changed = true;
+    }
+    if (changed) {
+      _collectionIds = ids;
+      await _persistManifest();
+      await _loadRequestMetaFromDisk();
+    }
+  }
+
+  Future<bool> _renameCollectionRootOnDisk(String oldId, String newId) async {
+    final oldDir = Directory(p.join(root.path, FsLayout.collectionsDir, oldId));
+    final newDir = Directory(p.join(root.path, FsLayout.collectionsDir, newId));
+    if (!await oldDir.exists()) return false;
+    if (await newDir.exists()) return false;
+    try {
+      await oldDir.rename(newDir.path);
+      return true;
+    } catch (e, st) {
+      debugPrint('Could not rename collection folder $oldId → $newId: $e\n$st');
+      return false;
     }
   }
 }

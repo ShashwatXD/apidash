@@ -97,14 +97,14 @@ I have helped other contributors on Discord to navigate through issues, explain 
 
 #### 2. Abstract
 
-API Dash currently stores all requests in a flat local list with no version control, no sharing, and no collaboration support. The storage layer uses a Load All / Save All model with manual save, which blocks any collection or sync feature. This project first refactors the storage to **request-level autosave**, then introduces three features: **Git Support** for version-controlling and sharing collections via GitHub, a **Visual Workflow Builder** for chaining multi-step API flows, and a **Dashboard** for visualizing API health and workflow metrics.
+API Dash currently stores all requests in a flat local list with no version control, no sharing, and no collaboration support. The storage layer uses a Load All / Save All model with manual save, which blocks any collection or sync feature. This project first refactors the storage to **request-level autosave**, then introduces three features: **Git Support** for version-controlling and sharing collections using **local Git** and any remote the user configures (no vendor-specific sync APIs), a **Visual Workflow Builder** for chaining multi-step API flows, and a **Dashboard** for visualizing API health and workflow metrics.
 
 **Prototype:** A working prototype has been submitted as [PR #1451](https://github.com/foss42/apidash/pull/1451) with a [video walkthrough](https://youtu.be/4-7SIQqLTwo).
 
 **Relevant Issues & Discussions:**
 
 - **Save/Autosave feature** [#1034](https://github.com/foss42/apidash/discussions/1034) - PR [#1061](https://github.com/foss42/apidash/pull/1061) has similiar approach.
-- **Shared Community Collections** [#964](https://github.com/foss42/apidash/issues/964) - Enabled by Git Support, collections shared via GitHub repos
+- **Shared Community Collections** [#964](https://github.com/foss42/apidash/issues/964) - Enabled by Git Support, collections shared via Git remotes (any host)
 - **Git support and version control** [#502](https://github.com/foss42/apidash/issues/502) - Core issue for repository-backed collaboration and history.
 - **Dashboard and analytics visibility** [#120](https://github.com/foss42/apidash/issues/120) - Tracks monitoring/reporting expectations for collection and workflow health.
 - **Hurl import** ([#123](https://github.com/foss42/apidash/issues/123))
@@ -116,122 +116,47 @@ API Dash currently stores all requests in a flat local list with no version cont
 ##### Pillar 1: Git Support - Version Control for Collections
 
 **Problem:**
-API Dash stores all data locally inside a single Hive box. There is no way to version-control requests, share collections with teammates, or roll back to a previous state. For teams, this means manually exporting and importing API collections, which is error-prone and fragile.
+API Dash previously stored data in ways that made version control awkward (e.g. bulk save / Hive). There was no clean way to treat a collection as a set of plain files that any Git host could track.
 
-Before Git support or collections can work, the storage layer needs to change. Today the app uses a **Load All / Save All** model: `dataBox` is a Hive `Box` that loads every request into memory at startup, and `saveData()` re-serializes the entire map back to Hive when the user clicks Save. Every mutation calls `unsave()` which only sets a dirty flag, nothing is persisted until the manual save.
+**Design principle (git-friendly, not host-specific):**  
+The **local filesystem** under **`apidash-data/`** is the source of truth. Sync with **any** remote (GitHub, GitLab, Codeberg, self-hosted) is done with normal **`git remote`** in a **local clone**, not via a single vendor's REST API. The app focuses on **serializing collections to JSON** and **invoking Git on disk**; heavy merge/conflict resolution can stay in **external Git clients** or a terminal on desktop.
 
-This breaks Git support in two ways:
-1. **No per-request persistence** - Git push needs to know which specific requests changed since the last commit. With bulk save, there's no granular change tracking.
-2. **Data loss risk** - If the app is killed, all unsaved changes are lost. Collections that sync with GitHub cannot afford silent data loss.
+**Filesystem layout (`FileSystemHandler`):**  
+Data lives under **`apidash-data/`** (app documents or workspace). Each collection is **`collections/<collection-id>/`** with **`collection.json`**, **`requests/<request-id>.json`**, etc. Collection **`id`** is a **filesystem-safe slug** from the display name (unique names); request files keep stable ids inside JSON. Each collection folder gets a **`.gitignore`**. Writes use **atomic temp + rename** where applicable.
 
-The fix is to replace Hive with a **filesystem-backed store** (`FileSystemHandler`) that keeps each request, environment, workflow, and history entry in its own JSON file under a single root (`apidash_data/` in app documents, or `.apidash_data/` inside the open workspace). Every collection becomes a folder on disk whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`), so the local tree is a Git-ready mirror of one collection per repo. `CollectionStateNotifier` calls `fileSystemHandler.setCollectionRequestModel()` (atomic temp-file + rename) on every mutation instead of bulk-saving.
-
-This filesystem refactor is the first deliverable of GSoC and unblocks everything else.
-
-**Design Principle:**
-The local filesystem is the single source of truth. . This means Git Support works identically on macOS, Windows, Linux, Android, and iOS.
-
-**Why the on-disk layout matches Git:**
-Each collection lives in `collections/<id>/` with `collection.json`, `environments.json`, and `requests/<id>.json`, the exact paths Git pushes. Pushing means uploading these files as blobs; pulling means writing them back atomically. There is no separate "serialize binary store → JSON" step at sync time because the local store is already JSON. `GitCollectionSerializer` only handles model ↔ JSON conversions and import deduplication.
-
-**Architecture:**
-
-```
-┌─────────────────────────────┐                   ┌──────────────────────┐
-│  FileSystemHandler (SSOT)   │  ←── matches ──→  │  GitHub Repository   │
-│  apidash_data/              │                   │  collection.json     │
-│   └─ collections/<id>/      │                   │  environments.json   │
-│        ├─ collection.json   │  ── REST API ──→  │  requests/*.json     │
-│        ├─ environments.json │                   │  blob → tree →       │
-│        └─ requests/*.json   │  ←── REST API ──  │   commit → ref       │
-└─────────────┬───────────────┘                   └──────────────────────┘
-              │ atomic per-file writes
-              │ (per-request, per-env, per-workflow)
-              ▼
-        Riverpod providers
-        (CollectionStateNotifier, EnvironmentsStateNotifier, …)
-```
-
-**CollectionModel: Introducing the Collection Concept**
-
-Currently all requests live in a flat `Map<String, RequestModel>` inside `CollectionStateNotifier`. Once autosave is in place, the next step is introducing a `CollectionModel` that groups requests into named collections. Each collection maps to one GitHub repository.
+**Models:**
 
 ```dart
 class CollectionModel {
-  final String id;
+  final String id;              
   final String name;
   final String description;
   final List<String> requestIds;
   final String? activeEnvironmentId;
-  final GitConnectionModel? gitConnection;  // owner, repo, branch, lastSyncedCommitSha
+  final GitConnectionModel? gitConnection;
+}
+
+class GitConnectionModel {
+  final String localRepoPath;           
+  final String? repoDisplayName;
+  final String branch;
+  final String? lastSyncedCommitSha;
 }
 ```
 
-**How it works in the UI:**
+**UI flow (Git panel):**  
+Collections are listed in the sidebar; opening **Git / Share** goes to the **Git panel** for that collection. The user **connects a collection to a directory on disk** that is (or becomes) a Git repository: **init** if empty, or **import from an existing clone**. Tabs include **CLI context** (read-only `git remote` / `status` via subprocess), **Push** (preview of file changes, then commit), **History** (commits; rollback to a revision reloads JSON into the active collection), and **Branches** (list / create / delete, via **`LocalGitAdapter`**). **Push** may run **`git push`** when a remote is configured, and the host is whatever the user added with `git remote add`.
 
-A collection dropdown sits above the sidebar's request list. Each collection has a GitHub icon button with two states:
+**Implementation: `LocalGitAdapter` + `GitSyncService`:**  
+- **`LocalGitAdapter`** (`lib/services/git/local_git_adapter.dart`) runs the **`git`** binary: status, remotes, commit a map of paths → contents, log, branches, read tree at branch head or at a commit SHA.  
+- **`GitSyncService`** (`lib/services/git/git_sync_service.dart`) builds the portable file set with **`GitCollectionSerializer.toGitFiles`**, connects/disconnects **`GitConnectionModel`**, **push** / **pull** / **rollback**, and surfaces **`GitSyncConflictException`** when remote moved past **`lastSyncedCommitSha`**.  
+- **`GitCollectionSerializer`:** maps models ↔ **`collection.json`**, **`environments.json`**, **`requests/*.json`**, plus **`.gitignore`** in the committed bundle. On import, **`fromGitFiles`** always uses the **local collection folder id** as **`CollectionModel.id`** so a legacy UUID in an old `collection.json` cannot desync the on-disk path. After a pull, **`replaceActiveCollectionFromGit`** updates state and persists **`collection.json`**; if the imported **name** would duplicate another collection, the name is **disambiguated** (e.g. `Name (2)`).
 
-- **Not connected** - Local-only. Clicking opens **Connect to GitHub**: user types a repo name and clicks Connect. On first use, the app shows a device code and opens `github.com/login/device`. User enters the code, authorizes, and the app picks up the token. API Dash creates the repo, serializes requests to JSON, and pushes the first commit.
+**Import / collaboration:**  
+A teammate shares **a Git URL**; the user **clones** (outside or alongside the app), points API Dash at that **local path**, or uses **import** flows that read the same JSON layout.
 
-- **Connected** - The collection is linked to a GitHub repo. Clicking opens a **Git panel** with three tabs:
-  - **Push** - Shows a preview of added, modified, or deleted requests since last push. User writes a commit message and pushes. One atomic operation.
-  - **History** - Scrollable list of commits (message, author, timestamp). Click any commit for one-click rollback: API Dash fetches that commit's tree, writes the JSON files atomically into the collection folder, and reloads providers from disk.
-  - **Branches** - Lists remote branches. User can switch, create from current HEAD, or delete.
-
-**GitHub API Adapter: Technical Implementation**
-
-A `GitHubApiAdapter` class handles all GitHub communication:
-
-- **Authentication:** GitHub Device Flow. Requires a registered GitHub OAuth App whose **Client ID** is shipped with the app (no client secret needed, Device Flow is designed for public clients). On first use, the app sends the Client ID to GitHub's `/login/device/code` endpoint, receives a short user code, and opens `github.com/login/device`. User enters the code, authorizes, and the app polls until it receives an access token. Token stored in `flutter_secure_storage`. One-time setup, all later operations use the saved token. Scopes: `repo` + `workflow`.
-
-- **Push (atomic commit):**
-  1. Serialize all requests to JSON
-  2. Create blobs for each file via `/git/blobs`
-  3. Create a tree referencing all blobs via `/git/trees`
-  4. Create a commit pointing to the tree via `/git/commits`
-  5. Fast-forward the branch ref via `/git/refs/heads/{branch}`
-
-  This is a single atomic operation, either the entire commit succeeds or nothing changes.
-
-- **How changed files are tracked before push (preview logic):**
-  The implementation reads `collection.json`, `environments.json`, and `requests/*.json` directly from the active collection's folder on disk and uses a SHA-first diff strategy against the remote branch tree. It first compares path-level tree/blob SHAs and fetches full file content only for candidate changed files. Final change type is computed as:
-  - path in local only -> `added`
-  - path in remote only -> `deleted`
-  - path in both but different content -> `modified`
-  This result powers the "Changes to push" preview card before commit.
-
-- **Pull / Rollback / Branch switch:** Fetch tree at target commit, get blobs, write JSON files atomically into the collection folder, and reload providers from disk.
-
-- **Conflict detection:** Before push, compare local `lastSyncedCommitSha` with remote HEAD. If they differ, someone else pushed. Show a conflict dialog with options to pull first or view commits.
-
-- **Commit history:** GitHub API returns log with message, author, date, SHA. Tapping a commit triggers rollback.
-
-- **Branches:** List, create from HEAD, switch (re-pulls), delete via GitHub API.
-
-**Serialization Layer: `GitCollectionSerializer`**
-
-Converts in-memory models to/from the on-disk Git-friendly JSON files:
-- `collection.json` - collection metadata and request order
-- `requests/{slug}.json` - individual request files (human-readable slugified names)
-- `environments.json` - all environments with variable values
-
-Handles edge cases: malformed request files are skipped with warnings, request order is preserved, duplicate names get suffixed.
-
-**Import from GitHub:**
-
-This is how collaboration starts. A teammate shares a GitHub repo URL, and the user imports it as a new collection. The user pastes the repo (e.g., `owner/repo-name` or a full URL) and optionally picks a branch. The app fetches the tree from that branch via the GitHub API, downloads the JSON blobs, deserializes them through `GitCollectionSerializer`, and creates a new local collection already linked to that repo. From that point on, the user can push their own changes and pull updates from others.
-
-The key insight: the user never thinks about blobs, trees, or API calls. They think about their collection. GitHub is just a button that lets them share it, version it, and roll back with one click.
 
 **Usage: Git Support UI**
-
-<img src="images/git_collections_sidebar.png" width="520" alt="Collections list with GitHub sync entry point" />
-<img src="images/git_connect.png" width="280" alt="Connect to GitHub" />
-<img src="images/git_authorize.png" width="280" alt="Authorize with GitHub" />
-<img src="images/git_import.png" width="280" alt="Import from GitHub" />
-<img src="images/git_push.png" width="400" alt="Push changes" />
-<img src="images/git_history.png" width="400" alt="Commit history" />
-<img src="images/git_branches.png" width="400" alt="Branch management" />
 
 ---
 
@@ -406,23 +331,27 @@ My goals for bonding are to learn more about the project and to gel with the tea
 ---
 
 ##### Milestone 1: Filesystem Storage & Git Support (Weeks 1-3, May 25 - June 14)
-> Core persistence + GitHub API / Device Flow;
+> Core persistence + **local `git`** (no GitHub/vendor REST APIs for sync);
 
 * **Week 1 (May 25 - May 31): Filesystem Storage & Collection Foundation**
-  - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash_data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
+  - Replace every Hive box with `FileSystemHandler`: each collection becomes a folder under `apidash-data/collections/<id>/`, each request lives in its own `requests/<id>.json`, and environments, workflows, history, and dashbot messages each get their own JSON file. All writes go through atomic temp-file + rename so a crash never leaves a torn JSON behind. Replace every `unsave()` call in `CollectionStateNotifier` with an immediate per-request `fileSystemHandler.setCollectionRequestModel()`, add a debounced save (2s after last keystroke) to avoid excessive disk writes during rapid editing, and remove the manual save feature. Add a subtle "Saving..." / "Saved" indicator in the UI. Finalize `CollectionModel`, the collection dropdown UI, collection CRUD (create, rename, delete), and multi-collection navigation. Port the environment, workflow, history, and dashbot providers to the new handler so no Hive box remains in `lib/`.
 
   **Deliverable:** App autosaves every request change immediately to disk. Each collection is a self-contained folder whose layout already matches what Git expects (`collection.json`, `environments.json`, `requests/<id>.json`). Users can create, rename, switch, and delete named collections in the sidebar.
 
-* **Week 2 (June 1 - June 7): GitHub Auth & Push**
-  - Polish Device Flow OAuth, `GitHubApiAdapter` hardening, atomic push flow, push preview UI showing added/modified/deleted requests. Smoke on **Android/iOS**.
+* **Week 2 (June 1 - June 7): Integrated terminal & CLI (`apidash_cli`)**
+  - **Bottom shell** in the app (multi-session terminal) so users can run **`git`** and other tools next to API Dash without leaving the workspace.
+  - **`packages/apidash_cli`**: named sessions, workspace / `apidash-data` path resolution, reading and updating **`apidash-data/manifest.json`** (active collection, collection list, `collection use` / `switch` from the terminal). Align env vars and docs with **`doc/progress/integrated_terminal_and_cli.md`**.
+  - **Filesystem-first Git flow:** users can run standard `git` commands (`status`, `add`, `commit`, `pull`, `push`) directly from the integrated terminal against the collection files on disk.
+  - Polish prompt behavior (shell-specific), session lifecycle, and any UX needed so CLI and GUI stay in sync.
 
-  **Deliverable:** Authenticate via Device Flow and push a collection to a new repo **(desktop + mobile)**.
+  **Deliverable:** From a terminal, users can see which collection is active and complete Git workflows on the filesystem..
 
-* **Week 3 (June 8 - June 14): Pull, Rollback, Branches & Git QA**
-  - Pull, rollback, branches, import from GitHub URL. **Divergence guard** (no merge UI); `GitCollectionSerializer` versioning; unit + E2E vs a test repo.
+* **Week 3 (June 8 - June 14): Local Git in-app, diff UI, history, sync & QA**
+  - Harden **`LocalGitAdapter`** + **`GitSyncService`**: connect a collection to a **local repo path**, `git init` when needed, serialize with **`GitCollectionSerializer`**, commit file set, push preview, optional **`git push`** when a remote exists; **pull / rollback / branches** via **`git`**; **divergence guard** (`GitSyncConflictException` vs `lastSyncedCommitSha`); import from an **existing clone**; provider merge rules; unit + E2E against a **local test repo** (remote can be any empty bare or file remote).
+  - **Git panel UX:** beyond path lists, a real **diff-oriented view** for pending changes (e.g. per-file unified or side-by-side text diff for **modified** JSON files, clear states for **added** / **deleted**); **commit history** with a clear timeline and rollback-to-revision; empty states, grouping, and conflict/divergence messaging so users know **what will ship** vs **what is already synced**.
+  - **Mobile:** because full local Git workflows are desktop-first, add simple **collection import/export** on mobile so users can still move and share collections.
 
-  **Deliverable:** Pull/rollback/branches from the Git panel; Git path **verified** end-to-end; tests for push/pull/rollback/branches.
-
+  **Deliverable:** Full Git panel flow ; **diff UI** + **history** as first-class; end-to-end verification; tests for push/pull/rollback/branches where feasible.
 ---
 
 ##### Milestone 2: Visual Workflow Builder & import/export (Weeks 4-8, June 15 - July 19)
@@ -446,9 +375,10 @@ My goals for bonding are to learn more about the project and to gel with the tea
 
 * **Week 7 (July 6 - July 12): Import & export**
   - **In:** One pipeline (detect → parse → collection); pick entries → `RequestModel`. Covers Postman, Insomnia, cURL, HAR, APIDash JSON, Hurl(new). Optional **linear workflow** from file order.
+  - **Workflow-local requests:** avoid polluting collection requests during workflow imports. Store HTTP steps inside each workflow and edit them in workflow-scoped UI (request-like fields), keeping collections untouched by default.
   - **Out:** Round-trip exports (cURL, HAR, workflow graph JSON) + user docs.
 
-  **Deliverable:** Reliable **import/export**; **Hurl** shipped; collections and workflows portable.
+  **Deliverable:** Reliable **import/export** story; **Hurl** shipped; collections and workflows portable.
 
 * **Week 8 (July 13 - July 19): Workflow AI & Polish**
   - DashBot integration for AI-generated workflows ("Build a workflow that registers a user and fetches their profile"), guided "What's Next?" flow, workflow unit tests.
@@ -501,4 +431,3 @@ My first experience with open source was through API Dash. Seeing what it accomp
 If I get this opportunity, I’ll dedicate consistent time and effort to the project, even beyond the program. I approach development with a focus on quality, precision, and building solutions that genuinely make an impact.
 
 This is not just an internship to me, this is a chance to really make a meaningful contribution to a project that I’m really passionate about. I’m willing to put in the consistent work necessary to produce quality results and leave a quality impact in my overall developer journey. Thank you.
-

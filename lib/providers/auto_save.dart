@@ -8,6 +8,7 @@ import '../models/models.dart';
 import 'collection_providers.dart';
 import 'collections_providers.dart';
 import 'environment_providers.dart';
+import 'git_status_provider.dart';
 import 'ui_providers.dart';
 
 final autoSaveNotifierProvider =
@@ -94,6 +95,9 @@ class AutoSaveNotifier extends Notifier<void> {
     });
   }
 
+  /// Persist pending edits to disk immediately (e.g. before git commit).
+  Future<void> flushNow() => _flush();
+
   Future<void> _flush() async {
     cancelPending();
     if (!ref.read(hasUnsavedChangesProvider)) {
@@ -105,5 +109,6 @@ class AutoSaveNotifier extends Notifier<void> {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     await ref.read(collectionsStateNotifierProvider.notifier).saveCollections();
     await ref.read(environmentsStateNotifierProvider.notifier).saveEnvironments();
+    invalidateGitStatus(ref);
   }
 }

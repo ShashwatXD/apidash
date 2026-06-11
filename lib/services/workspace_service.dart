@@ -1,5 +1,8 @@
 import 'package:apidash/consts.dart';
-import 'package:apidash/providers/providers.dart';
+import 'package:apidash/providers/auto_save.dart';
+import 'package:apidash/providers/git_status_provider.dart';
+import 'package:apidash/providers/settings_providers.dart';
+import 'package:apidash/providers/workspace_lifecycle.dart';
 import 'package:apidash/services/storage/workspace_meta.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,20 +35,7 @@ Future<bool> activateWorkspace(
         path: path,
         name: name,
       );
-  _invalidateWorkspaceProviders(ref);
+  invalidateWorkspaceProviders(ref);
+  ref.invalidate(gitStatusProvider);
   return true;
-}
-
-void _invalidateWorkspaceProviders(WidgetRef ref) {
-  ref.invalidate(collectionsStateNotifierProvider);
-  ref.invalidate(collectionStateNotifierProvider);
-  ref.invalidate(environmentsStateNotifierProvider);
-  ref.invalidate(historyMetaStateNotifier);
-  ref.invalidate(selectedIdStateProvider);
-  ref.invalidate(selectedCollectionIdStateProvider);
-  ref.invalidate(selectedEnvironmentIdStateProvider);
-  ref.invalidate(selectedHistoryIdStateProvider);
-  ref.invalidate(selectedHistoryRequestModelProvider);
-  ref.invalidate(requestSequenceProvider);
-  ref.invalidate(expandedCollectionIdsProvider);
 }

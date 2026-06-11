@@ -554,9 +554,29 @@ const kMsgSendToView = 'Send a request to view its details in the console.';
 const kLabelRequests = "Requests";
 const kLabelVariables = "Variables";
 const kLabelHistory = "History";
+const kLabelCollaboration = "Collaboration";
 const kLabelLogs = "Logs";
 const kLabelAbout = "About";
 const kLabelSettings = "Settings";
+
+const kNavRailCollaborationIndex = 3;
+const kNavRailLogsIndex = 4;
+const kNavRailSettingsIndex = 5;
+
+// Git Collaboration
+const kLabelPull = "Pull";
+const kLabelSync = "Sync";
+const kLabelInitializeRepository = "Initialize repository";
+const kLabelConnectRemote = "Connect";
+const kLabelCommitMessage = "Commit message";
+const kLabelSelectAll = "Select all";
+const kLabelRecentCommits = "Recent commits";
+const kMsgGitNotInstalled = "Git is not installed. Install Git to use Collaboration.";
+const kMsgGitNotARepository = "This workspace is not a Git repository yet.";
+const kMsgGitNoChanges = "No uncommitted changes";
+const kMsgGitSyncSuccess = "Changes synced to remote";
+const kMsgGitPullSuccess = "Pulled latest changes";
+const kGitInstallUrl = "https://git-scm.com/downloads";
 
 // Settings Page
 const kLabelSwitchThemeMode = "Switch Theme Mode";

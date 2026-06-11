@@ -9,6 +9,7 @@ import 'common_widgets/common_widgets.dart';
 import 'envvar/environment_page.dart';
 import 'home_page/home_page.dart';
 import 'history/history_page.dart';
+import 'collaboration/collaboration_page.dart';
 import 'settings_page.dart';
 import 'terminal/terminal_page.dart';
 
@@ -79,16 +80,34 @@ class Dashboard extends ConsumerWidget {
                       style: Theme.of(context).textTheme.labelSmall,
                     ),
                     kVSpacer10,
+                    if (kIsDesktop) ...[
+                      IconButton(
+                        tooltip: kLabelCollaboration,
+                        isSelected: railIdx == kNavRailCollaborationIndex,
+                        onPressed: () {
+                          ref.read(navRailIndexStateProvider.notifier).state =
+                              kNavRailCollaborationIndex;
+                        },
+                        icon: const Icon(Icons.sync_alt_outlined),
+                        selectedIcon: const Icon(Icons.sync_alt),
+                      ),
+                      Text(
+                        kLabelCollaboration,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      kVSpacer10,
+                    ],
                     Badge(
                       backgroundColor: Theme.of(context).colorScheme.error,
                       isLabelVisible:
-                          ref.watch(showTerminalBadgeProvider) && railIdx != 3,
+                          ref.watch(showTerminalBadgeProvider) &&
+                          railIdx != kNavRailLogsIndex,
                       child: IconButton(
                         tooltip: kLabelLogs,
-                        isSelected: railIdx == 3,
+                        isSelected: railIdx == kNavRailLogsIndex,
                         onPressed: () {
                           ref.read(navRailIndexStateProvider.notifier).state =
-                              3;
+                              kNavRailLogsIndex;
                           ref.read(showTerminalBadgeProvider.notifier).state =
                               false;
                         },
@@ -124,7 +143,7 @@ class Dashboard extends ConsumerWidget {
                         padding: const EdgeInsets.only(bottom: 16.0),
                         child: NavbarButton(
                           railIdx: railIdx,
-                          buttonIdx: 4,
+                          buttonIdx: kNavRailSettingsIndex,
                           selectedIcon: Icons.settings,
                           icon: Icons.settings_outlined,
                           label: kLabelSettings,
@@ -150,6 +169,7 @@ class Dashboard extends ConsumerWidget {
                   HomePage(),
                   EnvironmentPage(),
                   HistoryPage(),
+                  CollaborationPage(),
                   TerminalPage(),
                   SettingsPage(),
                 ],

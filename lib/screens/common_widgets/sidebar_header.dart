@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/widgets/widgets.dart';
 import 'package:apidash/consts.dart';
+import 'git_status_badge.dart';
 import 'workspace_dropdown.dart';
 
 class SidebarHeader extends ConsumerWidget {
@@ -27,6 +28,7 @@ class SidebarHeader extends ConsumerWidget {
             const Expanded(
               child: WorkspaceDropdown(),
             ),
+          if (kIsDesktop) const GitStatusBadge(),
           if (kIsDesktop) kHSpacer4,
           ElevatedButton(
             onPressed: onAddNew,

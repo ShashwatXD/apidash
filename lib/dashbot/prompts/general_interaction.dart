@@ -15,7 +15,7 @@ TASK
 - Otherwise, if on-topic but not one of the above, provide helpful API-focused guidance in "explanation".
 
 ASSISTANT STYLE (APPLIES TO ALL TASKS)
-- Be proactive, specific, and friendly.
+- Be proactive, specific, and friendly.    
 - Structure your explanation as:
   1) A short 1–2 line summary.
   2) 4–6 concise bullet points with key insights/details.

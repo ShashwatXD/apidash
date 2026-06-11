@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:apidash/consts.dart';
-import 'package:apidash/git/git_models.dart';
+import 'package:apidash/git/models/git_models.dart';
+import 'package:apidash/git/providers/providers.dart';
+import 'package:apidash/git/widgets/dialog_git_remote.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/widgets/dialog_git_remote.dart';
 import 'package:apidash/widgets/button_group_filled.dart';
-import 'collaboration_setup_guide.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'collaboration_setup_guide.dart';
+
 class CollaborationPage extends ConsumerStatefulWidget {
   const CollaborationPage({super.key});
 
@@ -92,6 +95,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       }
     });
 
+    ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
 
     return Column(
@@ -156,6 +160,46 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                       ),
                     ),
                   if (status.recentCommits.isEmpty) kVSpacer16,
+                  if (status.branches.length > 1) ...[
+                    Row(
+                      children: [
+                        Text(
+                          kLabelBranch,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        kHSpacer10,
+                        Expanded(
+                          child: DropdownButton<String>(
+                            isExpanded: true,
+                            value: status.branch != null &&
+                                    status.branches.contains(status.branch)
+                                ? status.branch
+                                : null,
+                            items: [
+                              for (final branch in status.branches)
+                                DropdownMenuItem(
+                                  value: branch,
+                                  child: Text(branch),
+                                ),
+                            ],
+                            onChanged: _busy || status.branch == null
+                                ? null
+                                : (branch) {
+                                    if (branch == null ||
+                                        branch == status.branch) {
+                                      return;
+                                    }
+                                    _run(
+                                      () => gitCheckoutBranch(ref, branch),
+                                      kMsgGitCheckoutSuccess,
+                                    );
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                    kVSpacer10,
+                  ],
                   Text(
                     _statusSubtitle(status),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -187,7 +231,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                       ButtonData(
                         label: kLabelPull,
                         icon: Icons.download_rounded,
-                        onPressed: _busy ? null : () => _run(() => gitPull(ref), kMsgGitPullSuccess),
+                        onPressed: _busy
+                            ? null
+                            : () => _run(() => gitPull(ref), kMsgGitPullSuccess),
                       ),
                       ButtonData(
                         label: kLabelSync,
@@ -251,7 +297,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                   }
                                 });
                               },
-                        title: Text(change.displayName),
+                        title: Text(change.path),
                         subtitle: Text(_changeTypeLabel(change.type)),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
@@ -282,7 +328,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                         contentPadding: EdgeInsets.zero,
                         dense: true,
                         title: Text(entry.message),
-                        subtitle: Text('${entry.author} · ${entry.relativeTime}'),
+                        subtitle: Text(entry.author),
                       ),
                 ],
               );

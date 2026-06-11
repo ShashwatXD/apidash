@@ -1,7 +1,9 @@
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/services.dart';
 import 'package:apidash/widgets/widgets.dart';
+import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
@@ -58,6 +60,22 @@ class WorkspaceDropdown extends ConsumerWidget {
             );
             if (ok && selectorContext.mounted) {
               Navigator.of(selectorContext).pop();
+            }
+          },
+          onClone: (remoteUrl, parentDirectory) async {
+            final path = await gitCloneRepository(
+              ref,
+              remoteUrl: remoteUrl,
+              parentDirectory: parentDirectory,
+            );
+            final ok = await activateClonedWorkspace(ref, path);
+            if (ok && selectorContext.mounted) {
+              Navigator.of(selectorContext).pop();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  getSnackBar(kMsgGitCloneSuccess),
+                );
+              }
             }
           },
           onCancel: () async {

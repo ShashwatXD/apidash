@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_portal/flutter_portal.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:apidash/git/git.dart';
 import 'widgets/widgets.dart';
 import 'providers/providers.dart';
 import 'services/services.dart';
@@ -131,6 +132,14 @@ class DashApp extends ConsumerWidget {
                     path,
                     preferredName: workspaceDisplayName,
                   );
+                },
+                onClone: (remoteUrl, parentDirectory) async {
+                  final path = await gitCloneRepository(
+                    ref,
+                    remoteUrl: remoteUrl,
+                    parentDirectory: parentDirectory,
+                  );
+                  await activateClonedWorkspace(ref, path);
                 },
                 onCancel: () async {
                   try {

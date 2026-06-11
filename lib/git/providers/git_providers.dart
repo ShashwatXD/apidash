@@ -1,10 +1,10 @@
-import 'package:apidash/git/git_workspace_guard.dart';
+import 'package:apidash/providers/auto_save.dart';
+import 'package:apidash/providers/settings_providers.dart';
+import 'package:apidash/providers/workspace_lifecycle.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'auto_save.dart';
+import '../services/git_workspace_guard.dart';
 import 'git_status_provider.dart';
-import 'settings_providers.dart';
-import 'workspace_lifecycle.dart';
 
 export 'git_status_provider.dart';
 
@@ -63,5 +63,27 @@ Future<void> gitSetRemote(WidgetRef ref, String url) async {
   final path = ref.read(settingsProvider).workspaceFolderPath;
   if (path == null || path.isEmpty) return;
   await ref.read(gitServiceProvider).setRemoteUrl(path, url);
+  await _reloadGitStatus(ref);
+}
+
+Future<String> gitCloneRepository(
+  WidgetRef ref, {
+  required String remoteUrl,
+  required String parentDirectory,
+}) async {
+  final git = ref.read(gitServiceProvider);
+  if (!await git.isGitInstalled()) {
+    throw StateError('Git is not installed. Install Git to clone repositories.');
+  }
+  return git.clone(remoteUrl, parentDirectory);
+}
+
+Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow();
+  await ref.read(gitServiceProvider).checkoutBranch(path, branch);
+  await reloadWorkspaceFromDisk(ref);
   await _reloadGitStatus(ref);
 }

@@ -1,5 +1,6 @@
 import 'package:apidash/consts.dart';
-import 'package:apidash/git/git_models.dart';
+import 'package:apidash/git/models/git_models.dart';
+import 'package:apidash/git/providers/providers.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ class GitStatusBadge extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!kIsDesktop) return const SizedBox.shrink();
 
+    ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
     return statusAsync.when(
       loading: () => const SizedBox.shrink(),

@@ -6,13 +6,11 @@ class GitChange {
   const GitChange({
     required this.path,
     required this.type,
-    required this.displayName,
     this.staged = false,
   });
 
   final String path;
   final GitChangeType type;
-  final String displayName;
   final bool staged;
 }
 
@@ -39,6 +37,7 @@ class GitStatus {
     this.behind = 0,
     this.changes = const [],
     this.recentCommits = const [],
+    this.branches = const [],
     this.isRepository = false,
     this.gitInstalled = true,
     this.errorMessage,
@@ -51,6 +50,7 @@ class GitStatus {
   final int behind;
   final List<GitChange> changes;
   final List<GitLogEntry> recentCommits;
+  final List<String> branches;
   final bool isRepository;
   final bool gitInstalled;
   final String? errorMessage;

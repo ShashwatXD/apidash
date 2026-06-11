@@ -10,6 +10,9 @@ import '../services/services.dart';
 import 'collection_providers.dart';
 
 final selectedCollectionIdStateProvider = StateProvider<String>((ref) {
+  if (!isWorkspaceStorageInitialized()) {
+    return kDefaultCollectionId;
+  }
   final index = workspaceStorage.getCollectionsIndex();
   if (index.isNotEmpty) {
     return index.first.id;
@@ -49,6 +52,9 @@ class CollectionsStateNotifier
   final Set<String> _loadedCollectionIds = {};
 
   List<({String id, String name})> _readCollectionsIndex() {
+    if (!isWorkspaceStorageInitialized()) {
+      return [(id: kDefaultCollectionId, name: kDefaultCollectionName)];
+    }
     var index = workspaceStorage.getCollectionsIndex();
     if (index.isEmpty) {
       index = [(id: kDefaultCollectionId, name: kDefaultCollectionName)];

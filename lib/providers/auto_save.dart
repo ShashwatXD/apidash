@@ -8,7 +8,7 @@ import '../models/models.dart';
 import 'collection_providers.dart';
 import 'collections_providers.dart';
 import 'environment_providers.dart';
-import 'git_status_provider.dart';
+import 'package:apidash/git/providers/git_status_provider.dart';
 import 'ui_providers.dart';
 
 final autoSaveNotifierProvider =
@@ -88,10 +88,15 @@ class AutoSaveNotifier extends Notifier<void> {
   }
 
   void _schedule() {
-    ref.read(hasUnsavedChangesProvider.notifier).state = true;
     _timer?.cancel();
     _timer = Timer(kAutoSaveDebounceDuration, () {
       unawaited(_flush());
+    });
+    Future.microtask(() {
+      if (ref.read(saveDataStateProvider)) {
+        return;
+      }
+      ref.read(hasUnsavedChangesProvider.notifier).state = true;
     });
   }
 

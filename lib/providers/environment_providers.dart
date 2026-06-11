@@ -7,7 +7,11 @@ import 'package:apidash_core/apidash_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import '../services/services.dart'
-    show environmentSecretsStorage, workspaceStorage, WorkspaceStorage;
+    show
+        environmentSecretsStorage,
+        isWorkspaceStorageInitialized,
+        workspaceStorage,
+        WorkspaceStorage;
 
 final selectedEnvironmentIdStateProvider = StateProvider<String?>(
   (ref) => null,
@@ -51,6 +55,9 @@ final availableEnvironmentVariablesStateProvider =
     });
 
 final environmentSequenceProvider = StateProvider<List<String>>((ref) {
+  if (!isWorkspaceStorageInitialized()) {
+    return [kGlobalEnvironmentId];
+  }
   var ids = workspaceStorage.getEnvironmentIds();
   return ids ?? [kGlobalEnvironmentId];
 });
@@ -67,6 +74,9 @@ class EnvironmentsStateNotifier
     extends StateNotifier<Map<String, EnvironmentModel>?> {
   EnvironmentsStateNotifier(this.ref, this.workspaceStorage) : super(null) {
     Future.microtask(() async {
+      if (!isWorkspaceStorageInitialized()) {
+        return;
+      }
       final status = await loadEnvironments();
       if (status) {
         ref.read(environmentSequenceProvider.notifier).state = [...state!.keys];

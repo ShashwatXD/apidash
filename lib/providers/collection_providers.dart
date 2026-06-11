@@ -47,6 +47,10 @@ class CollectionStateNotifier
     extends StateNotifier<Map<String, RequestModel>?> {
   CollectionStateNotifier(this.ref, this.workspaceStorage) : super(null) {
     Future.microtask(() {
+      if (!isWorkspaceStorageInitialized()) {
+        return;
+      }
+      ref.read(collectionsStateNotifierProvider);
       activateCollection(ref.read(selectedCollectionIdStateProvider));
     });
   }
@@ -58,23 +62,32 @@ class CollectionStateNotifier
         const [];
   }
 
+  RequestSummary? _summaryForId(String collectionId, String id) {
+    if (collectionId == _activeCollectionId && state?[id] != null) {
+      return RequestSummary.fromRequestModel(state![id]!);
+    }
+    final catalog = ref.read(collectionsStateNotifierProvider)?[collectionId];
+    for (final summary in catalog?.requests ?? const <RequestSummary>[]) {
+      if (summary.id == id) {
+        return summary;
+      }
+    }
+    final diskJson = workspaceStorage.getRequestModel(collectionId, id);
+    if (diskJson == null) {
+      return null;
+    }
+    return RequestSummary.fromRequestModel(
+      RequestModel.fromJson(Map<String, Object?>.from(diskJson)),
+    );
+  }
+
   List<RequestSummary> summariesForSequence(
     String collectionId,
     List<String> ids,
   ) {
-    final byId = {
-      for (final summary
-          in ref.read(collectionsStateNotifierProvider)?[collectionId]
-                  ?.requests ??
-              const <RequestSummary>[])
-        summary.id: summary,
-    };
-    final useMemory = collectionId == _activeCollectionId;
     return [
       for (final id in ids)
-        useMemory && state?[id] != null
-            ? RequestSummary.fromRequestModel(state![id]!)
-            : byId[id]!,
+        if (_summaryForId(collectionId, id) case final summary?) summary,
     ];
   }
 
@@ -136,6 +149,13 @@ class CollectionStateNotifier
   }
 
   void _seedDefaultRequest(String collectionId) {
+    final onDisk = workspaceStorage.existingRequestIds(collectionId);
+    if (onDisk.isNotEmpty) {
+      state = {};
+      ref.read(requestSequenceProvider.notifier).state = [...onDisk];
+      ref.read(selectedIdStateProvider.notifier).state = null;
+      return;
+    }
     final newId = makeStorageId('');
     state = {
       newId: RequestModel(
@@ -152,7 +172,13 @@ class CollectionStateNotifier
   }
 
   void activateCollection(String collectionId) {
-    final ids = _catalogRequestIds(collectionId);
+    ref.read(collectionsStateNotifierProvider.notifier).loadCollection(
+          collectionId,
+        );
+    var ids = _catalogRequestIds(collectionId);
+    if (ids.isEmpty) {
+      ids = workspaceStorage.existingRequestIds(collectionId);
+    }
     if (ids.isEmpty) {
       _seedDefaultRequest(collectionId);
       return;
@@ -172,7 +198,10 @@ class CollectionStateNotifier
     final from = _activeCollectionId;
     final fromStillExists =
         ref.read(collectionsStateNotifierProvider)?.containsKey(from) ?? false;
-    if (state != null && from != collectionId && fromStillExists) {
+    if (state != null &&
+        from != collectionId &&
+        fromStillExists &&
+        ref.read(hasUnsavedChangesProvider)) {
       collections.loadCollection(from);
       await saveData(collectionId: from);
     }

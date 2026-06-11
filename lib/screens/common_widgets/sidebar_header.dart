@@ -4,7 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/widgets/widgets.dart';
 import 'package:apidash/consts.dart';
-import 'git_status_badge.dart';
+import 'package:apidash/git/widgets/git_status_badge.dart';
 import 'workspace_dropdown.dart';
 
 class SidebarHeader extends ConsumerWidget {

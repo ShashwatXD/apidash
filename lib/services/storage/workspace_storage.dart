@@ -11,6 +11,8 @@ import 'workspace_paths.dart';
 
 Directory? _workspaceRoot;
 
+bool isWorkspaceStorageInitialized() => _workspaceRoot != null;
+
 String _environmentFileName(String id) => '$id$kJsonFileExtension';
 
 String _historyRecordPath(String id) =>

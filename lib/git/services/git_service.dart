@@ -4,18 +4,14 @@ import 'dart:io';
 import 'package:apidash/consts.dart';
 import 'package:path/path.dart' as p;
 
-import 'git_models.dart';
+import '../models/git_models.dart';
 
-const kGitIgnoreTemplate = '''# API Dash — local secrets and machine state
+const kGitIgnoreTemplate = '''
 environments/*.local.json
 oauth2_credentials.json
 .apidash/local/
-
-# Large / personal / noisy
 history/
 collections/**/requests/**/response.json
-
-# Autosave / OS
 *.tmp
 .DS_Store
 Thumbs.db
@@ -55,10 +51,7 @@ class GitService {
       final branch = await _currentBranch(workspacePath);
       final remoteUrl = await _remoteUrl(workspacePath);
       final porcelain = await _git(workspacePath, ['status', '--porcelain=v1', '-z']);
-      final changes = _parsePorcelain(
-        porcelain.stdout.toString(),
-        workspacePath,
-      );
+      final changes = _parsePorcelain(porcelain.stdout.toString());
       final (ahead, behind) = await _aheadBehind(workspacePath);
       final syncState = _syncState(
         changes: changes,
@@ -79,6 +72,7 @@ class GitService {
       final recentCommits = logResult.exitCode == 0
           ? _parseLog(logResult.stdout.toString())
           : const <GitLogEntry>[];
+      final branches = await listBranches(workspacePath);
 
       return GitStatus(
         branch: branch,
@@ -88,6 +82,7 @@ class GitService {
         behind: behind,
         changes: changes,
         recentCommits: recentCommits,
+        branches: branches,
         isRepository: true,
       );
     } catch (e) {
@@ -163,6 +158,186 @@ class GitService {
       return;
     }
     await _git(workspacePath, ['pull', 'origin', branch]);
+  }
+
+  bool looksLikeCloneUrl(String url) => looksLikeGitRemoteUrl(url);
+
+  Future<bool> validateCloneUrl(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || !looksLikeGitRemoteUrl(trimmed)) return false;
+    if (!await isGitInstalled()) return false;
+    if (!await _lsRemoteReachable(trimmed)) return false;
+    return _remoteHasApidashWorkspace(trimmed);
+  }
+
+  Future<bool> _lsRemoteReachable(String url) async {
+    try {
+      final result = await _runProcess(
+        'git',
+        ['ls-remote', '--exit-code', url, 'HEAD'],
+        environment: _gitEnv,
+      ).timeout(const Duration(seconds: 12));
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> _remoteHasApidashWorkspace(String url) async {
+    final tempDir = await Directory.systemTemp.createTemp('apidash-git-validate-');
+    try {
+      if (!await _runGitIn(tempDir.path, ['init'])) return false;
+      if (!await _runGitIn(tempDir.path, ['remote', 'add', 'origin', url])) {
+        return false;
+      }
+      if (!await _runGitIn(
+        tempDir.path,
+        ['fetch', '--depth', '1', 'origin', 'HEAD'],
+        timeout: const Duration(seconds: 20),
+      )) {
+        return false;
+      }
+
+      final collectionsIndexPath = p.posix.join(
+        kWorkspaceCollectionsDir,
+        kWorkspaceCollectionsIndexFile,
+      );
+      final environmentsIndexPath = p.posix.join(
+        kWorkspaceEnvironmentsDir,
+        kWorkspaceEnvironmentIndexFile,
+      );
+
+      final tree = await _runProcess(
+        'git',
+        ['ls-tree', '-r', '--name-only', 'FETCH_HEAD'],
+        workingDirectory: tempDir.path,
+        environment: _gitEnv,
+      );
+      if (tree.exitCode != 0) return false;
+
+      final paths = tree.stdout
+          .toString()
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .toSet();
+      if (!paths.contains(collectionsIndexPath) ||
+          !paths.contains(environmentsIndexPath)) {
+        return false;
+      }
+
+      final collectionsJson =
+          await _gitShow(tempDir.path, 'FETCH_HEAD:$collectionsIndexPath');
+      final environmentsJson =
+          await _gitShow(tempDir.path, 'FETCH_HEAD:$environmentsIndexPath');
+      if (collectionsJson == null || environmentsJson == null) return false;
+
+      return parseApidashWorkspaceIndices(
+        collectionsIndexJson: collectionsJson,
+        environmentsIndexJson: environmentsJson,
+      );
+    } catch (_) {
+      return false;
+    } finally {
+      try {
+        await tempDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+
+  Future<bool> _runGitIn(
+    String repoPath,
+    List<String> args, {
+    Duration? timeout,
+  }) async {
+    try {
+      final future = _runProcess(
+        'git',
+        args,
+        workingDirectory: repoPath,
+        environment: _gitEnv,
+      );
+      final result = timeout != null
+          ? await future.timeout(timeout)
+          : await future;
+      return result.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String?> _gitShow(String repoPath, String object) async {
+    final result = await _runProcess(
+      'git',
+      ['show', object],
+      workingDirectory: repoPath,
+      environment: _gitEnv,
+    );
+    if (result.exitCode != 0) return null;
+    final text = result.stdout.toString();
+    return text.isEmpty ? null : text;
+  }
+
+  Map<String, String> get _gitEnv => {
+        ...Platform.environment,
+        'GIT_TERMINAL_PROMPT': '0',
+      };
+
+  /// Clones [remoteUrl] into [parentDirectory]. Returns the new workspace path.
+  Future<String> clone(String remoteUrl, String parentDirectory) async {
+    final trimmed = remoteUrl.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Remote URL cannot be empty');
+    }
+    final parent = p.normalize(parentDirectory);
+    if (!await Directory(parent).exists()) {
+      throw StateError('Parent directory does not exist');
+    }
+    final repoName = repoNameFromCloneUrl(trimmed);
+    final targetPath = p.join(parent, repoName);
+    if (await Directory(targetPath).exists()) {
+      throw StateError('Folder already exists: $targetPath');
+    }
+    final result = await _runProcess(
+      'git',
+      ['clone', trimmed, repoName],
+      workingDirectory: parent,
+      environment: {
+        ...Platform.environment,
+        'GIT_TERMINAL_PROMPT': '0',
+      },
+    );
+    if (result.exitCode != 0) {
+      final stderr = result.stderr.toString().trim();
+      final stdout = result.stdout.toString().trim();
+      throw StateError(
+        stderr.isNotEmpty ? stderr : stdout.isNotEmpty ? stdout : 'git clone failed',
+      );
+    }
+    return targetPath;
+  }
+
+  Future<List<String>> listBranches(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['branch', '--format=%(refname:short)'],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return const [];
+    return result.stdout
+        .toString()
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+  }
+
+  Future<void> checkoutBranch(String workspacePath, String branch) async {
+    final trimmed = branch.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Branch name cannot be empty');
+    }
+    await _git(workspacePath, ['checkout', trimmed]);
   }
 
   Future<void> push(String workspacePath) async {
@@ -286,7 +461,7 @@ class GitService {
     return dirty ? GitSyncState.dirty : GitSyncState.clean;
   }
 
-  List<GitChange> _parsePorcelain(String output, String workspacePath) {
+  List<GitChange> _parsePorcelain(String output) {
     if (output.isEmpty) return const [];
     final changes = <GitChange>[];
     final records = output.split('\x00');
@@ -314,7 +489,6 @@ class GitService {
         GitChange(
           path: path,
           type: type,
-          displayName: resolveDisplayName(workspacePath, path),
           staged: staged,
         ),
       );
@@ -351,70 +525,45 @@ class GitService {
   }
 }
 
-String resolveDisplayName(String workspacePath, String relativePath) {
-  final normalized = relativePath.replaceAll('\\', '/');
-  if (normalized == kWorkspaceMetaFile) return 'Workspace settings';
-  if (normalized == 'collections/$kWorkspaceCollectionsIndexFile') {
-    return 'Collections catalog';
+String repoNameFromCloneUrl(String url) {
+  var trimmed = url.trim();
+  if (trimmed.endsWith('/')) {
+    trimmed = trimmed.substring(0, trimmed.length - 1);
   }
-  if (normalized == 'environments/$kWorkspaceEnvironmentIndexFile') {
-    return 'Environments catalog';
+  if (trimmed.endsWith('.git')) {
+    trimmed = trimmed.substring(0, trimmed.length - 4);
   }
-  if (normalized == '.gitignore') return '.gitignore';
-
-  if (RegExp(r'^collections/[^/]+/requests/[^/]+/request\.json$').hasMatch(normalized)) {
-    return _requestLabel(workspacePath, normalized) ?? p.basename(p.dirname(normalized));
+  final colonIndex = trimmed.lastIndexOf(':');
+  if (colonIndex != -1 && !trimmed.contains('://')) {
+    trimmed = trimmed.substring(colonIndex + 1);
   }
-
-  if (normalized.startsWith('environments/') && normalized.endsWith('.json')) {
-    return _environmentLabel(workspacePath, normalized) ??
-        p.basenameWithoutExtension(normalized);
-  }
-
-  if (normalized.endsWith('/$kWorkspaceCollectionFile')) {
-    return _collectionLabel(workspacePath, normalized) ?? 'Collection metadata';
-  }
-
-  return p.basename(normalized);
+  return p.basename(trimmed);
 }
 
-String? _requestLabel(String workspacePath, String relativePath) {
+/// Returns true when index files look like API Dash workspace catalogs.
+bool parseApidashWorkspaceIndices({
+  required String collectionsIndexJson,
+  required String environmentsIndexJson,
+}) {
   try {
-    final file = File(p.join(workspacePath, relativePath));
-    if (!file.existsSync()) return null;
-    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    final http = json['httpRequestModel'];
-    if (http is Map<String, dynamic>) {
-      final method = http['method']?.toString() ?? '';
-      final url = http['url']?.toString() ?? '';
-      if (method.isNotEmpty || url.isNotEmpty) {
-        return '${method.toUpperCase()} $url'.trim();
-      }
-    }
-    final name = json['name']?.toString();
-    if (name != null && name.isNotEmpty) return name;
-  } catch (_) {}
-  return null;
+    final collections = jsonDecode(collectionsIndexJson);
+    final environments = jsonDecode(environmentsIndexJson);
+    if (collections is! Map || environments is! Map) return false;
+    if (collections[kWorkspaceCollectionsIndexKey] is! List) return false;
+    if (environments[kWorkspaceEnvironmentIdsKey] is! List) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
-String? _environmentLabel(String workspacePath, String relativePath) {
-  try {
-    final file = File(p.join(workspacePath, relativePath));
-    if (!file.existsSync()) return null;
-    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    final name = json['name']?.toString();
-    if (name != null && name.isNotEmpty) return name;
-  } catch (_) {}
-  return null;
-}
-
-String? _collectionLabel(String workspacePath, String relativePath) {
-  try {
-    final file = File(p.join(workspacePath, relativePath));
-    if (!file.existsSync()) return null;
-    final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-    final name = json['name']?.toString();
-    if (name != null && name.isNotEmpty) return '$name (collection)';
-  } catch (_) {}
-  return null;
+bool looksLikeGitRemoteUrl(String url) {
+  final trimmed = url.trim();
+  if (trimmed.isEmpty) return false;
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+    return trimmed.length > 8;
+  }
+  if (trimmed.startsWith('ssh://')) return trimmed.length > 6;
+  if (trimmed.startsWith('git@') && trimmed.contains(':')) return true;
+  return false;
 }

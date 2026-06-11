@@ -538,6 +538,9 @@ const kMsgSelectWorkspace = "Create your workspace";
 const kLabelSelectWorkspace = "Select workspace";
 const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
+const kLabelCloneFromGitOptional =
+    'CLONE FROM GIT [OPTIONAL]';
+const kMsgGitCloneSuccess = 'Repository cloned and workspace opened';
 // History Page
 const kTitleClearHistory = 'Clear History';
 const kMsgClearHistory =
@@ -571,11 +574,14 @@ const kLabelConnectRemote = "Connect";
 const kLabelCommitMessage = "Commit message";
 const kLabelSelectAll = "Select all";
 const kLabelRecentCommits = "Recent commits";
-const kMsgGitNotInstalled = "Git is not installed. Install Git to use Collaboration.";
+const kLabelBranch = "Branch";
+const kMsgGitNotInstalled =
+    "Git is not installed. Install Git to use Collaboration.";
 const kMsgGitNotARepository = "This workspace is not a Git repository yet.";
 const kMsgGitNoChanges = "No uncommitted changes";
 const kMsgGitSyncSuccess = "Changes synced to remote";
 const kMsgGitPullSuccess = "Pulled latest changes";
+const kMsgGitCheckoutSuccess = "Switched branch";
 const kGitInstallUrl = "https://git-scm.com/downloads";
 const kLabelCollaborationSetupTitle = "Set up workspace sharing";
 const kMsgCollaborationSetupSubtitle =

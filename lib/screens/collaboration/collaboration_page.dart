@@ -5,11 +5,10 @@ import 'package:apidash/git/git_models.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/widgets/dialog_git_remote.dart';
 import 'package:apidash/widgets/button_group_filled.dart';
+import 'collaboration_setup_guide.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 class CollaborationPage extends ConsumerStatefulWidget {
   const CollaborationPage({super.key});
 
@@ -48,6 +47,15 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     for (final change in changes) {
       _selectedPaths.add(change.path);
     }
+  }
+
+  Future<void> _connectRemote() async {
+    final url = await showGitRemoteDialog(context);
+    if (url == null || url.isEmpty || !mounted) return;
+    await _run(
+      () => gitSetRemote(ref, url),
+      'Remote connected',
+    );
   }
 
   Future<void> _run(Future<void> Function() action, String successMessage) async {
@@ -102,23 +110,19 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(e.toString())),
             data: (status) {
-              if (!status.gitInstalled) {
-                return _EmptyState(
-                  message: kMsgGitNotInstalled,
-                  actionLabel: 'Download Git',
-                  onAction: () => launchUrl(Uri.parse(kGitInstallUrl)),
-                );
-              }
-              if (!status.isRepository) {
-                return _EmptyState(
-                  message: kMsgGitNotARepository,
-                  actionLabel: kLabelInitializeRepository,
-                  onAction: _busy
+              if (!status.gitInstalled ||
+                  !status.isRepository ||
+                  status.remoteUrl == null) {
+                return CollaborationSetupGuide(
+                  status: status,
+                  busy: _busy,
+                  onInitialize: _busy
                       ? null
                       : () => _run(
                             () => gitInitRepository(ref),
                             'Repository initialized',
                           ),
+                  onConnectRemote: _busy ? null : _connectRemote,
                 );
               }
 
@@ -136,6 +140,22 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
               return ListView(
                 padding: kPh20,
                 children: [
+                  if (status.recentCommits.isEmpty)
+                    Card(
+                      elevation: 0,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withValues(alpha: 0.35),
+                      child: Padding(
+                        padding: kP12,
+                        child: Text(
+                          kMsgGitSetupSyncBody,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ),
+                  if (status.recentCommits.isEmpty) kVSpacer16,
                   Text(
                     _statusSubtitle(status),
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -185,20 +205,6 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                       ),
                     ],
                   ),
-                  if (status.remoteUrl == null) ...[
-                    kVSpacer16,
-                    _ConnectRemote(
-                      busy: _busy,
-                      onConnect: () async {
-                        final url = await showGitRemoteDialog(context);
-                        if (url == null || url.isEmpty || !mounted) return;
-                        await _run(
-                          () => gitSetRemote(ref, url),
-                          'Remote connected',
-                        );
-                      },
-                    ),
-                  ],
                   kVSpacer20,
                   if (status.changes.isEmpty)
                     Text(
@@ -302,71 +308,4 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
         GitChangeType.untracked => 'Untracked',
         GitChangeType.renamed => 'Renamed',
       };
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.message,
-    required this.actionLabel,
-    this.onAction,
-  });
-
-  final String message;
-  final String actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.sync_alt,
-            size: 40,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-          kVSpacer10,
-          Text(
-            message,
-            textAlign: TextAlign.center,
-            style: kTextStyleMedium.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-          kVSpacer16,
-          if (onAction != null)
-            FilledButton(
-              onPressed: onAction,
-              child: Text(actionLabel),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ConnectRemote extends StatelessWidget {
-  const _ConnectRemote({required this.onConnect, required this.busy});
-
-  final VoidCallback onConnect;
-  final bool busy;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            'Connect a remote to sync changes.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ),
-        FilledButton.tonal(
-          onPressed: busy ? null : onConnect,
-          child: const Text(kLabelConnectRemote),
-        ),
-      ],
-    );
-  }
 }

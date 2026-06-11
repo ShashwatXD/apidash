@@ -148,9 +148,19 @@ class GitService {
   }
 
   Future<void> pull(String workspacePath) async {
-    final branch = await _currentBranch(workspacePath);
-    if (branch == null || branch == 'HEAD') {
-      throw StateError('Cannot pull: not on a branch');
+    final branch = await _resolvePullBranch(workspacePath);
+    if (branch == null) {
+      throw StateError(
+        'Cannot pull: not on a branch and could not detect the remote default branch',
+      );
+    }
+    if (!await _hasLocalCommits(workspacePath)) {
+      await _git(workspacePath, ['fetch', 'origin', branch]);
+      await _git(
+        workspacePath,
+        ['checkout', '-f', '-B', branch, 'origin/$branch'],
+      );
+      return;
     }
     await _git(workspacePath, ['pull', 'origin', branch]);
   }
@@ -194,6 +204,36 @@ class GitService {
       );
     }
     return result;
+  }
+
+  Future<bool> _hasLocalCommits(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['rev-parse', 'HEAD'],
+      allowFailure: true,
+    );
+    return result.exitCode == 0;
+  }
+
+  Future<String?> _resolvePullBranch(String workspacePath) async {
+    final branch = await _currentBranch(workspacePath);
+    if (branch != null && branch != 'HEAD') return branch;
+    return _defaultRemoteBranch(workspacePath);
+  }
+
+  Future<String?> _defaultRemoteBranch(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['ls-remote', '--symref', 'origin', 'HEAD'],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return null;
+    for (final line in result.stdout.toString().split('\n')) {
+      final match =
+          RegExp(r'^ref: refs/heads/(.+)\tHEAD$').firstMatch(line.trim());
+      if (match != null) return match.group(1);
+    }
+    return null;
   }
 
   Future<String?> _currentBranch(String workspacePath) async {

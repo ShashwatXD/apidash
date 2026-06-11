@@ -88,8 +88,8 @@ class Dashboard extends ConsumerWidget {
                           ref.read(navRailIndexStateProvider.notifier).state =
                               kNavRailCollaborationIndex;
                         },
-                        icon: const Icon(Icons.sync_alt_outlined),
-                        selectedIcon: const Icon(Icons.sync_alt),
+                        icon: const Icon(Icons.cloud_sync),
+                        selectedIcon: const Icon(Icons.cloud_sync),
                       ),
                       Text(
                         kLabelCollaboration,

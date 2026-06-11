@@ -577,6 +577,22 @@ const kMsgGitNoChanges = "No uncommitted changes";
 const kMsgGitSyncSuccess = "Changes synced to remote";
 const kMsgGitPullSuccess = "Pulled latest changes";
 const kGitInstallUrl = "https://git-scm.com/downloads";
+const kLabelCollaborationSetupTitle = "Set up workspace sharing";
+const kMsgCollaborationSetupSubtitle =
+    "Publish this workspace to Git so you and your team can collaborate.";
+const kLabelGitSetupStepInstall = "Install Git";
+const kLabelGitSetupStepInit = "Initialize repository";
+const kLabelGitSetupStepRemote = "Connect remote";
+const kLabelGitSetupStepSync = "Sync workspace";
+const kMsgGitSetupInstallBody =
+    "Git must be installed on your computer. API Dash uses your system Git for push and pull.";
+const kMsgGitSetupInitBody =
+    "Turn this workspace folder into a Git repository. Your requests and environments will be versioned as JSON files.";
+const kMsgGitSetupRemoteBody =
+    "Create an empty repository on GitHub, GitLab, Bitbucket, or any Git host, then paste the clone URL here.";
+const kMsgGitSetupSyncBody =
+    "Select your changes, write a commit message, and sync to publish the workspace for the first time.";
+const kLabelConnectRemoteUrl = "Connect remote URL";
 
 // Settings Page
 const kLabelSwitchThemeMode = "Switch Theme Mode";

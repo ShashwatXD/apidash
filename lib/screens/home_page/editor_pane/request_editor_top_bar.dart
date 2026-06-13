@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/widgets/widgets.dart';
 import '../../../consts.dart';
+import 'package:apidash/git/widgets/git_status_badge.dart';
 import '../../common_widgets/common_widgets.dart';
 
 class RequestEditorTopBar extends ConsumerWidget {
@@ -30,7 +31,11 @@ class RequestEditorTopBar extends ConsumerWidget {
               maxLines: 1,
             ),
           ),
-          kHSpacer10,
+           if (kIsDesktop) ...[
+            const GitStatusBadge(),
+            kHSpacer10,
+          ],
+          kHSpacer2,
           EditorTitleActions(
             onRenamePressed: () {
               showRenameDialog(context, kLabelRenameRequest, name, (val) {

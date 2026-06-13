@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'atomic_file_io.dart';
-import 'workspace_meta.dart';
 import 'workspace_paths.dart';
 
 Directory? _workspaceRoot;
@@ -62,7 +61,6 @@ Future<bool> initWorkspaceStorage(
     }
     _workspaceRoot = root;
     await _ensureWorkspaceStructure(root);
-    await ensureAndReadWorkspaceName(root.path);
     debugPrint('Workspace opened at ${root.path}');
     return true;
   } catch (e, st) {

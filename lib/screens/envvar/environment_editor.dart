@@ -4,6 +4,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/widgets/widgets.dart';
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/widgets/git_status_badge.dart';
 import '../common_widgets/common_widgets.dart';
 import './editor_pane/variables_pane.dart';
 
@@ -35,6 +36,10 @@ class EnvironmentEditor extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (kIsDesktop) ...[
+                      const GitStatusBadge(),
+                      kHSpacer4,
+                    ],
                     EditorTitleActions(
                       onRenamePressed: () {
                         showRenameDialog(
@@ -63,7 +68,6 @@ class EnvironmentEditor extends ConsumerWidget {
                                   .removeEnvironment(id!);
                             },
                     ),
-                    kHSpacer4,
                   ],
                 )
               : const SizedBox.shrink(),

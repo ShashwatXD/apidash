@@ -4,15 +4,14 @@ import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash/providers/ui_providers.dart';
 import 'package:apidash/providers/workspace_lifecycle.dart';
-import 'package:apidash/services/storage/workspace_meta.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 Future<bool> activateWorkspace(
   WidgetRef ref,
   String path, {
-  String? preferredName,
   bool createIfMissing = true,
 }) async {
   final opened = await initWorkspaceStorage(
@@ -29,10 +28,7 @@ Future<bool> activateWorkspace(
   } catch (_) {
     // ignore
   }
-  final name = await ensureAndReadWorkspaceName(
-    path,
-    preferredName: preferredName,
-  );
+  final name = p.basename(path);
   await ref.read(settingsProvider.notifier).rememberWorkspace(
         path: path,
         name: name,
@@ -52,7 +48,7 @@ Future<bool> activateClonedWorkspace(WidgetRef ref, String path) async {
     return false;
   }
 
-  final name = await ensureAndReadWorkspaceName(path);
+  final name = p.basename(path);
 
   ref.read(saveDataStateProvider.notifier).state = true;
   ref.read(hasUnsavedChangesProvider.notifier).state = false;

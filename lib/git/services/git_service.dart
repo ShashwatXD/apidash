@@ -11,7 +11,6 @@ environments/*.local.json
 oauth2_credentials.json
 .apidash/local/
 history/
-collections/**/requests/**/response.json
 *.tmp
 .DS_Store
 Thumbs.db
@@ -50,14 +49,19 @@ class GitService {
     try {
       final branch = await _currentBranch(workspacePath);
       final remoteUrl = await _remoteUrl(workspacePath);
-      final porcelain = await _git(workspacePath, ['status', '--porcelain=v1', '-z']);
+      final porcelain = await _git(
+        workspacePath,
+        ['status', '--porcelain=v1', '-z', '-uall'],
+      );
       final changes = _parsePorcelain(porcelain.stdout.toString());
+      final hasCommits = await _hasLocalCommits(workspacePath);
       final (ahead, behind) = await _aheadBehind(workspacePath);
       final syncState = _syncState(
         changes: changes,
         ahead: ahead,
         behind: behind,
         hasRemote: remoteUrl != null,
+        hasCommits: hasCommits,
       );
       final logResult = await _git(
         workspacePath,
@@ -160,7 +164,9 @@ class GitService {
     await _git(workspacePath, ['pull', 'origin', branch]);
   }
 
-  bool looksLikeCloneUrl(String url) => looksLikeGitRemoteUrl(url);
+  Future<void> fetch(String workspacePath) async {
+    await _git(workspacePath, ['fetch', 'origin']);
+  }
 
   Future<bool> validateCloneUrl(String url) async {
     final trimmed = url.trim();
@@ -318,11 +324,30 @@ class GitService {
   }
 
   Future<List<String>> listBranches(String workspacePath) async {
-    final result = await _git(
+    final local = await _branchNames(
       workspacePath,
       ['branch', '--format=%(refname:short)'],
-      allowFailure: true,
     );
+    final remote = await _branchNames(
+      workspacePath,
+      ['branch', '-r', '--format=%(refname:short)'],
+    );
+    final names = <String>{...local};
+    for (final ref in remote) {
+      if (ref == 'origin/HEAD' || ref.endsWith('/HEAD')) continue;
+      final slash = ref.indexOf('/');
+      if (slash == -1) continue;
+      names.add(ref.substring(slash + 1));
+    }
+    final sorted = names.toList()..sort();
+    return sorted;
+  }
+
+  Future<List<String>> _branchNames(
+    String workspacePath,
+    List<String> args,
+  ) async {
+    final result = await _git(workspacePath, args, allowFailure: true);
     if (result.exitCode != 0) return const [];
     return result.stdout
         .toString()
@@ -330,6 +355,69 @@ class GitService {
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
         .toList();
+  }
+
+  Future<String> diffPath(String workspacePath, GitChange change) async {
+    final relativePath = change.path;
+
+    if (change.type == GitChangeType.deleted) {
+      final result = await _git(
+        workspacePath,
+        ['diff', 'HEAD', '--', relativePath],
+        allowFailure: true,
+      );
+      return result.stdout.toString();
+    }
+
+    if (change.type == GitChangeType.untracked) {
+      return _syntheticAdditionDiff(workspacePath, relativePath);
+    }
+
+    final headDiff = await _git(
+      workspacePath,
+      ['diff', 'HEAD', '--', relativePath],
+      allowFailure: true,
+    );
+    if (headDiff.stdout.toString().isNotEmpty) {
+      return headDiff.stdout.toString();
+    }
+
+    final stagedDiff = await _git(
+      workspacePath,
+      ['diff', '--cached', '--', relativePath],
+      allowFailure: true,
+    );
+    if (stagedDiff.stdout.toString().isNotEmpty) {
+      return stagedDiff.stdout.toString();
+    }
+
+    if (change.type == GitChangeType.added ||
+        change.type == GitChangeType.untracked ||
+        !await _existsInHead(workspacePath, relativePath)) {
+      return _syntheticAdditionDiff(workspacePath, relativePath);
+    }
+
+    return '';
+  }
+
+  Future<bool> _existsInHead(String workspacePath, String relativePath) async {
+    final result = await _git(
+      workspacePath,
+      ['cat-file', '-e', 'HEAD:$relativePath'],
+      allowFailure: true,
+    );
+    return result.exitCode == 0;
+  }
+
+  Future<String> _syntheticAdditionDiff(
+    String workspacePath,
+    String relativePath,
+  ) async {
+    final file = File(p.join(workspacePath, relativePath));
+    if (!await file.exists()) return '';
+    final lines = await file.readAsLines();
+    if (lines.isEmpty) return '+\n';
+    return lines.map((line) => '+$line').join('\n');
   }
 
   Future<void> checkoutBranch(String workspacePath, String branch) async {
@@ -397,10 +485,14 @@ class GitService {
   }
 
   Future<String?> _defaultRemoteBranch(String workspacePath) async {
-    final result = await _git(
-      workspacePath,
+    final result = await _runProcess(
+      'git',
       ['ls-remote', '--symref', 'origin', 'HEAD'],
-      allowFailure: true,
+      workingDirectory: workspacePath,
+      environment: _gitEnv,
+    ).timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => ProcessResult(0, 1, '', 'timed out'),
     );
     if (result.exitCode != 0) return null;
     for (final line in result.stdout.toString().split('\n')) {
@@ -412,14 +504,29 @@ class GitService {
   }
 
   Future<String?> _currentBranch(String workspacePath) async {
-    final result = await _git(
+    final abbrev = await _git(
       workspacePath,
       ['rev-parse', '--abbrev-ref', 'HEAD'],
       allowFailure: true,
     );
-    if (result.exitCode != 0) return null;
-    final branch = result.stdout.toString().trim();
-    return branch.isEmpty ? null : branch;
+    if (abbrev.exitCode == 0) {
+      final branch = abbrev.stdout.toString().trim();
+      if (branch.isNotEmpty && branch != 'HEAD') {
+        return branch;
+      }
+    }
+
+    final symbolic = await _git(
+      workspacePath,
+      ['symbolic-ref', '--short', 'HEAD'],
+      allowFailure: true,
+    );
+    if (symbolic.exitCode == 0) {
+      final branch = symbolic.stdout.toString().trim();
+      if (branch.isNotEmpty) return branch;
+    }
+
+    return null;
   }
 
   Future<String?> _remoteUrl(String workspacePath) async {
@@ -433,16 +540,78 @@ class GitService {
     return url.isEmpty ? null : url;
   }
 
+  Future<String?> _resolveRemoteTrackingRef(String workspacePath) async {
+    final branch = await _currentBranch(workspacePath);
+    if (branch != null && branch != 'HEAD') {
+      final ref = 'origin/$branch';
+      final exists = await _git(
+        workspacePath,
+        ['rev-parse', '--verify', ref],
+        allowFailure: true,
+      );
+      if (exists.exitCode == 0) return ref;
+    }
+
+    return null;
+  }
+
   Future<(int ahead, int behind)> _aheadBehind(String workspacePath) async {
-    final result = await _git(
+    final upstream = await _git(
       workspacePath,
       ['rev-list', '--left-right', '--count', '@{u}...HEAD'],
       allowFailure: true,
     );
-    if (result.exitCode != 0) return (0, 0);
-    final parts = result.stdout.toString().trim().split(RegExp(r'\s+'));
+    if (upstream.exitCode == 0) {
+      return _parseAheadBehind(upstream.stdout.toString());
+    }
+
+    final remoteRef = await _resolveRemoteTrackingRef(workspacePath);
+    if (remoteRef == null) {
+      return _localCommitCount(workspacePath);
+    }
+
+    if (!await _hasLocalCommits(workspacePath)) {
+      final behind = await _remoteCommitCount(workspacePath, remoteRef);
+      return (0, behind);
+    }
+
+    final vsRemote = await _git(
+      workspacePath,
+      ['rev-list', '--left-right', '--count', '$remoteRef...HEAD'],
+      allowFailure: true,
+    );
+    if (vsRemote.exitCode == 0) {
+      return _parseAheadBehind(vsRemote.stdout.toString());
+    }
+
+    return (0, 0);
+  }
+
+  (int ahead, int behind) _parseAheadBehind(String output) {
+    final parts = output.trim().split(RegExp(r'\s+'));
     if (parts.length < 2) return (0, 0);
     return (int.tryParse(parts[1]) ?? 0, int.tryParse(parts[0]) ?? 0);
+  }
+
+  Future<(int ahead, int behind)> _localCommitCount(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['rev-list', '--count', 'HEAD'],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return (0, 0);
+    final count = int.tryParse(result.stdout.toString().trim()) ?? 0;
+    return (count, 0);
+  }
+
+  Future<int> _remoteCommitCount(String workspacePath, String remoteRef) async {
+    final result = await _git(
+      workspacePath,
+      ['rev-list', '--count', remoteRef],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return 0;
+    return int.tryParse(result.stdout.toString().trim()) ?? 0;
   }
 
   GitSyncState _syncState({
@@ -450,15 +619,21 @@ class GitService {
     required int ahead,
     required int behind,
     required bool hasRemote,
+    required bool hasCommits,
   }) {
     final dirty = changes.isNotEmpty;
     if (!hasRemote) {
+      if (!hasCommits) return GitSyncState.noUpstream;
       return dirty ? GitSyncState.dirty : GitSyncState.noUpstream;
     }
     if (ahead > 0 && behind > 0) return GitSyncState.diverged;
     if (behind > 0) return dirty ? GitSyncState.dirty : GitSyncState.behind;
     if (ahead > 0) return GitSyncState.ahead;
     return dirty ? GitSyncState.dirty : GitSyncState.clean;
+  }
+
+  String _normalizeChangePath(String path) {
+    return path.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
   }
 
   List<GitChange> _parsePorcelain(String output) {
@@ -483,6 +658,12 @@ class GitService {
         if (i < records.length && records[i].isNotEmpty) {
           path = records[i];
         }
+      }
+
+      path = _normalizeChangePath(path);
+      if (path.isEmpty) {
+        i++;
+        continue;
       }
 
       changes.add(

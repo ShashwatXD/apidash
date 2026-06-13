@@ -55,8 +55,6 @@ class GitStatus {
   final bool gitInstalled;
   final String? errorMessage;
 
-  bool get hasLocalChanges => changes.isNotEmpty;
-
   static const empty = GitStatus();
 
   static GitStatus noGit() => const GitStatus(

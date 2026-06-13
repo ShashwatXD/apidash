@@ -19,10 +19,7 @@ class WorkspaceSelector extends HookWidget {
     this.gitService,
   });
 
-  final Future<void> Function(
-    String path, {
-    String? workspaceDisplayName,
-  })? onContinue;
+  final Future<void> Function(String path)? onContinue;
   final Future<void> Function(
     String remoteUrl,
     String parentDirectory,
@@ -33,6 +30,13 @@ class WorkspaceSelector extends HookWidget {
   @override
   Widget build(BuildContext context) {
     final busy = useState(false);
+    final isMounted = useRef(true);
+    useEffect(() {
+      isMounted.value = true;
+      return () {
+        isMounted.value = false;
+      };
+    }, const []);
     final selectedDirectory = useState<String?>(null);
     final selectedDirectoryTextController = useTextEditingController();
     final workspaceName = useState<String?>(null);
@@ -58,7 +62,7 @@ class WorkspaceSelector extends HookWidget {
       final generation = ++checkGeneration.value;
       final timer = Timer(const Duration(milliseconds: 450), () async {
         final ok = await git.validateCloneUrl(url);
-        if (generation != checkGeneration.value || !context.mounted) return;
+        if (generation != checkGeneration.value || !isMounted.value) return;
         urlCheckState.value =
             ok ? _CloneUrlCheckState.valid : _CloneUrlCheckState.invalid;
       });
@@ -90,14 +94,7 @@ class WorkspaceSelector extends HookWidget {
               workspaceName.value!.trim().isNotEmpty) {
             finalPath = p.join(finalPath, workspaceName.value);
           }
-          final displayName = workspaceName.value?.trim();
-          await onContinue?.call(
-            finalPath,
-            workspaceDisplayName:
-                (displayName != null && displayName.isNotEmpty)
-                    ? displayName
-                    : null,
-          );
+          await onContinue?.call(finalPath);
         }
       } catch (e) {
         if (context.mounted) {
@@ -106,7 +103,7 @@ class WorkspaceSelector extends HookWidget {
           );
         }
       } finally {
-        if (context.mounted) {
+        if (isMounted.value) {
           busy.value = false;
         }
       }

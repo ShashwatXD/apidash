@@ -3,16 +3,25 @@ import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash/providers/workspace_lifecycle.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../services/git_workspace_guard.dart';
+import 'git_last_fetched_provider.dart';
 import 'git_status_provider.dart';
 
 export 'git_status_provider.dart';
+
+Future<void> gitFetch(WidgetRef ref) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(gitServiceProvider).fetch(path);
+  ref.read(gitLastFetchedProvider.notifier).markFetched(path);
+  await _reloadGitStatus(ref);
+}
 
 Future<void> gitPull(WidgetRef ref) async {
   final path = ref.read(settingsProvider).workspaceFolderPath;
   if (path == null || path.isEmpty) return;
 
-  await ref.read(autoSaveNotifierProvider.notifier).flushNow();
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   await ref.read(gitServiceProvider).pull(path);
   await reloadWorkspaceFromDisk(ref);
   await _reloadGitStatus(ref);
@@ -22,10 +31,9 @@ Future<void> refreshGitStatus(WidgetRef ref) => _reloadGitStatus(ref);
 
 Future<void> _reloadGitStatus(WidgetRef ref) async {
   ref.invalidate(gitStatusProvider);
-  await ref.read(gitStatusProvider.future);
 }
 
-Future<void> gitSync(
+Future<void> gitCommitChanges(
   WidgetRef ref, {
   required String message,
   required List<String> paths,
@@ -33,22 +41,23 @@ Future<void> gitSync(
   final path = ref.read(settingsProvider).workspaceFolderPath;
   if (path == null || path.isEmpty) return;
   if (paths.isEmpty) {
-    throw StateError('Select at least one change to sync');
+    throw StateError('Select at least one change to commit');
   }
 
-  await ref.read(autoSaveNotifierProvider.notifier).flushNow();
-
-  final unsafe = findUnsafeSecretEnvFiles(path, paths);
-  if (unsafe.isNotEmpty) {
-    throw StateError(
-      'Cannot sync: secret values in ${unsafe.first}. Remove secrets before committing.',
-    );
-  }
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
 
   final git = ref.read(gitServiceProvider);
   await git.stage(path, paths);
   await git.commit(path, message);
-  await git.push(path);
+  await _reloadGitStatus(ref);
+}
+
+Future<void> gitPush(WidgetRef ref) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
+  await ref.read(gitServiceProvider).push(path);
   await _reloadGitStatus(ref);
 }
 
@@ -82,7 +91,7 @@ Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {
   final path = ref.read(settingsProvider).workspaceFolderPath;
   if (path == null || path.isEmpty) return;
 
-  await ref.read(autoSaveNotifierProvider.notifier).flushNow();
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   await ref.read(gitServiceProvider).checkoutBranch(path, branch);
   await reloadWorkspaceFromDisk(ref);
   await _reloadGitStatus(ref);

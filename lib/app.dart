@@ -126,12 +126,8 @@ class DashApp extends ConsumerWidget {
         themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
         home: showWorkspaceSelector
             ? WorkspaceSelector(
-                onContinue: (path, {workspaceDisplayName}) async {
-                  await activateWorkspace(
-                    ref,
-                    path,
-                    preferredName: workspaceDisplayName,
-                  );
+                onContinue: (path) async {
+                  await activateWorkspace(ref, path);
                 },
                 onClone: (remoteUrl, parentDirectory) async {
                   final path = await gitCloneRepository(

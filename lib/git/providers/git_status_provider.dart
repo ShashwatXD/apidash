@@ -52,3 +52,13 @@ final gitWorkspaceWatchProvider = Provider<void>((ref) {
 void invalidateGitStatus(Ref ref) {
   ref.invalidate(gitStatusProvider);
 }
+
+final gitDiskRevisionProvider =
+    NotifierProvider<GitDiskRevisionNotifier, int>(GitDiskRevisionNotifier.new);
+
+class GitDiskRevisionNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}

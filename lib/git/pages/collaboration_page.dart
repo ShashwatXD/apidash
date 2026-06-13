@@ -1,11 +1,15 @@
 import 'dart:async';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/models/git_change_tree.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
 import 'package:apidash/git/widgets/dialog_git_remote.dart';
+import 'package:apidash/git/widgets/git_changes_tree.dart';
+import 'package:apidash/git/widgets/git_diff_panel.dart';
+import 'package:apidash/git/widgets/git_overview_panel.dart';
+import 'package:apidash/git/widgets/git_recent_commits_section.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/widgets/button_group_filled.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,8 +26,10 @@ class CollaborationPage extends ConsumerStatefulWidget {
 class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   final _messageController = TextEditingController();
   final Set<String> _selectedPaths = {};
+  GitChange? _previewChange;
   bool _busy = false;
   bool _selectionInitialized = false;
+  int _diffRevision = 0;
 
   @override
   void initState() {
@@ -40,8 +46,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   }
 
   Future<void> _refreshGitStatus() async {
-    await ref.read(autoSaveNotifierProvider.notifier).flushNow();
-    ref.invalidate(gitStatusProvider);
+    await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   }
 
   void _syncSelection(List<GitChange> changes) {
@@ -49,6 +54,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     _selectedPaths.removeWhere((p) => !paths.contains(p));
     for (final change in changes) {
       _selectedPaths.add(change.path);
+    }
+    if (_previewChange != null && !paths.contains(_previewChange!.path)) {
+      _previewChange = null;
     }
   }
 
@@ -71,6 +79,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
         setState(() {
           _selectionInitialized = false;
           _selectedPaths.clear();
+          _previewChange = null;
         });
         sm.showSnackBar(getSnackBar(successMessage));
       }
@@ -97,6 +106,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
 
     ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
+    final scheme = Theme.of(context).colorScheme;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -111,6 +121,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
         const Padding(padding: kPh20, child: Divider(height: 1)),
         Expanded(
           child: statusAsync.when(
+            skipLoadingOnReload: true,
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text(e.toString())),
             data: (status) {
@@ -141,196 +152,191 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                 });
               }
 
-              return ListView(
-                padding: kPh20,
-                children: [
-                  if (status.recentCommits.isEmpty)
-                    Card(
-                      elevation: 0,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .primaryContainer
-                          .withValues(alpha: 0.35),
-                      child: Padding(
-                        padding: kP12,
-                        child: Text(
-                          kMsgGitSetupSyncBody,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ),
-                    ),
-                  if (status.recentCommits.isEmpty) kVSpacer16,
-                  if (status.branches.length > 1) ...[
-                    Row(
-                      children: [
-                        Text(
-                          kLabelBranch,
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                        kHSpacer10,
-                        Expanded(
-                          child: DropdownButton<String>(
-                            isExpanded: true,
-                            value: status.branch != null &&
-                                    status.branches.contains(status.branch)
-                                ? status.branch
-                                : null,
-                            items: [
-                              for (final branch in status.branches)
-                                DropdownMenuItem(
-                                  value: branch,
-                                  child: Text(branch),
-                                ),
-                            ],
-                            onChanged: _busy || status.branch == null
-                                ? null
-                                : (branch) {
-                                    if (branch == null ||
-                                        branch == status.branch) {
-                                      return;
-                                    }
-                                    _run(
+              final treeRoots = buildGitChangeTree(status.changes);
+
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (status.errorMessage != null) ...[
+                      _InfoBanner(message: status.errorMessage!, isError: true),
+                      kVSpacer8,
+                    ],
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: 300,
+                            child: _GitPanel(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _GitSidebarHeader(
+                                    status: status,
+                                    branches: _branchOptions(status),
+                                    busy: _busy,
+                                    onBranchSelected: (branch) => _run(
                                       () => gitCheckoutBranch(ref, branch),
                                       kMsgGitCheckoutSuccess,
-                                    );
-                                  },
-                          ),
-                        ),
-                      ],
-                    ),
-                    kVSpacer10,
-                  ],
-                  Text(
-                    _statusSubtitle(status),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                  if (status.remoteUrl != null) ...[
-                    kVSpacer5,
-                    Text(
-                      status.remoteUrl!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  if (status.errorMessage != null) ...[
-                    kVSpacer8,
-                    Text(
-                      status.errorMessage!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                  kVSpacer16,
-                  FilledButtonGroup(
-                    buttons: [
-                      ButtonData(
-                        label: kLabelPull,
-                        icon: Icons.download_rounded,
-                        onPressed: _busy
-                            ? null
-                            : () => _run(() => gitPull(ref), kMsgGitPullSuccess),
-                      ),
-                      ButtonData(
-                        label: kLabelSync,
-                        icon: Icons.cloud_upload_outlined,
-                        onPressed: _busy
-                            ? null
-                            : () => _run(
-                                  () => gitSync(
-                                    ref,
-                                    message: _messageController.text,
-                                    paths: _selectedPaths.toList(),
+                                    ),
                                   ),
-                                  kMsgGitSyncSuccess,
-                                ),
+                                  if (status.recentCommits.isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      child: Text(
+                                        kMsgGitSetupSyncBody,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ),
+                                  Expanded(
+                                    child: status.changes.isEmpty
+                                        ? _EmptyChangesState()
+                                        : GitChangesTree(
+                                            roots: treeRoots,
+                                            selectedPaths: _selectedPaths,
+                                            previewPath: _previewChange?.path,
+                                            busy: _busy,
+                                            onSelectionChanged: (paths) {
+                                              setState(() => _selectedPaths
+                                                ..clear()
+                                                ..addAll(paths));
+                                            },
+                                            onFilePreview: (change) async {
+                                              await ref
+                                                  .read(autoSaveNotifierProvider
+                                                      .notifier)
+                                                  .flushNow(force: true);
+                                              if (!mounted) return;
+                                              setState(() {
+                                                _previewChange = change;
+                                                _diffRevision++;
+                                              });
+                                            },
+                                          ),
+                                  ),
+                                  const Divider(height: 1),
+                                  Padding(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        ADOutlinedTextField(
+                                          keyId: 'git-commit-message',
+                                          controller: _messageController,
+                                          hintText: kLabelCommitMessage,
+                                          maxLines: 2,
+                                        ),
+                                        kVSpacer8,
+                                        FilledButton.icon(
+                                          onPressed: _busy ||
+                                                  _selectedPaths.isEmpty ||
+                                                  _messageController.text
+                                                      .trim()
+                                                      .isEmpty
+                                              ? null
+                                              : () => _run(
+                                                    () => gitCommitChanges(
+                                                      ref,
+                                                      message:
+                                                          _messageController
+                                                              .text,
+                                                      paths: _selectedPaths
+                                                          .toList(),
+                                                    ),
+                                                    kMsgGitCommitSuccess,
+                                                  ),
+                                          icon: const Icon(
+                                            Icons.check_rounded,
+                                            size: 18,
+                                          ),
+                                          label: Text(kLabelCommitChanges),
+                                          style: FilledButton.styleFrom(
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 10,
+                                            ),
+                                          ),
+                                        ),
+                                        GitRecentCommitsSection(
+                                          commits: status.recentCommits,
+                                        ),
+                                        kVSpacer8,
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          kHSpacer10,
+                          Expanded(
+                            child: _GitPanel(
+                              child: _previewChange == null
+                                  ? GitOverviewPanel(
+                                      status: status,
+                                      busy: _busy,
+                                      onFetch: () => _run(
+                                        () => gitFetch(ref),
+                                        kMsgGitFetchSuccess,
+                                      ),
+                                      onPull: () => _run(
+                                        () => gitPull(ref),
+                                        kMsgGitPullSuccess,
+                                      ),
+                                      onPush: () => _run(
+                                        () => gitPush(ref),
+                                        kMsgGitPushSuccess,
+                                      ),
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: IconButton(
+                                            onPressed: _busy
+                                                ? null
+                                                : () => setState(
+                                                      () =>
+                                                          _previewChange = null,
+                                                    ),
+                                            icon: const Icon(
+                                              Icons.arrow_back_rounded,
+                                              size: 20,
+                                            ),
+                                            tooltip: kLabelGitBackToOverview,
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: GitDiffPanel(
+                                            change: _previewChange,
+                                            refreshToken: _diffRevision,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  kVSpacer20,
-                  if (status.changes.isEmpty)
-                    Text(
-                      kMsgGitNoChanges,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    )
-                  else ...[
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        kLabelSelectAll,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      value: _selectedPaths.length == status.changes.length,
-                      tristate: true,
-                      onChanged: _busy
-                          ? null
-                          : (value) {
-                              setState(() {
-                                if (value == true) {
-                                  _selectedPaths.addAll(
-                                    status.changes.map((c) => c.path),
-                                  );
-                                } else {
-                                  _selectedPaths.clear();
-                                }
-                              });
-                            },
                     ),
-                    for (final change in status.changes)
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: _selectedPaths.contains(change.path),
-                        onChanged: _busy
-                            ? null
-                            : (checked) {
-                                setState(() {
-                                  if (checked == true) {
-                                    _selectedPaths.add(change.path);
-                                  } else {
-                                    _selectedPaths.remove(change.path);
-                                  }
-                                });
-                              },
-                        title: Text(change.path),
-                        subtitle: Text(_changeTypeLabel(change.type)),
-                        controlAffinity: ListTileControlAffinity.leading,
-                      ),
                   ],
-                  kVSpacer20,
-                  ADOutlinedTextField(
-                    keyId: 'git-commit-message',
-                    controller: _messageController,
-                    hintText: kLabelCommitMessage,
-                    maxLines: 3,
-                  ),
-                  kVSpacer20,
-                  Text(
-                    kLabelRecentCommits,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  kVSpacer8,
-                  if (status.recentCommits.isEmpty)
-                    Text(
-                      'No commits yet',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.outline,
-                      ),
-                    )
-                  else
-                    for (final entry in status.recentCommits)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        title: Text(entry.message),
-                        subtitle: Text(entry.author),
-                      ),
-                ],
+                ),
               );
             },
           ),
@@ -339,19 +345,198 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     );
   }
 
-  String _statusSubtitle(GitStatus status) {
-    final branch = status.branch ?? 'unknown';
-    final count = status.changes.length;
-    final remote = status.remoteUrl != null ? ' · connected' : ' · no remote';
-    if (count == 0) return '$branch · no local changes$remote';
-    return '$branch · $count change${count == 1 ? '' : 's'}$remote';
+  List<String> _branchOptions(GitStatus status) {
+    final names = <String>{...status.branches};
+    final current = status.branch;
+    if (current != null && current.isNotEmpty) {
+      names.add(current);
+    }
+    return names.toList()..sort();
   }
+}
 
-  String _changeTypeLabel(GitChangeType type) => switch (type) {
-        GitChangeType.added => 'Added',
-        GitChangeType.modified => 'Modified',
-        GitChangeType.deleted => 'Deleted',
-        GitChangeType.untracked => 'Untracked',
-        GitChangeType.renamed => 'Renamed',
-      };
+class _GitPanel extends StatelessWidget {
+  const _GitPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: scheme.surfaceContainerLow.withValues(alpha: 0.55),
+      elevation: 0,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.25),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _GitSidebarHeader extends StatelessWidget {
+  const _GitSidebarHeader({
+    required this.status,
+    required this.branches,
+    required this.busy,
+    required this.onBranchSelected,
+  });
+
+  final GitStatus status;
+  final List<String> branches;
+  final bool busy;
+  final ValueChanged<String> onBranchSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (branches.isNotEmpty)
+            _BranchPill(
+              branches: branches,
+              currentBranch: status.branch,
+              busy: busy,
+              onBranchSelected: onBranchSelected,
+            ),
+          if (status.remoteUrl != null) ...[
+            kVSpacer5,
+            Text(
+              status.remoteUrl!,
+              style: textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _BranchPill extends StatelessWidget {
+  const _BranchPill({
+    required this.branches,
+    required this.currentBranch,
+    required this.busy,
+    required this.onBranchSelected,
+  });
+
+  final List<String> branches;
+  final String? currentBranch;
+  final bool busy;
+  final ValueChanged<String> onBranchSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final selected = currentBranch != null && branches.contains(currentBranch)
+        ? currentBranch
+        : null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          isDense: true,
+          value: selected,
+          icon: Icon(Icons.expand_more_rounded, size: 18, color: scheme.primary),
+          items: [
+            for (final branch in branches)
+              DropdownMenuItem(
+                value: branch,
+                child: Text(
+                  branch,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+          onChanged: busy || selected == null
+              ? null
+              : (branch) {
+                  if (branch == null || branch == selected) return;
+                  onBranchSelected(branch);
+                },
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoBanner extends StatelessWidget {
+  const _InfoBanner({required this.message, this.isError = false});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isError
+            ? scheme.errorContainer.withValues(alpha: 0.35)
+            : scheme.secondaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isError ? Icons.error_outline : Icons.info_outline,
+            size: 18,
+            color: isError ? scheme.error : scheme.onSecondaryContainer,
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyChangesState extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Text(
+          kMsgGitNoChanges,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+        ),
+      ),
+    );
+  }
 }

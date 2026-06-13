@@ -76,8 +76,6 @@ const kAutoSaveDebounceDuration = Duration(seconds: 1);
 
 const kDefaultMobileWorkspaceSubpath = 'apidash/workspace';
 
-const kWorkspaceMetaFile = 'workspace.json';
-const kWorkspaceMetaNameKey = 'name';
 const kMaxSavedWorkspaces = 10;
 
 const kDefaultCollectionId = 'collection-1';
@@ -567,20 +565,39 @@ const kNavRailLogsIndex = 4;
 const kNavRailSettingsIndex = 5;
 
 // Git Collaboration
+const kGitIconAsset = 'assets/git/giticon.png';
+const kLabelFetch = "Fetch";
 const kLabelPull = "Pull";
-const kLabelSync = "Sync";
+const kLabelPush = "Push";
+const kLabelCommitChanges = "Commit Changes";
+const kLabelGitAhead = "Ahead";
+const kLabelGitBehind = "Behind";
+const kLabelGitBackToOverview = "Back";
 const kLabelInitializeRepository = "Initialize repository";
 const kLabelConnectRemote = "Connect";
 const kLabelCommitMessage = "Commit message";
 const kLabelSelectAll = "Select all";
 const kLabelRecentCommits = "Recent commits";
 const kLabelBranch = "Branch";
+const kLabelChanges = "Changes";
+const kLabelGitDiffPreview = "Select a file to preview changes";
+const kLabelGitDiffLoading = "Loading diff…";
+const kLabelGitDiffEmpty = "No diff available";
+const kLabelGitFilesSelected = "files selected";
 const kMsgGitNotInstalled =
     "Git is not installed. Install Git to use Collaboration.";
 const kMsgGitNotARepository = "This workspace is not a Git repository yet.";
 const kMsgGitNoChanges = "No uncommitted changes";
+const kMsgGitNoCommits = "No commits yet";
 const kMsgGitSyncSuccess = "Changes synced to remote";
+const kMsgGitCommitSuccess = "Changes committed";
+const kMsgGitPushSuccess = "Pushed to remote";
+const kMsgGitFetchSuccess = "Fetched from remote";
 const kMsgGitPullSuccess = "Pulled latest changes";
+const kMsgGitOverviewHint =
+    "Perform git actions or open files from sidebar to view";
+const kMsgGitNeverFetched = "Not fetched yet";
+const kMsgGitLastFetchedJustNow = "Last fetched: less than a minute ago";
 const kMsgGitCheckoutSuccess = "Switched branch";
 const kGitInstallUrl = "https://git-scm.com/downloads";
 const kLabelCollaborationSetupTitle = "Set up workspace sharing";

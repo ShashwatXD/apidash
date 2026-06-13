@@ -19,11 +19,16 @@ class GitStatusBadge extends ConsumerWidget {
       loading: () => const SizedBox.shrink(),
       error: (e, st) => const SizedBox.shrink(),
       data: (status) {
-        if (!status.gitInstalled || !status.isRepository) {
+        if (!status.gitInstalled ||
+            !status.isRepository ||
+            status.remoteUrl == null) {
           return const SizedBox.shrink();
         }
-        final branch = status.branch ?? 'branch';
-        final dotColor = _dotColor(context, status.syncState);
+        final branch = _branchLabel(status);
+        if (branch == null) {
+          return const SizedBox.shrink();
+        }
+        final dotColor = _dotColor(status.syncState);
         return Padding(
           padding: const EdgeInsets.only(right: 4),
           child: Tooltip(
@@ -64,14 +69,24 @@ class GitStatusBadge extends ConsumerWidget {
     );
   }
 
-  Color _dotColor(BuildContext context, GitSyncState state) {
-    final scheme = Theme.of(context).colorScheme;
+  Color _dotColor(GitSyncState state) {
     return switch (state) {
-      GitSyncState.clean => Colors.green,
-      GitSyncState.dirty || GitSyncState.ahead => Colors.amber,
-      GitSyncState.behind || GitSyncState.diverged => Colors.blue,
-      GitSyncState.error => scheme.error,
-      _ => scheme.outline,
+      GitSyncState.clean => kColorStatusCode200,
+      GitSyncState.dirty || GitSyncState.ahead => kColorStatusCode500,
+      GitSyncState.behind || GitSyncState.diverged => kColorStatusCode300,
+      GitSyncState.error => kColorStatusCode400,
+      _ => kColorStatusCodeDefault,
     };
+  }
+
+  String? _branchLabel(GitStatus status) {
+    final current = status.branch;
+    if (current != null && current.isNotEmpty && current != 'HEAD') {
+      return current;
+    }
+    for (final name in status.branches) {
+      if (name.isNotEmpty && name != 'HEAD') return name;
+    }
+    return null;
   }
 }

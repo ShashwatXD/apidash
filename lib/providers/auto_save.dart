@@ -101,11 +101,11 @@ class AutoSaveNotifier extends Notifier<void> {
   }
 
   /// Persist pending edits to disk immediately (e.g. before git commit).
-  Future<void> flushNow() => _flush();
+  Future<void> flushNow({bool force = false}) => _flush(force: force);
 
-  Future<void> _flush() async {
+  Future<void> _flush({bool force = false}) async {
     cancelPending();
-    if (!ref.read(hasUnsavedChangesProvider)) {
+    if (!force && !ref.read(hasUnsavedChangesProvider)) {
       return;
     }
     if (ref.read(saveDataStateProvider)) {
@@ -114,6 +114,7 @@ class AutoSaveNotifier extends Notifier<void> {
     await ref.read(collectionStateNotifierProvider.notifier).saveData();
     await ref.read(collectionsStateNotifierProvider.notifier).saveCollections();
     await ref.read(environmentsStateNotifierProvider.notifier).saveEnvironments();
+    ref.read(gitDiskRevisionProvider.notifier).bump();
     invalidateGitStatus(ref);
   }
 }

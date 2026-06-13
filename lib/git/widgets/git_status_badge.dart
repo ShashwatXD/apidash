@@ -28,16 +28,21 @@ class GitStatusBadge extends ConsumerWidget {
         if (branch == null) {
           return const SizedBox.shrink();
         }
+        final scheme = Theme.of(context).colorScheme;
         final dotColor = _dotColor(status.syncState);
         return Padding(
           padding: const EdgeInsets.only(right: 4),
           child: Tooltip(
             message: 'Open Collaboration ($branch)',
-            child: TextButton(
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: BorderSide(
+                  color: scheme.outlineVariant.withValues(alpha: 0.6),
+                ),
               ),
               onPressed: () {
                 ref.read(navRailIndexStateProvider.notifier).state =

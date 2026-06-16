@@ -1,4 +1,5 @@
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/git_last_fetched_provider.dart';
 import 'package:apidash/providers/settings_providers.dart';
@@ -57,6 +58,10 @@ class GitOverviewPanel extends ConsumerWidget {
                 ),
               ),
               kVSpacer20,
+              if (status.behind > 0) ...[
+                _BehindRemoteHint(behind: status.behind),
+                kVSpacer10,
+              ],
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -241,6 +246,43 @@ class _SyncCount extends StatelessWidget {
   }
 }
 
+class _BehindRemoteHint extends StatelessWidget {
+  const _BehindRemoteHint({required this.behind});
+
+  final int behind;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 18,
+            color: scheme.onSecondaryContainer,
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Text(
+              formatGitBehindRemoteHint(behind),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AheadBehindSummary extends StatelessWidget {
   const _AheadBehindSummary({
     required this.ahead,
@@ -265,6 +307,8 @@ class _AheadBehindSummary extends StatelessWidget {
       messages.add('$behind $unit behind remote');
     }
 
+    var text = messages.join(' · ');
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -276,7 +320,7 @@ class _AheadBehindSummary extends StatelessWidget {
         ),
       ),
       child: Text(
-        '> ${messages.join(' · ')}',
+        '> $text',
         style: textTheme.bodySmall?.copyWith(
           color: scheme.onSurfaceVariant,
         ),

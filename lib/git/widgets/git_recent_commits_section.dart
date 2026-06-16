@@ -1,4 +1,5 @@
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/widgets/expandable_section.dart';
 import 'package:flutter/material.dart';
@@ -7,9 +8,13 @@ class GitRecentCommitsSection extends StatelessWidget {
   const GitRecentCommitsSection({
     super.key,
     required this.commits,
+    this.busy = false,
+    this.onRestore,
   });
 
   final List<GitLogEntry> commits;
+  final bool busy;
+  final ValueChanged<GitLogEntry>? onRestore;
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +48,7 @@ class GitRecentCommitsSection extends StatelessWidget {
                 ),
                 itemBuilder: (context, index) {
                   final entry = commits[index];
+                  final canRestore = onRestore != null && index > 0;
                   return ListTile(
                     dense: true,
                     visualDensity: VisualDensity.compact,
@@ -63,6 +69,19 @@ class GitRecentCommitsSection extends StatelessWidget {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
+                    trailing: canRestore
+                        ? IconButton(
+                            onPressed: busy ? null : () => onRestore!(entry),
+                            icon: const Icon(Icons.restore_rounded, size: 18),
+                            tooltip: kLabelGitRestoreCommit,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                          )
+                        : null,
                   );
                 },
               ),

@@ -536,9 +536,6 @@ const kMsgSelectWorkspace = "Create your workspace";
 const kLabelSelectWorkspace = "Select workspace";
 const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
-const kLabelCloneFromGitOptional =
-    'CLONE FROM GIT [OPTIONAL]';
-const kMsgGitCloneSuccess = 'Repository cloned and workspace opened';
 // History Page
 const kTitleClearHistory = 'Clear History';
 const kMsgClearHistory =
@@ -564,15 +561,10 @@ const kNavRailCollaborationIndex = 3;
 const kNavRailLogsIndex = 4;
 const kNavRailSettingsIndex = 5;
 
-// Git Collaboration
-const kGitIconAsset = 'assets/git/giticon.png';
 const kLabelFetch = "Fetch";
 const kLabelPull = "Pull";
 const kLabelPush = "Push";
 const kLabelCommitChanges = "Commit Changes";
-const kLabelGitAhead = "Ahead";
-const kLabelGitBehind = "Behind";
-const kLabelGitBackToOverview = "Back";
 const kLabelInitializeRepository = "Initialize repository";
 const kLabelConnectRemote = "Connect";
 const kLabelCommitMessage = "Commit message";
@@ -580,41 +572,9 @@ const kLabelSelectAll = "Select all";
 const kLabelRecentCommits = "Recent commits";
 const kLabelBranch = "Branch";
 const kLabelChanges = "Changes";
-const kLabelGitDiffPreview = "Select a file to preview changes";
-const kLabelGitDiffLoading = "Loading diff…";
-const kLabelGitDiffEmpty = "No diff available";
-const kLabelGitFilesSelected = "files selected";
-const kMsgGitNotInstalled =
-    "Git is not installed. Install Git to use Collaboration.";
-const kMsgGitNotARepository = "This workspace is not a Git repository yet.";
-const kMsgGitNoChanges = "No uncommitted changes";
-const kMsgGitNoCommits = "No commits yet";
-const kMsgGitSyncSuccess = "Changes synced to remote";
-const kMsgGitCommitSuccess = "Changes committed";
-const kMsgGitPushSuccess = "Pushed to remote";
-const kMsgGitFetchSuccess = "Fetched from remote";
-const kMsgGitPullSuccess = "Pulled latest changes";
-const kMsgGitOverviewHint =
-    "Perform git actions or open files from sidebar to view";
-const kMsgGitNeverFetched = "Not fetched yet";
-const kMsgGitLastFetchedJustNow = "Last fetched: less than a minute ago";
-const kMsgGitCheckoutSuccess = "Switched branch";
-const kGitInstallUrl = "https://git-scm.com/downloads";
 const kLabelCollaborationSetupTitle = "Set up workspace sharing";
 const kMsgCollaborationSetupSubtitle =
     "Publish this workspace to Git so you and your team can collaborate.";
-const kLabelGitSetupStepInstall = "Install Git";
-const kLabelGitSetupStepInit = "Initialize repository";
-const kLabelGitSetupStepRemote = "Connect remote";
-const kLabelGitSetupStepSync = "Sync workspace";
-const kMsgGitSetupInstallBody =
-    "Git must be installed on your computer. API Dash uses your system Git for push and pull.";
-const kMsgGitSetupInitBody =
-    "Turn this workspace folder into a Git repository. Your requests and environments will be versioned as JSON files.";
-const kMsgGitSetupRemoteBody =
-    "Create an empty repository on GitHub, GitLab, Bitbucket, or any Git host, then paste the clone URL here.";
-const kMsgGitSetupSyncBody =
-    "Select your changes, write a commit message, and sync to publish the workspace for the first time.";
 const kLabelConnectRemoteUrl = "Connect remote URL";
 
 // Settings Page

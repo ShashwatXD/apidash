@@ -1,4 +1,4 @@
-import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_diff_display.dart';

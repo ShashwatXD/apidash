@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/git_error.dart';
 import 'package:apidash/git/services/git_service.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 
 enum _CloneUrlCheckState { idle, checking, valid, invalid }
 
@@ -43,6 +46,7 @@ class WorkspaceSelector extends HookWidget {
     final remoteUrlController = useTextEditingController();
     final urlCheckState = useState(_CloneUrlCheckState.idle);
     final checkGeneration = useRef(0);
+    final gitInstalled = useState<bool?>(null);
     useListenable(remoteUrlController);
 
     final git = gitService ?? GitService();
@@ -51,24 +55,40 @@ class WorkspaceSelector extends HookWidget {
       final url = remoteUrlController.text.trim();
       if (url.isEmpty) {
         urlCheckState.value = _CloneUrlCheckState.idle;
-        return null;
-      }
-      if (!looksLikeGitRemoteUrl(url)) {
-        urlCheckState.value = _CloneUrlCheckState.invalid;
+        gitInstalled.value = null;
         return null;
       }
 
-      urlCheckState.value = _CloneUrlCheckState.checking;
       final generation = ++checkGeneration.value;
-      final timer = Timer(const Duration(milliseconds: 450), () async {
+
+      Future<void> runChecks() async {
+        if (gitInstalled.value == null) {
+          final installed = await git.isGitInstalled();
+          if (generation != checkGeneration.value || !isMounted.value) return;
+          gitInstalled.value = installed;
+          if (!installed) return;
+        } else if (gitInstalled.value == false) {
+          return;
+        }
+
+        if (!looksLikeGitRemoteUrl(url)) {
+          urlCheckState.value = _CloneUrlCheckState.invalid;
+          return;
+        }
+
+        urlCheckState.value = _CloneUrlCheckState.checking;
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        if (generation != checkGeneration.value || !isMounted.value) return;
+
         final ok = await git.validateCloneUrl(url);
         if (generation != checkGeneration.value || !isMounted.value) return;
         urlCheckState.value =
             ok ? _CloneUrlCheckState.valid : _CloneUrlCheckState.invalid;
-      });
+      }
+
+      unawaited(runChecks());
 
       return () {
-        timer.cancel();
         if (generation == checkGeneration.value) {
           checkGeneration.value++;
         }
@@ -76,9 +96,10 @@ class WorkspaceSelector extends HookWidget {
     }, [remoteUrlController.text]);
 
     final cloneUrl = remoteUrlController.text.trim();
-    final isClone = cloneUrl.isNotEmpty;
-    final cloneReady =
-        !isClone || urlCheckState.value == _CloneUrlCheckState.valid;
+    final cloneAttempt = cloneUrl.isNotEmpty;
+    final cloneReady = !cloneAttempt ||
+        (gitInstalled.value == true &&
+            urlCheckState.value == _CloneUrlCheckState.valid);
     final canContinue =
         !busy.value && selectedDirectory.value != null && cloneReady;
 
@@ -86,7 +107,9 @@ class WorkspaceSelector extends HookWidget {
       if (!canContinue || selectedDirectory.value == null) return;
       busy.value = true;
       try {
-        if (isClone) {
+        if (cloneAttempt &&
+            gitInstalled.value == true &&
+            urlCheckState.value == _CloneUrlCheckState.valid) {
           await onClone?.call(cloneUrl, selectedDirectory.value!);
         } else {
           var finalPath = selectedDirectory.value!;
@@ -99,7 +122,7 @@ class WorkspaceSelector extends HookWidget {
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            getSnackBar(e.toString(), color: kColorRed),
+            getSnackBar(formatGitCollaborationError(e), color: kColorRed),
           );
         }
       } finally {
@@ -172,7 +195,7 @@ class WorkspaceSelector extends HookWidget {
                   workspaceName.value = value.trim();
                 },
                 isDense: true,
-                enabled: !isClone,
+                enabled: !cloneAttempt,
               ),
               kVSpacer10,
               Row(
@@ -202,6 +225,10 @@ class WorkspaceSelector extends HookWidget {
                   ),
                 ],
               ),
+              if (gitInstalled.value == false) ...[
+                kVSpacer5,
+                const _GitNotInstalledNotice(),
+              ],
               kVSpacer40,
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -234,6 +261,47 @@ class WorkspaceSelector extends HookWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _GitNotInstalledNotice extends StatelessWidget {
+  const _GitNotInstalledNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: scheme.secondaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            kMsgGitNotInstalled,
+            style: textTheme.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          kVSpacer5,
+          TextButton(
+            onPressed: () => launchUrl(Uri.parse(kGitInstallUrl)),
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(kLabelGitSetupStepInstall),
+          ),
+        ],
       ),
     );
   }

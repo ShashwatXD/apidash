@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/git_error.dart';
 import 'package:apidash/git/models/git_change_tree.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
@@ -69,6 +71,35 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     );
   }
 
+  Future<void> _confirmRestoreCommit(GitLogEntry entry) async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text(kMsgGitRestoreCommitConfirmTitle),
+        content: Text(
+          '${entry.message}\n\n${entry.author} · ${entry.relativeTime}\n\n'
+          '$kMsgGitRestoreCommitConfirmBody',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(kLabelCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(kLabelGitRestoreCommit),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run(
+      () => gitRestoreToCommit(ref, entry.hash),
+      kMsgGitRestoreCommitSuccess,
+    );
+  }
+
   Future<void> _run(Future<void> Function() action, String successMessage) async {
     if (_busy) return;
     setState(() => _busy = true);
@@ -85,7 +116,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       }
     } catch (e) {
       if (mounted) {
-        sm.showSnackBar(getSnackBar(e.toString(), color: kColorRed));
+        sm.showSnackBar(
+          getSnackBar(formatGitCollaborationError(e), color: kColorRed),
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -271,6 +304,8 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                         ),
                                         GitRecentCommitsSection(
                                           commits: status.recentCommits,
+                                          busy: _busy,
+                                          onRestore: _confirmRestoreCommit,
                                         ),
                                         kVSpacer8,
                                       ],

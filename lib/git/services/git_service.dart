@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/git_error.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/git_models.dart';
@@ -161,7 +162,23 @@ class GitService {
       );
       return;
     }
-    await _git(workspacePath, ['pull', 'origin', branch]);
+    try {
+      await _git(workspacePath, ['pull', '--no-rebase', 'origin', branch]);
+    } catch (_) {
+      if (await _isMergeInProgress(workspacePath)) {
+        await _git(workspacePath, ['merge', '--abort'], allowFailure: true);
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> _isMergeInProgress(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['rev-parse', '-q', 'MERGE_HEAD'],
+      allowFailure: true,
+    );
+    return result.exitCode == 0;
   }
 
   Future<void> fetch(String workspacePath) async {
@@ -428,6 +445,14 @@ class GitService {
     await _git(workspacePath, ['checkout', trimmed]);
   }
 
+  Future<void> restoreToCommit(String workspacePath, String commitHash) async {
+    final trimmed = commitHash.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Commit hash cannot be empty');
+    }
+    await _git(workspacePath, ['reset', '--hard', trimmed]);
+  }
+
   Future<void> push(String workspacePath) async {
     final branch = await _currentBranch(workspacePath);
     if (branch == null || branch == 'HEAD') {
@@ -462,9 +487,7 @@ class GitService {
     if (!allowFailure && result.exitCode != 0) {
       final stderr = result.stderr.toString().trim();
       final stdout = result.stdout.toString().trim();
-      throw StateError(
-        stderr.isNotEmpty ? stderr : stdout.isNotEmpty ? stdout : 'git ${args.first} failed',
-      );
+      throw StateError(gitCommandFailureMessage(stderr, stdout));
     }
     return result;
   }

@@ -1,4 +1,4 @@
-import 'git_consts.dart';
+import 'consts.dart';
 
 String formatGitCollaborationError(Object error) {
   var msg = error.toString().trim();

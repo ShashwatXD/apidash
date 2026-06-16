@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:apidash/consts.dart';
-import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/git_error.dart';
 import 'package:apidash/git/services/git_service.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';

@@ -1,7 +1,10 @@
-import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_diff_display.dart';
+import 'package:apidash/git/widgets/git_visual_diff/git_diff_file_kind.dart';
+import 'package:apidash/git/widgets/git_visual_diff/git_diff_snapshots.dart';
+import 'package:apidash/git/widgets/git_visual_diff/git_visual_diff_view.dart';
 import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
@@ -22,10 +25,17 @@ class GitDiffPanel extends ConsumerStatefulWidget {
 }
 
 class _DiffLoadResult {
-  const _DiffLoadResult({required this.diff, required this.title});
+  const _DiffLoadResult({
+    required this.diff,
+    required this.title,
+    required this.fileKind,
+    required this.snapshots,
+  });
 
   final String diff;
   final String title;
+  final GitDiffFileKind fileKind;
+  final GitDiffSnapshots snapshots;
 }
 
 class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
@@ -35,6 +45,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
   GitChangeType? _diffType;
   int _refreshToken = -1;
   int _diskRevision = -1;
+  bool _useVisualDiff = true;
 
   @override
   void initState() {
@@ -79,6 +90,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
       _diffType = change.type;
       _refreshToken = widget.refreshToken;
       _diskRevision = diskRevision;
+      _useVisualDiff = gitDiffSupportsVisual(change.path);
       _diffFuture = _loadDiff(change).then((result) {
         if (mounted) {
           setState(() => _cachedResult = result);
@@ -90,14 +102,31 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
 
   Future<_DiffLoadResult> _loadDiff(GitChange change) async {
     final workspacePath = ref.read(settingsProvider).workspaceFolderPath;
+    final fileKind = detectGitDiffFileKind(change.path);
     if (workspacePath == null || workspacePath.isEmpty) {
-      return const _DiffLoadResult(diff: '', title: '');
+      return _DiffLoadResult(
+        diff: '',
+        title: '',
+        fileKind: fileKind,
+        snapshots: const GitDiffSnapshots(),
+      );
     }
 
     final git = ref.read(gitServiceProvider);
     final diff = await git.diffPath(workspacePath, change);
     final title = await resolveGitDiffTitle(workspacePath, change);
-    return _DiffLoadResult(diff: diff, title: title);
+    final snapshots = gitDiffSupportsVisual(change.path)
+        ? await loadGitDiffSnapshots(
+            workspacePath: workspacePath,
+            change: change,
+          )
+        : const GitDiffSnapshots();
+    return _DiffLoadResult(
+      diff: diff,
+      title: title,
+      fileKind: fileKind,
+      snapshots: snapshots,
+    );
   }
 
   @override
@@ -140,6 +169,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
     }
 
     final fileName = change.path.split('/').last;
+    final supportsVisual = gitDiffSupportsVisual(change.path);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -174,11 +204,26 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                     ],
                   ),
                   kVSpacer8,
-                  Text(
-                    displayTitle,
-                    style: textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          displayTitle,
+                          style: textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (supportsVisual) ...[
+                        kHSpacer8,
+                        _DiffModeToggle(
+                          useVisual: _useVisualDiff,
+                          onChanged: (visual) {
+                            setState(() => _useVisualDiff = visual);
+                          },
+                        ),
+                      ],
+                    ],
                   ),
                   if (displayTitle != fileName) ...[
                     kVSpacer5,
@@ -203,16 +248,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                 final result = snapshot.data ?? _cachedResult;
                 if (result == null &&
                     snapshot.connectionState != ConnectionState.done) {
-                  return Center(
-                    child: SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: scheme.primary.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  );
+                  return _GitDiffLoadingIndicator(scheme: scheme);
                 }
                 if (snapshot.hasError && result == null) {
                   return Center(
@@ -224,7 +260,19 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                     ),
                   );
                 }
-                final diff = result?.diff.trim() ?? '';
+                if (result == null) {
+                  return _GitDiffLoadingIndicator(scheme: scheme);
+                }
+
+                final showVisual = supportsVisual && _useVisualDiff;
+                if (showVisual) {
+                  return GitVisualDiffView(
+                    fileKind: result.fileKind,
+                    snapshots: result.snapshots,
+                  );
+                }
+
+                final diff = result.diff.trim();
                 final rows = parseDiffRows(diff);
                 if (diff.isEmpty || rows.isEmpty) {
                   return Center(
@@ -242,6 +290,80 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _GitDiffLoadingIndicator extends StatelessWidget {
+  const _GitDiffLoadingIndicator({required this.scheme});
+
+  final ColorScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: scheme.primary.withValues(alpha: 0.7),
+            ),
+          ),
+          kVSpacer10,
+          Text(
+            kLabelGitDiffLoading,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiffModeToggle extends StatelessWidget {
+  const _DiffModeToggle({
+    required this.useVisual,
+    required this.onChanged,
+  });
+
+  final bool useVisual;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SegmentedButton<bool>(
+      segments: const [
+        ButtonSegment(
+          value: true,
+          label: Text(kLabelGitDiffVisual),
+        ),
+        ButtonSegment(
+          value: false,
+          label: Text(kLabelGitDiffRaw),
+        ),
+      ],
+      selected: {useVisual},
+      onSelectionChanged: (selection) {
+        if (selection.isEmpty) return;
+        onChanged(selection.first);
+      },
+      style: ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        backgroundColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return scheme.primaryContainer.withValues(alpha: 0.5);
+          }
+          return scheme.surfaceContainerHighest.withValues(alpha: 0.4);
+        }),
+      ),
     );
   }
 }
@@ -388,7 +510,7 @@ class _SideBySideDiff extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Original',
+                      kLabelGitDiffOriginal,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                             fontWeight: FontWeight.w600,
@@ -397,7 +519,7 @@ class _SideBySideDiff extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      'Current',
+                      kLabelGitDiffCurrent,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                             fontWeight: FontWeight.w600,

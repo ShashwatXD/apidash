@@ -1,5 +1,5 @@
 import 'package:apidash/consts.dart';
-import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/widgets/expandable_section.dart';
 import 'package:flutter/material.dart';

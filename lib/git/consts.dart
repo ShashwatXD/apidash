@@ -8,6 +8,10 @@ const kLabelGitBackToOverview = 'Back';
 const kLabelGitDiffPreview = 'Select a file to preview changes';
 const kLabelGitDiffLoading = 'Loading diff…';
 const kLabelGitDiffEmpty = 'No diff available';
+const kLabelGitDiffVisual = 'Visual';
+const kLabelGitDiffRaw = 'Raw';
+const kLabelGitDiffOriginal = 'Original';
+const kLabelGitDiffCurrent = 'Current';
 const kLabelGitFilesSelected = 'files selected';
 const kMsgGitNotInstalled =
     'Git is not installed. Install Git to clone repositories or use Collaboration.';

@@ -1,4 +1,4 @@
-import 'package:apidash/git/git_consts.dart';
+import 'package:apidash/git/consts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class GitLastFetchedNotifier extends Notifier<Map<String, DateTime>> {

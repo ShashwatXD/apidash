@@ -12,13 +12,11 @@ const kLabelGitDiffVisual = 'Visual';
 const kLabelGitDiffRaw = 'Raw';
 const kLabelGitDiffOriginal = 'Original';
 const kLabelGitDiffCurrent = 'Current';
-const kLabelGitFilesSelected = 'files selected';
 const kMsgGitNotInstalled =
     'Git is not installed. Install Git to clone repositories or use Collaboration.';
 const kMsgGitNotARepository = 'This workspace is not a Git repository yet.';
 const kMsgGitNoChanges = 'No uncommitted changes';
 const kMsgGitNoCommits = 'No commits yet';
-const kMsgGitSyncSuccess = 'Changes synced to remote';
 const kMsgGitCommitSuccess = 'Changes committed';
 const kMsgGitPushSuccess = 'Pushed to remote';
 const kMsgGitFetchSuccess = 'Fetched from remote';

@@ -130,9 +130,9 @@ class _RequestDiffColumn extends StatelessWidget {
           kVSpacer10,
         ],
         if (apiType == APIType.ai && model!.aiRequestModel != null) ...[
-          ReadOnlyTextField(
-            initialValue: model!.aiRequestModel?.url,
-            style: kCodeStyle,
+          _AiRequestDiffBody(
+            ai: model!.aiRequestModel!,
+            idSuffix: model!.id,
           ),
           kVSpacer10,
         ],
@@ -248,6 +248,85 @@ class _RequestDiffColumn extends StatelessWidget {
         ],
         ],
       ),
+    );
+  }
+}
+
+class _AiRequestDiffBody extends StatelessWidget {
+  const _AiRequestDiffBody({required this.ai, required this.idSuffix});
+
+  final AIRequestModel ai;
+  final String idSuffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    final meta = <String, String>{
+      if (ai.modelApiProvider != null) 'Provider': ai.modelApiProvider!.name,
+      if (ai.model != null && ai.model!.trim().isNotEmpty) 'Model': ai.model!,
+      if (ai.stream != null) 'Stream': ai.stream! ? 'true' : 'false',
+    };
+
+    final configs = ai.getModelConfigMap().map(
+          (key, value) => MapEntry(key, '${value ?? ''}'),
+        );
+
+    Widget section(String label, Widget child) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          kVSpacer6,
+          child,
+          kVSpacer10,
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (meta.isNotEmpty) section('Model', _GitDiffKeyValueList(rows: meta)),
+        if (ai.url.trim().isNotEmpty)
+          section(
+            'URL',
+            ReadOnlyTextField(initialValue: ai.url, style: kCodeStyle),
+          ),
+        if (ai.systemPrompt.trim().isNotEmpty)
+          section(
+            kLabelSystemPrompt,
+            SizedBox(
+              height: 120,
+              child: TextFieldEditor(
+                fieldKey: 'git-diff-ai-system-$idSuffix',
+                initialValue: ai.systemPrompt,
+                readOnly: true,
+              ),
+            ),
+          ),
+        if (ai.userPrompt.trim().isNotEmpty)
+          section(
+            kLabelUserPromptInput,
+            SizedBox(
+              height: 120,
+              child: TextFieldEditor(
+                fieldKey: 'git-diff-ai-user-$idSuffix',
+                initialValue: ai.userPrompt,
+                readOnly: true,
+              ),
+            ),
+          ),
+        if (configs.isNotEmpty)
+          section('Model Config', _GitDiffKeyValueList(rows: configs)),
+      ],
     );
   }
 }

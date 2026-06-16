@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:apidash/git/models/git_models.dart';
+import 'package:apidash/git/services/git_service.dart';
 import 'package:path/path.dart' as p;
 
 class GitDiffSnapshots {
@@ -27,11 +28,6 @@ class GitDiffSnapshots {
       value != null && value.trim().isNotEmpty;
 }
 
-Map<String, String> get _gitEnv => {
-      ...Platform.environment,
-      'GIT_TERMINAL_PROMPT': '0',
-    };
-
 Map<String, Object?>? parseJsonMap(String? raw) {
   if (raw == null || raw.trim().isEmpty) return null;
   try {
@@ -43,9 +39,8 @@ Map<String, Object?>? parseJsonMap(String? raw) {
   return null;
 }
 
-/// UI-only loader: reads HEAD (git show) and working-tree / index content.
-/// Does not modify git service behavior.
 Future<GitDiffSnapshots> loadGitDiffSnapshots({
+  required GitService git,
   required String workspacePath,
   required GitChange change,
 }) async {
@@ -57,11 +52,11 @@ Future<GitDiffSnapshots> loadGitDiffSnapshots({
       change.type == GitChangeType.added;
 
   if (!isNew && change.type != GitChangeType.deleted) {
-    headRaw = await _gitShow(workspacePath, 'HEAD:$relativePath');
+    headRaw = await git.showObject(workspacePath, 'HEAD:$relativePath');
   }
 
   if (change.type == GitChangeType.deleted) {
-    headRaw ??= await _gitShow(workspacePath, 'HEAD:$relativePath');
+    headRaw ??= await git.showObject(workspacePath, 'HEAD:$relativePath');
   } else {
     final file = File(p.join(workspacePath, relativePath));
     if (await file.exists()) {
@@ -71,7 +66,7 @@ Future<GitDiffSnapshots> loadGitDiffSnapshots({
 
   // Staged-only changes: working tree matches HEAD but index differs.
   if (!isNew && change.type != GitChangeType.deleted) {
-    final indexRaw = await _gitShow(workspacePath, ':$relativePath');
+    final indexRaw = await git.showObject(workspacePath, ':$relativePath');
     if (indexRaw != null && indexRaw.trim().isNotEmpty) {
       if (headRaw == null || headRaw == currentRaw) {
         if (indexRaw != headRaw) {
@@ -87,22 +82,6 @@ Future<GitDiffSnapshots> loadGitDiffSnapshots({
     headJson: parseJsonMap(headRaw),
     currentJson: parseJsonMap(currentRaw),
   );
-}
-
-Future<String?> _gitShow(String workspacePath, String object) async {
-  try {
-    final result = await Process.run(
-      'git',
-      ['show', object],
-      workingDirectory: workspacePath,
-      environment: _gitEnv,
-    );
-    if (result.exitCode != 0) return null;
-    final text = result.stdout.toString();
-    return text.isEmpty ? null : text;
-  } catch (_) {
-    return null;
-  }
 }
 
 String prettyJson(String? raw) {

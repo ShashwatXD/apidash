@@ -185,6 +185,19 @@ class GitService {
     await _git(workspacePath, ['fetch', 'origin']);
   }
 
+  /// Returns the contents of a git [object] (e.g. `HEAD:path`, `:path`)
+  /// in [workspacePath], or null when it cannot be read.
+  Future<String?> showObject(String workspacePath, String object) async {
+    final result = await _git(
+      workspacePath,
+      ['show', object],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return null;
+    final text = result.stdout.toString();
+    return text.isEmpty ? null : text;
+  }
+
   Future<bool> validateCloneUrl(String url) async {
     final trimmed = url.trim();
     if (trimmed.isEmpty || !looksLikeGitRemoteUrl(trimmed)) return false;
@@ -325,10 +338,7 @@ class GitService {
       'git',
       ['clone', trimmed, repoName],
       workingDirectory: parent,
-      environment: {
-        ...Platform.environment,
-        'GIT_TERMINAL_PROMPT': '0',
-      },
+      environment: _gitEnv,
     );
     if (result.exitCode != 0) {
       final stderr = result.stderr.toString().trim();
@@ -479,10 +489,7 @@ class GitService {
       'git',
       args,
       workingDirectory: workspacePath,
-      environment: {
-        ...Platform.environment,
-        'GIT_TERMINAL_PROMPT': '0',
-      },
+      environment: _gitEnv,
     );
     if (!allowFailure && result.exitCode != 0) {
       final stderr = result.stderr.toString().trim();
@@ -673,7 +680,6 @@ class GitService {
       final indexStatus = record[0];
       final workTreeStatus = record[1];
       var path = record.substring(3);
-      final staged = indexStatus != ' ' && indexStatus != '?';
       final type = _changeType(indexStatus, workTreeStatus);
 
       if (type == GitChangeType.renamed) {
@@ -693,7 +699,6 @@ class GitService {
         GitChange(
           path: path,
           type: type,
-          staged: staged,
         ),
       );
       i++;

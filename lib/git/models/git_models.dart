@@ -6,12 +6,10 @@ class GitChange {
   const GitChange({
     required this.path,
     required this.type,
-    this.staged = false,
   });
 
   final String path;
   final GitChangeType type;
-  final bool staged;
 }
 
 class GitLogEntry {

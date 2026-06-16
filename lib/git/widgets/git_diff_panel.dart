@@ -117,6 +117,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
     final title = await resolveGitDiffTitle(workspacePath, change);
     final snapshots = gitDiffSupportsVisual(change.path)
         ? await loadGitDiffSnapshots(
+            git: git,
             workspacePath: workspacePath,
             change: change,
           )

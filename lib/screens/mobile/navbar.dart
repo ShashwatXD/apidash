@@ -61,9 +61,9 @@ class BottomNavBar extends ConsumerWidget {
                   child: NavbarButton(
                     railIdx: railIdx,
                     buttonIdx: 3,
-                    selectedIcon: Icons.groups_rounded,
-                    icon: Icons.groups_outlined,
-                    label: 'Sync',
+                    selectedIcon: Icons.cloud_sync,
+                    icon: Icons.cloud_sync,
+                    label: 'Collab',
                   ),
                 ),
                 Expanded(

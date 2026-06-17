@@ -7,7 +7,9 @@ abstract class SyncFileTransfer {
     Duration timeout = kSyncFileRequestTimeout,
   });
 
-  Future<void> sendLocalFile(String path, String content);
-  Future<void> sendDeletedFile(String path);
-  Future<void> sendApplyComplete(Map<String, String> manifest);
+  Future<void> sendApplyComplete(
+    Map<String, String> manifest, {
+    Map<String, String> writes = const {},
+    List<String> deletes = const [],
+  });
 }

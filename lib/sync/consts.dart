@@ -12,6 +12,7 @@ const kLabelSyncWaitingForChanges =
 const kLabelSyncSelectFile = 'Select a file to preview changes';
 const kLabelSyncQrPlaceholder = 'QR code will appear here';
 const kMsgSyncApplySuccess = 'Applied changes from phone';
+const kMsgSyncWorkspaceUpdated = 'Workspace updated from peer';
 const kMsgSyncSessionDiscarded = 'Sync session discarded';
 const kLabelSyncDiffLocal = 'This device';
 const kLabelSyncDiffIncoming = 'Incoming';

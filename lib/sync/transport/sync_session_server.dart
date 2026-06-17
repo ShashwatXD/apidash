@@ -67,6 +67,7 @@ class SyncSessionServer implements SyncFileTransfer {
   void Function(SyncChangeSet changeSet)? onChangeSet;
   void Function(String message)? onError;
   void Function()? onSessionExpired;
+  void Function()? onRemoteApplied;
 
   Future<SyncQrPayload?> start() async {
     if (_status != SyncServerStatus.idle) return qrPayload;
@@ -197,10 +198,12 @@ class SyncSessionServer implements SyncFileTransfer {
             break;
           case SyncMessageType.applyComplete:
             final manifest = message.readManifest();
+            await _applyRemoteResult(message);
             if (_activePeer != null && manifest.isNotEmpty) {
               await _persistBaseline(_activePeer!, manifest);
               await _computeAndEmit(peerDeviceId: peerDeviceId);
             }
+            onRemoteApplied?.call();
             break;
           case SyncMessageType.bye:
             await _closeSocket();
@@ -267,18 +270,12 @@ class SyncSessionServer implements SyncFileTransfer {
   }
 
   @override
-  Future<void> sendLocalFile(String path, String content) async {
-    _send(SyncMessage.fileContent(path: path, content: content));
-  }
-
-  @override
-  Future<void> sendDeletedFile(String path) async {
-    _send(SyncMessage.fileContent(path: path, deleted: true));
-  }
-
-  @override
-  Future<void> sendApplyComplete(Map<String, String> manifest) async {
-    _send(SyncMessage.applyComplete(manifest));
+  Future<void> sendApplyComplete(
+    Map<String, String> manifest, {
+    Map<String, String> writes = const {},
+    List<String> deletes = const [],
+  }) async {
+    _send(SyncMessage.applyComplete(manifest, writes: writes, deletes: deletes));
   }
 
   Future<void> _computeAndEmit({required String? peerDeviceId}) async {
@@ -308,6 +305,17 @@ class SyncSessionServer implements SyncFileTransfer {
             peer: _peerManifest,
           );
     onChangeSet?.call(changeSet);
+  }
+
+  Future<void> _applyRemoteResult(SyncMessage message) async {
+    final writes = message.readWrites();
+    final deletes = message.readDeletes();
+    for (final entry in writes.entries) {
+      await writeSyncableWorkspaceFile(workspaceRoot, entry.key, entry.value);
+    }
+    for (final path in deletes) {
+      await deleteSyncableWorkspaceFile(workspaceRoot, path);
+    }
   }
 
   Future<void> _persistBaseline(

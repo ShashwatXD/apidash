@@ -51,10 +51,13 @@ class SyncSessionClient implements SyncFileTransfer {
   SyncPeerInfo? get hostPeer => _hostPeer;
   bool get wasPairedBefore => _wasPairedBefore;
 
+  Map<String, String> get peerManifest => _hostManifest;
+
   void Function(SyncPeerInfo host, bool wasPairedBefore)? onHostConnected;
   void Function()? onHostDisconnected;
   void Function(SyncChangeSet changeSet)? onChangeSet;
   void Function(String message)? onError;
+  void Function()? onRemoteApplied;
 
   Future<void> connect() async {
     if (_status != SyncClientStatus.idle) return;
@@ -114,9 +117,11 @@ class SyncSessionClient implements SyncFileTransfer {
             break;
           case SyncMessageType.applyComplete:
             final manifest = message.readManifest();
+            await _applyRemoteResult(message);
             if (_hostPeer != null && manifest.isNotEmpty) {
               await _persistBaseline(manifest);
             }
+            onRemoteApplied?.call();
             break;
           case SyncMessageType.error:
             onError?.call(message.errorMessage ?? 'Desktop reported an error');
@@ -183,18 +188,12 @@ class SyncSessionClient implements SyncFileTransfer {
   }
 
   @override
-  Future<void> sendLocalFile(String path, String content) async {
-    _send(SyncMessage.fileContent(path: path, content: content));
-  }
-
-  @override
-  Future<void> sendDeletedFile(String path) async {
-    _send(SyncMessage.fileContent(path: path, deleted: true));
-  }
-
-  @override
-  Future<void> sendApplyComplete(Map<String, String> manifest) async {
-    _send(SyncMessage.applyComplete(manifest));
+  Future<void> sendApplyComplete(
+    Map<String, String> manifest, {
+    Map<String, String> writes = const {},
+    List<String> deletes = const [],
+  }) async {
+    _send(SyncMessage.applyComplete(manifest, writes: writes, deletes: deletes));
   }
 
   Future<void> _computeAndEmit() async {
@@ -229,6 +228,17 @@ class SyncSessionClient implements SyncFileTransfer {
       if (b[entry.key] != entry.value) return false;
     }
     return true;
+  }
+
+  Future<void> _applyRemoteResult(SyncMessage message) async {
+    final writes = message.readWrites();
+    final deletes = message.readDeletes();
+    for (final entry in writes.entries) {
+      await writeSyncableWorkspaceFile(workspaceRoot, entry.key, entry.value);
+    }
+    for (final path in deletes) {
+      await deleteSyncableWorkspaceFile(workspaceRoot, path);
+    }
   }
 
   Future<void> _persistBaseline(Map<String, String> files) async {

@@ -116,9 +116,16 @@ class SyncMessage {
     });
   }
 
-  /// Sent after a successful apply so the peer can update its baseline.
-  factory SyncMessage.applyComplete(Map<String, String> files) {
-    return SyncMessage(SyncMessageType.applyComplete, {'files': files});
+  factory SyncMessage.applyComplete(
+    Map<String, String> files, {
+    Map<String, String> writes = const {},
+    List<String> deletes = const [],
+  }) {
+    return SyncMessage(SyncMessageType.applyComplete, {
+      'files': files,
+      'writes': writes,
+      'deletes': deletes,
+    });
   }
 
   factory SyncMessage.error(String message) {
@@ -131,11 +138,23 @@ class SyncMessage {
     });
   }
 
-  Map<String, String> readManifest() {
-    final files = payload['files'];
+  Map<String, String> readManifest() => _readStringMap('files');
+
+  Map<String, String> readWrites() => _readStringMap('writes');
+
+  List<String> readDeletes() {
+    final raw = payload['deletes'];
+    if (raw is List) {
+      return raw.map((e) => '$e').toList();
+    }
+    return const [];
+  }
+
+  Map<String, String> _readStringMap(String key) {
+    final value = payload[key];
     final result = <String, String>{};
-    if (files is Map) {
-      for (final entry in files.entries) {
+    if (value is Map) {
+      for (final entry in value.entries) {
         result['${entry.key}'] = '${entry.value}';
       }
     }

@@ -104,7 +104,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         ..onPeerDisconnected = _handlePeerDisconnected
         ..onChangeSet = _handleChangeSet
         ..onError = _handleServerError
-        ..onSessionExpired = _handleSessionExpired;
+        ..onSessionExpired = _handleSessionExpired
+        ..onRemoteApplied = _handleRemoteApplied;
 
       final qr = await server.start();
       if (!mounted) {
@@ -180,6 +181,25 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     messenger.showSnackBar(getSnackBar(kErrSyncSessionExpired));
   }
 
+  Future<void> _handleRemoteApplied() async {
+    if (!mounted) return;
+    await reloadWorkspaceFromDisk(ref);
+    await refreshGitStatus(ref);
+    await invalidateSyncUnsyncedCount(ref);
+    if (!mounted) return;
+    setState(() {
+      _session = SyncSessionPreview(
+        peer: _session.peer,
+        changeSet: const SyncChangeSet(),
+        isConnected: _session.isConnected,
+        wasPairedBefore: true,
+      );
+      _resetChangeSelection(const SyncChangeSet());
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
+  }
+
   void _resetChangeSelection(SyncChangeSet changeSet) {
     _changesByPath = syncChangesByPath([
       ...changeSet.incoming,
@@ -231,6 +251,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         changeSet: _session.changeSet,
         acceptedPaths: _acceptedPaths,
         transfer: server,
+        peerManifest: server.peerManifest,
       );
       await reloadWorkspaceFromDisk(ref);
       await refreshGitStatus(ref);
@@ -466,7 +487,7 @@ class _SyncSidePanel extends StatelessWidget {
                 Expanded(
                   child: Text(
                     session.isConnected
-                        ? '$kLabelSyncConnectedTo'
+                        ? kLabelSyncConnectedTo
                         : kLabelSyncWaitingForPhone,
                     style: textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,

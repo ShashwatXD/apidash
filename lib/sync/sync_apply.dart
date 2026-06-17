@@ -17,8 +17,7 @@ class SyncApplyResult {
   final Map<String, String> newBaseline;
 }
 
-/// Applies accepted incoming changes to disk, sends outgoing files to the peer,
-/// and persists the updated sync baseline.
+/// Applies the reviewed result so both devices converge from a single Apply.
 Future<SyncApplyResult> applySyncSession({
   required String workspaceRoot,
   required PeerSyncStore peerStore,
@@ -27,6 +26,7 @@ Future<SyncApplyResult> applySyncSession({
   required SyncChangeSet changeSet,
   required Set<String> acceptedPaths,
   required SyncFileTransfer transfer,
+  required Map<String, String> peerManifest,
 }) async {
   final acceptedIncoming = [
     ...changeSet.incoming,
@@ -43,27 +43,25 @@ Future<SyncApplyResult> applySyncSession({
 
     final content = await transfer.fetchPeerFile(change.path);
     if (content == null) {
-      throw StateError('Phone did not send ${change.path}');
+      throw StateError('Peer did not send ${change.path}');
     }
     await writeSyncableWorkspaceFile(workspaceRoot, change.path, content);
     appliedIncoming++;
   }
 
-  var sentOutgoing = 0;
-  for (final change in changeSet.outgoing) {
-    if (change.kind == SyncFileChangeKind.deleted) {
-      await transfer.sendDeletedFile(change.path);
-    } else {
-      final content = await readSyncableWorkspaceFile(workspaceRoot, change.path);
-      if (content == null) {
-        throw StateError('Local file missing: ${change.path}');
-      }
-      await transfer.sendLocalFile(change.path, content);
-    }
-    sentOutgoing++;
-  }
-
   final newBaseline = await buildSyncManifest(workspaceRoot);
+
+  final writes = <String, String>{};
+  for (final entry in newBaseline.entries) {
+    if (peerManifest[entry.key] == entry.value) continue;
+    final content = await readSyncableWorkspaceFile(workspaceRoot, entry.key);
+    if (content != null) writes[entry.key] = content;
+  }
+  final deletes = <String>[
+    for (final path in peerManifest.keys)
+      if (!newBaseline.containsKey(path)) path,
+  ];
+
   final now = DateTime.now().toUtc().toIso8601String();
   final existing = await peerStore.getPeer(peer.deviceId);
   final record = PeerSyncRecord(
@@ -76,11 +74,11 @@ Future<SyncApplyResult> applySyncSession({
     files: newBaseline,
   );
   await peerStore.savePeer(record);
-  await transfer.sendApplyComplete(newBaseline);
+  await transfer.sendApplyComplete(newBaseline, writes: writes, deletes: deletes);
 
   return SyncApplyResult(
     appliedIncoming: appliedIncoming,
-    sentOutgoing: sentOutgoing,
+    sentOutgoing: writes.length + deletes.length,
     newBaseline: newBaseline,
   );
 }

@@ -90,7 +90,8 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         ..onHostConnected = _handleHostConnected
         ..onHostDisconnected = _handleHostDisconnected
         ..onChangeSet = _handleChangeSet
-        ..onError = _handleError;
+        ..onError = _handleError
+        ..onRemoteApplied = _handleRemoteApplied;
 
       await client.connect();
       if (!mounted) {
@@ -152,6 +153,24 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   void _handleError(String message) {
     if (!mounted) return;
     setState(() => _error = message);
+  }
+
+  Future<void> _handleRemoteApplied() async {
+    if (!mounted) return;
+    await reloadWorkspaceFromDisk(ref);
+    await invalidateSyncUnsyncedCount(ref);
+    if (!mounted) return;
+    setState(() {
+      _session = SyncSessionPreview(
+        peer: _session.peer,
+        changeSet: const SyncChangeSet(),
+        isConnected: _session.isConnected,
+        wasPairedBefore: true,
+      );
+      _resetChangeSelection(const SyncChangeSet());
+    });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
   }
 
   void _resetChangeSelection(SyncChangeSet changeSet) {
@@ -234,6 +253,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         changeSet: _session.changeSet,
         acceptedPaths: _acceptedPaths,
         transfer: client,
+        peerManifest: client.peerManifest,
       );
       await reloadWorkspaceFromDisk(ref);
       await invalidateSyncUnsyncedCount(ref);

@@ -557,6 +557,9 @@ const kLabelLogs = "Logs";
 const kLabelAbout = "About";
 const kLabelSettings = "Settings";
 
+const kMobileNavCollaborationIndex = 3;
+const kMobileNavLogsIndex = 4;
+const kMobileNavSettingsIndex = 5;
 const kNavRailCollaborationIndex = 3;
 const kNavRailLogsIndex = 4;
 const kNavRailSettingsIndex = 5;

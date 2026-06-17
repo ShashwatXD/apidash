@@ -12,6 +12,9 @@ import 'package:apidash/git/widgets/git_diff_panel.dart';
 import 'package:apidash/git/widgets/git_overview_panel.dart';
 import 'package:apidash/git/widgets/git_recent_commits_section.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/sync/consts.dart';
+import 'package:apidash/sync/providers/sync_providers.dart';
+import 'package:apidash/sync/ui/sync_host_dialog.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,6 +35,13 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   bool _busy = false;
   bool _selectionInitialized = false;
   int _diffRevision = 0;
+
+  Future<void> _openSyncToPhoneDialog() async {
+    if (!mounted) return;
+    await showSyncHostDialog(context);
+    if (!mounted) return;
+    await invalidateSyncUnsyncedCount(ref);
+  }
 
   @override
   void initState() {
@@ -139,6 +149,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
 
     ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
+    final unsyncedAsync = ref.watch(syncUnsyncedCountProvider);
     final scheme = Theme.of(context).colorScheme;
 
     return Column(
@@ -146,9 +157,25 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       children: [
         Padding(
           padding: kPh20t40,
-          child: Text(
-            kLabelCollaboration,
-            style: Theme.of(context).textTheme.headlineLarge,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  kLabelCollaboration,
+                  style: Theme.of(context).textTheme.headlineLarge,
+                ),
+              ),
+              FilledButton.tonalIcon(
+                onPressed: _busy ? null : _openSyncToPhoneDialog,
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                label: unsyncedAsync.maybeWhen(
+                  data: (count) => count > 0
+                      ? Text('$kLabelSyncToPhone ($count)')
+                      : const Text(kLabelSyncToPhone),
+                  orElse: () => const Text(kLabelSyncToPhone),
+                ),
+              ),
+            ],
           ),
         ),
         const Padding(padding: kPh20, child: Divider(height: 1)),

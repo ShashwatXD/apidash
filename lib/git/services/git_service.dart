@@ -10,7 +10,7 @@ import '../models/git_models.dart';
 const kGitIgnoreTemplate = '''
 environments/*.local.json
 oauth2_credentials.json
-.apidash/local/
+.apidash/
 history/
 *.tmp
 .DS_Store

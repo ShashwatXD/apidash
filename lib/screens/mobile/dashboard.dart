@@ -8,6 +8,8 @@ import '../envvar/environment_page.dart';
 import '../history/history_page.dart';
 import '../settings_page.dart';
 import '../terminal/terminal_page.dart';
+import 'collaboration/collaboration_page.dart';
+import 'collaboration/sync_scan_page.dart';
 import 'requests_page/request_response_page.dart';
 import 'widgets/page_base.dart';
 import 'navbar.dart';
@@ -41,7 +43,7 @@ class _MobileDashboardState extends ConsumerState<MobileDashboard> {
           ),
           if (context.isMediumWindow)
             AnimatedPositioned(
-              bottom: railIdx > 2
+              bottom: railIdx > 3
                   ? 0
                   : isLeftDrawerOpen
                       ? 0
@@ -74,11 +76,21 @@ class PageBranch extends ConsumerWidget {
       case 2:
         return const HistoryPage();
       case 3:
+        return MobileCollaborationPage(
+          onScan: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (context) => const SyncScanPage(),
+              ),
+            );
+          },
+        );
+      case 4:
         return const PageBase(
           title: 'Logs',
           scaffoldBody: TerminalPage(),
         );
-      case 4:
+      case 5:
         return const PageBase(
           title: 'Settings',
           scaffoldBody: SettingsPage(),

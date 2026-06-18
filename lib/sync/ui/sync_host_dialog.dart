@@ -88,8 +88,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     }
 
     try {
-      final identity = await SyncDeviceStore().getOrCreate();
       final peerStore = PeerSyncStore(workspacePath);
+      final identity = await SyncDeviceStore(workspacePath).getOrCreate();
       final meta = await peerStore.getOrCreateMeta();
       final manifest = await buildSyncManifest(workspacePath);
 

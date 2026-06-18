@@ -6,9 +6,9 @@ import 'package:apidash/utils/http_utils.dart';
 import 'package:apidash/consts.dart';
 import 'package:apidash/widgets/widgets.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import '../../home_page/collection_pane.dart';
-import '../../home_page/editor_pane/editor_default.dart';
 import '../../common_widgets/common_widgets.dart';
+import '../../home_page/editor_pane/editor_default.dart';
+import 'mobile_collection_pane.dart';
 import 'request_response_page_bottombar.dart';
 import 'request_tabs.dart';
 
@@ -61,7 +61,7 @@ class _RequestResponsePageState extends ConsumerState<RequestResponsePage>
           ),
         ],
       ),
-      leftDrawerContent: const CollectionPane(),
+      leftDrawerContent: const MobileCollectionPane(),
       actions: const [kHSpacer12],
       mainContent: id == null
           ? const RequestEditorDefault()

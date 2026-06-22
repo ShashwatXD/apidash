@@ -46,6 +46,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   );
 
   SyncPeerInfo _peer = _emptyPeer;
+  WorkspaceIdentity? _workspace;
   SyncChangeSet _changeSet = const SyncChangeSet();
   final Set<String> _acceptedPaths = {};
   SyncFileChange? _previewChange;
@@ -57,6 +58,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   SyncQrPayload? _qrPayload;
   bool _starting = true;
   bool _connected = false;
+  bool _wasPairedBefore = false;
   bool _applying = false;
   String? _startError;
 
@@ -95,9 +97,10 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         workspaceRoot: workspacePath,
         desktopName: syncLocalDisplayName(),
       );
-      server.onPeerConnected = (peer, _) => setState(() {
+      server.onPeerConnected = (peer, wasPaired) => setState(() {
         _peer = peer;
         _connected = true;
+        _wasPairedBefore = wasPaired;
       });
       server.onPeerDisconnected = () => setState(() => _connected = false);
       server.onChangeSet = _handleChangeSet;
@@ -113,6 +116,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       setState(() {
         _server = server;
         _storage = storage;
+        _workspace = workspace;
         _workspacePath = workspacePath;
         _qrPayload = qr;
         _starting = false;
@@ -160,6 +164,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     setState(() {
       _changeSet = const SyncChangeSet();
       _resetChangeSelection(const SyncChangeSet());
+      _wasPairedBefore = true;
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
@@ -215,8 +220,15 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
 
   String _applyButtonLabel(bool canApply) {
     if (_applying) return kLabelSyncApplying;
-    if (!canApply || _acceptedPaths.isEmpty) return kLabelSyncApplyChanges;
+    if (!canApply) return kLabelSyncAlreadyInSync;
+    if (_acceptedPaths.isEmpty) return kLabelSyncApplyChanges;
     return '$kLabelSyncApplyChanges (${_acceptedPaths.length})';
+  }
+
+  String? _sessionHint() {
+    if (!_connected) return null;
+    if (_changeSet.isEmpty) return kLabelSyncNoChanges;
+    return _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair;
   }
 
   @override
@@ -227,27 +239,45 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     final conflicts = _changeSet.conflicts;
     final hasWork = sessionHasWork(_changeSet, _acceptedPaths);
     final canApply = _connected && hasWork && !_applying;
+    final sessionHint = _sessionHint();
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 960, maxHeight: 720),
+        constraints: const BoxConstraints(maxWidth: 1040, maxHeight: 720),
         child: SizedBox(
-          width: 960,
-          height: 640,
+          width: 1040,
+          height: 660,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
                 child: Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        kLabelSyncToPhone,
-                        style: textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            kLabelSyncToPhone,
+                            style: textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (_workspace != null) ...[
+                            kVSpacer5,
+                            Text(
+                              _workspace!.name,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     if (_applying)
@@ -267,56 +297,116 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              if (_startError != null && _qrPayload == null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: _SyncInfoBanner(
+                    message: _startError!,
+                    isError: true,
+                  ),
+                ),
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: 280,
-                      child: _buildQrPanel(scheme, textTheme),
-                    ),
-                    const VerticalDivider(width: 1),
-                    SizedBox(
-                      width: 300,
-                      child: _SyncChangesPanel(
-                        isConnected: _connected,
-                        incoming: incoming,
-                        conflicts: conflicts,
-                        acceptedPaths: _acceptedPaths,
-                        previewPath: _previewChange?.path,
-                        onSelectionChanged: (paths) {
-                          setState(() {
-                            _acceptedPaths
-                              ..clear()
-                              ..addAll(paths);
-                          });
-                        },
-                        onFilePreview: (change) {
-                          setState(() {
-                            _previewChange = _changesByPath[change.path];
-                          });
-                        },
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: 272,
+                        child: _SyncPanel(
+                          child: _SyncQrPanel(
+                            scheme: scheme,
+                            textTheme: textTheme,
+                            starting: _starting,
+                            qrPayload: _qrPayload,
+                            startError: _startError,
+                            connected: _connected,
+                            peerDisplayName: _peer.displayName,
+                            wasPairedBefore: _wasPairedBefore,
+                          ),
+                        ),
                       ),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      child: SyncDiffPanel(
-                        change: _previewChange,
-                        workspaceRoot: _workspacePath ?? '',
-                        transfer: _server,
-                        isHost: true,
+                      kHSpacer10,
+                      SizedBox(
+                        width: 300,
+                        child: _SyncPanel(
+                          child: _SyncChangesPanel(
+                            isConnected: _connected,
+                            incoming: incoming,
+                            conflicts: conflicts,
+                            acceptedPaths: _acceptedPaths,
+                            previewPath: _previewChange?.path,
+                            sessionHint: sessionHint,
+                            onSelectionChanged: (paths) {
+                              setState(() {
+                                _acceptedPaths
+                                  ..clear()
+                                  ..addAll(paths);
+                              });
+                            },
+                            onFilePreview: (change) {
+                              setState(() {
+                                _previewChange = _changesByPath[change.path];
+                              });
+                            },
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                      kHSpacer10,
+                      Expanded(
+                        child: _SyncPanel(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (_previewChange != null)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: IconButton(
+                                    onPressed: _applying
+                                        ? null
+                                        : () => setState(
+                                              () => _previewChange = null,
+                                            ),
+                                    icon: const Icon(
+                                      Icons.arrow_back_rounded,
+                                      size: 20,
+                                    ),
+                                    tooltip: kLabelSyncSelectFile,
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ),
+                              Expanded(
+                                child: SyncDiffPanel(
+                                  change: _previewChange,
+                                  workspaceRoot: _workspacePath ?? '',
+                                  transfer: _server,
+                                  isHost: true,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const Divider(height: 1),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    if (sessionHint != null && !_changeSet.isEmpty)
+                      Expanded(
+                        child: Text(
+                          sessionHint,
+                          style: textTheme.labelSmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      )
+                    else
+                      const Spacer(),
                     TextButton(
                       onPressed: _applying ? null : () => Navigator.pop(context),
                       child: const Text(kLabelSyncDiscardSession),
@@ -335,70 +425,137 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       ),
     );
   }
+}
 
-  Widget _buildQrPanel(ColorScheme scheme, TextTheme textTheme) {
+/// Matches Collaboration git panel chrome.
+class _SyncPanel extends StatelessWidget {
+  const _SyncPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: scheme.surfaceContainerLow.withValues(alpha: 0.55),
+      elevation: 0,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.25),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _SyncInfoBanner extends StatelessWidget {
+  const _SyncInfoBanner({required this.message, this.isError = false});
+
+  final String message;
+  final bool isError;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isError
+            ? scheme.errorContainer.withValues(alpha: 0.35)
+            : scheme.secondaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isError ? Icons.error_outline : Icons.info_outline,
+            size: 18,
+            color: isError ? scheme.error : scheme.onSecondaryContainer,
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SyncQrPanel extends StatelessWidget {
+  const _SyncQrPanel({
+    required this.scheme,
+    required this.textTheme,
+    required this.starting,
+    required this.qrPayload,
+    required this.startError,
+    required this.connected,
+    required this.peerDisplayName,
+    required this.wasPairedBefore,
+  });
+
+  final ColorScheme scheme;
+  final TextTheme textTheme;
+  final bool starting;
+  final SyncQrPayload? qrPayload;
+  final String? startError;
+  final bool connected;
+  final String peerDisplayName;
+  final bool wasPairedBefore;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AspectRatio(
             aspectRatio: 1,
-            child: Container(
-              padding: const EdgeInsets.all(12),
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.25),
-                ),
               ),
-              child: _buildQrContent(scheme, textTheme),
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: _buildQrContent(),
+              ),
             ),
           ),
           kVSpacer10,
           Text(
-            _qrPayload != null ? kLabelSyncScanQr : kLabelSyncQrPlaceholder,
-            style: textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-          if (_connected) ...[
-            kVSpacer8,
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.25),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.phone_iphone_rounded,
-                    size: 20,
-                    color: scheme.primary,
-                  ),
-                  kHSpacer10,
-                  Expanded(
-                    child: Text(
-                      kLabelSyncConnectedTo,
-                      style: textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            qrPayload != null ? kLabelSyncScanQr : kLabelSyncQrPlaceholder,
+            style: textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
-          ],
+          ),
+          kVSpacer10,
+          _ConnectionStatusCard(
+            connected: connected,
+            peerDisplayName: peerDisplayName,
+            wasPairedBefore: wasPairedBefore,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildQrContent(ColorScheme scheme, TextTheme textTheme) {
-    if (_starting) {
+  Widget _buildQrContent() {
+    if (starting) {
       return const Center(
         child: SizedBox(
           width: 28,
@@ -407,12 +564,26 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         ),
       );
     }
-    if (_qrPayload == null) {
+    if (qrPayload == null) {
       return Center(
-        child: Text(
-          _startError ?? kErrSyncServerStart,
-          style: textTheme.labelMedium?.copyWith(color: scheme.error),
-          textAlign: TextAlign.center,
+        child: Padding(
+          padding: kP12,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.wifi_off_rounded,
+                size: 40,
+                color: scheme.error.withValues(alpha: 0.85),
+              ),
+              kVSpacer8,
+              Text(
+                startError ?? kErrSyncServerStart,
+                style: textTheme.labelMedium?.copyWith(color: scheme.error),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -423,10 +594,78 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       ),
       padding: const EdgeInsets.all(8),
       child: QrImageView(
-        data: _qrPayload!.encode(),
+        data: qrPayload!.encode(),
         version: QrVersions.auto,
         gapless: true,
         backgroundColor: Colors.white,
+        errorCorrectionLevel: QrErrorCorrectLevel.M,
+      ),
+    );
+  }
+}
+
+class _ConnectionStatusCard extends StatelessWidget {
+  const _ConnectionStatusCard({
+    required this.connected,
+    required this.peerDisplayName,
+    required this.wasPairedBefore,
+  });
+
+  final bool connected;
+  final String peerDisplayName;
+  final bool wasPairedBefore;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surface.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            connected
+                ? Icons.phone_iphone_rounded
+                : Icons.hourglass_empty_rounded,
+            size: 20,
+            color: connected ? scheme.primary : scheme.onSurfaceVariant,
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  connected
+                      ? '$kLabelSyncConnectedTo ${peerDisplayName.isNotEmpty ? peerDisplayName : 'phone'}'
+                      : kLabelSyncWaitingForPhone,
+                  style: textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (connected) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    wasPairedBefore
+                        ? kLabelSyncPairedBefore
+                        : kLabelSyncFirstPair,
+                    style: textTheme.labelSmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -441,6 +680,7 @@ class _SyncChangesPanel extends StatelessWidget {
     required this.previewPath,
     required this.onSelectionChanged,
     required this.onFilePreview,
+    this.sessionHint,
   });
 
   final bool isConnected;
@@ -448,6 +688,7 @@ class _SyncChangesPanel extends StatelessWidget {
   final List<SyncFileChange> conflicts;
   final Set<String> acceptedPaths;
   final String? previewPath;
+  final String? sessionHint;
   final ValueChanged<Set<String>> onSelectionChanged;
   final ValueChanged<GitChange> onFilePreview;
 
@@ -459,13 +700,24 @@ class _SyncChangesPanel extends StatelessWidget {
     if (!isConnected) {
       return Center(
         child: Padding(
-          padding: kP12,
-          child: Text(
-            kLabelSyncWaitingForChanges,
-            textAlign: TextAlign.center,
-            style: textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+          padding: kP20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.sync_disabled_rounded,
+                size: 36,
+                color: scheme.outline.withValues(alpha: 0.65),
+              ),
+              kVSpacer10,
+              Text(
+                kLabelSyncWaitingForChanges,
+                textAlign: TextAlign.center,
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         ),
       );
@@ -477,19 +729,31 @@ class _SyncChangesPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (hasReviewable) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Text(
+            hasReviewable
+                ? (conflicts.isNotEmpty && incoming.isEmpty
+                    ? kLabelSyncConflicts
+                    : kLabelSyncIncomingFromPhone)
+                : kLabelSyncNoChanges,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        if (sessionHint != null && hasReviewable)
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
             child: Text(
-              conflicts.isNotEmpty && incoming.isEmpty
-                  ? kLabelSyncConflicts
-                  : kLabelSyncIncomingFromPhone,
-              style: textTheme.labelMedium?.copyWith(
-                color: scheme.primary,
-                fontWeight: FontWeight.w600,
+              sessionHint!,
+              style: textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
               ),
             ),
           ),
+        if (hasReviewable)
           Expanded(
             child: GitChangesTree(
               roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
@@ -499,15 +763,18 @@ class _SyncChangesPanel extends StatelessWidget {
               onSelectionChanged: onSelectionChanged,
               onFilePreview: onFilePreview,
             ),
-          ),
-        ],
-        if (!hasReviewable)
+          )
+        else
           Expanded(
             child: Center(
-              child: Text(
-                kLabelSyncNoChanges,
-                style: textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+              child: Padding(
+                padding: kP20,
+                child: Text(
+                  kLabelSyncNoChanges,
+                  textAlign: TextAlign.center,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),

@@ -1,23 +1,55 @@
 const kLabelSyncToPhone = 'Sync to phone';
 const kLabelSyncScanQr =
-    'Open the API Dash app on your phone and scan this QR to connect to your workspace.';
+    'Open API Dash on your phone and scan this QR to connect.';
 const kLabelSyncWaitingForPhone = 'Waiting for phone…';
-const kLabelSyncConnectedTo = 'Connected to Mobile';
-const kLabelSyncIncomingFromPhone = 'From phone';
-const kLabelSyncOutgoingToPhone = 'To phone';
+const kLabelSyncConnectedTo = 'Connected';
 const kLabelSyncApplyChanges = 'Apply changes';
+const kLabelSyncApplyAndSync = 'Apply & sync';
+const kLabelSyncAlreadyInSync = 'Already in sync';
 const kLabelSyncDiscardSession = 'Discard';
 const kLabelSyncWaitingForChanges =
     'Changes will appear here after your phone connects';
 const kLabelSyncSelectFile = 'Select a file to preview changes';
 const kLabelSyncQrPlaceholder = 'QR code will appear here';
-const kMsgSyncApplySuccess = 'Applied changes from phone';
-const kMsgSyncWorkspaceUpdated = 'Workspace updated from peer';
-const kMsgSyncSessionDiscarded = 'Sync session discarded';
-const kLabelSyncDiffLocal = 'This device';
-const kLabelSyncDiffIncoming = 'Incoming';
-const kLabelSyncDiffPeer = 'Phone';
+const kLabelSyncDiffLocal = 'Your edits';
+const kLabelSyncDiffPeerPhone = 'From phone';
+const kLabelSyncDiffPeerComputer = 'From computer';
 const kLabelSyncNoChanges = 'No changes to review';
+const kLabelSyncIncomingFromPhone = 'From phone';
+const kLabelSyncFromDesktop = 'From computer';
+const kLabelSyncConflicts = 'Conflicts';
+const kLabelSyncGetWorkspace = 'Get workspace';
+const kLabelSyncSwitchAndSync = 'Switch & sync';
+const kLabelSyncUseDesktopOnly = 'Use from computer only';
+const kLabelSyncMerge = 'Merge';
+const kLabelSyncPairedBefore = 'Paired before — changes sync both ways.';
+const kLabelSyncFirstPair = 'First time pairing — review before applying.';
+const kLabelSyncApplying = 'Applying changes…';
+const kLabelMobileCollaborationHint =
+    'Sync your workspace with API Dash on your computer. Open Collaboration on desktop, then scan the QR code.';
+const kLabelSyncScanDesktop = 'Scan desktop QR';
+const kLabelSyncConnecting = 'Connecting…';
+const kLabelSyncScanHint = 'Point your camera at the QR on your computer';
+const kLabelSyncSameWifi = 'Phone and computer must be on the same Wi-Fi';
+const kLabelSyncSecretsNote = 'Secret values stay on each device';
+const kLabelSyncLastSynced = 'Last synced';
+const kLabelSyncUnsynced = 'changes waiting to sync';
+const kLabelSyncNewWorkspaceTitle = 'New workspace';
+const kLabelSyncSwitchWorkspace = 'Switch to this workspace';
+const kLabelSyncKeepCurrentWorkspace = 'Keep current workspace';
+const kLabelSyncNewWorkspaceBody =
+    'This looks like a different project. Switch to it and sync from your computer? Your current workspace on this phone will be replaced.';
+const kLabelSyncFirstLinkMergePrompt =
+    'You have local requests. Merge with desktop or use the computer copy only?';
+const kLabelSyncClose = 'Close';
+
+// --- Messages ---
+
+const kMsgSyncApplySuccess = 'Sync complete';
+const kMsgSyncWorkspaceUpdated = 'Workspace updated from peer';
+
+// --- Errors ---
+
 const kErrSyncNoWorkspace =
     'Select a workspace folder before syncing to your phone.';
 const kErrSyncServerStart =
@@ -26,17 +58,28 @@ const kErrSyncNoNetwork =
     'No local network connection found. Connect to Wi-Fi and retry.';
 const kErrSyncApplyFailed = 'Could not apply sync changes';
 const kErrSyncSessionExpired = 'Sync session expired. Open sync again.';
-const kLabelSyncConflicts = 'Conflicts';
-const kLabelSyncPairedBefore = 'Paired before, changes will sync both ways.';
-const kLabelSyncFirstPair = 'First time pairing, review changes before applying.';
-const kLabelSyncApplying = 'Applying changes…';
-const kSyncSessionTimeout = Duration(minutes: 5);
-const kSyncFileRequestTimeout = Duration(seconds: 30);
-const kLabelMobileCollaborationHint =
-    'Sync your workspace with API Dash on your computer. Open Collaboration on desktop, then scan the QR code.';
-const kLabelSyncScanDesktop = 'Scan desktop QR';
-const kLabelSyncFromDesktop = 'From desktop';
-const kLabelSyncToDesktop = 'To desktop';
-const kLabelSyncConnecting = 'Connecting to desktop…';
 const kErrSyncInvalidQr = 'Not a valid API Dash sync QR code';
 const kErrSyncConnectFailed = 'Could not connect to desktop';
+
+// --- Display names ---
+
+const kSyncFallbackDisplayNamePrefix = 'API Dash';
+// --- Storage paths ---
+
+const kSyncApidashDir = '.apidash';
+const kWorkspaceIdentityRelativePath = '$kSyncApidashDir/workspace.json';
+const kSyncStateRelativePath = '$kSyncApidashDir/sync.json';
+
+// --- Wire protocol ---
+
+const kSyncProtocolVersion = 1;
+const kSyncDefaultPort = 4571;
+const kSyncWebSocketPath = '/sync';
+const kSyncTokenLength = 8;
+const kSyncTokenAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+// --- Timeouts ---
+
+const kSyncSessionTimeout = Duration(minutes: 5);
+const kSyncFileRequestTimeout = Duration(seconds: 30);
+

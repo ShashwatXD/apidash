@@ -4,28 +4,22 @@ import 'dart:math';
 
 import '../consts.dart';
 import '../models/sync_models.dart';
-import '../storage/peer_sync_store.dart';
-import '../storage/sync_device_store.dart';
-import '../sync_diff.dart';
+import '../storage/sync_storage.dart';
+import '../sync_session_compute.dart';
 import '../sync_workspace_io.dart';
 import 'sync_file_transfer.dart';
 import 'sync_messages.dart';
 
-enum SyncServerStatus {
-  idle,
-  listening,
-  connected,
-  error,
-}
+enum SyncServerStatus { idle, listening, connected, error }
 
 /// Desktop-side LAN sync host.
 class SyncSessionServer implements SyncFileTransfer {
   SyncSessionServer({
-    required this.identity,
-    required this.workspaceMeta,
+    required this.storage,
+    required this.workspace,
     required this.localManifest,
-    required this.peerStore,
     required this.workspaceRoot,
+    required this.desktopName,
     int? port,
     Random? random,
     Duration? sessionTimeout,
@@ -33,11 +27,11 @@ class SyncSessionServer implements SyncFileTransfer {
         _sessionTimeout = sessionTimeout ?? kSyncSessionTimeout,
         token = _generateToken(random ?? Random.secure());
 
-  final SyncDeviceIdentity identity;
-  final SyncWorkspaceMeta workspaceMeta;
+  final SyncStorage storage;
+  final WorkspaceIdentity workspace;
   final Map<String, String> localManifest;
-  final PeerSyncStore peerStore;
   final String workspaceRoot;
+  final String desktopName;
   final String token;
 
   final int _preferredPort;
@@ -53,12 +47,11 @@ class SyncSessionServer implements SyncFileTransfer {
   SyncServerStatus _status = SyncServerStatus.idle;
   Map<String, String> _peerManifest = const {};
   SyncPeerInfo? _activePeer;
+  bool _peerHasBaseline = true;
   final Map<String, String?> _peerFileCache = {};
   final Map<String, Completer<_PeerFileResult>> _pendingPeerFiles = {};
 
   SyncServerStatus get status => _status;
-  String? get hostAddress => _hostAddress;
-  int? get boundPort => _boundPort;
   bool get isConnected => _activeSocket != null;
   Map<String, String> get peerManifest => _peerManifest;
 
@@ -96,6 +89,20 @@ class SyncSessionServer implements SyncFileTransfer {
     return qrPayload;
   }
 
+  SyncQrPayload? get qrPayload {
+    final host = _hostAddress;
+    final port = _boundPort;
+    if (host == null || port == null) return null;
+    return SyncQrPayload(
+      host: host,
+      port: port,
+      token: token,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      desktopName: desktopName,
+    );
+  }
+
   void _startSessionTimer() {
     _sessionTimer?.cancel();
     _sessionTimer = Timer(_sessionTimeout, () {
@@ -112,43 +119,23 @@ class SyncSessionServer implements SyncFileTransfer {
     }
   }
 
-  SyncQrPayload? get qrPayload {
-    final host = _hostAddress;
-    final port = _boundPort;
-    if (host == null || port == null) return null;
-    return SyncQrPayload(
-      host: host,
-      port: port,
-      token: token,
-      syncWorkspaceId: workspaceMeta.syncWorkspaceId,
-      hostDeviceId: identity.deviceId,
-      hostDisplayName: identity.displayName,
-    );
-  }
-
   Future<void> _handleRequest(HttpRequest request) async {
-    if (request.uri.path != '/sync' ||
+    if (request.uri.path != kSyncWebSocketPath ||
         !WebSocketTransformer.isUpgradeRequest(request)) {
       request.response.statusCode = HttpStatus.notFound;
       await request.response.close();
       return;
     }
-
     if (_activeSocket != null) {
       request.response.statusCode = HttpStatus.conflict;
       await request.response.close();
       return;
     }
-
-    final socket = await WebSocketTransformer.upgrade(request);
-    _attachSocket(socket);
+    _attachSocket(await WebSocketTransformer.upgrade(request));
   }
 
   void _attachSocket(WebSocket socket) {
     _activeSocket = socket;
-    String? peerDeviceId;
-    SyncPeerInfo? peer;
-
     _socketSub = socket.listen(
       (dynamic data) async {
         if (data is! String) return;
@@ -162,33 +149,27 @@ class SyncSessionServer implements SyncFileTransfer {
               await _closeSocket(notify: false);
               return;
             }
-            peerDeviceId = message.stringDeviceId;
-            peer = SyncPeerInfo(
-              deviceId: message.stringDeviceId ?? '',
+            _peerHasBaseline = message.hasBaseline;
+            _activePeer = SyncPeerInfo(
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
               displayName: message.stringDisplayName ?? 'Phone',
-              syncWorkspaceId: message.stringSyncWorkspaceId ?? '',
             );
-            _activePeer = peer;
-            final wasPaired = await peerStore.hasPaired(
-              peer!.deviceId,
-              workspaceMeta.syncWorkspaceId,
-            );
+            final wasPaired = await storage.hasSyncedBefore();
+            final syncState = await storage.readSyncState();
             _send(SyncMessage.helloAck(
-              deviceId: identity.deviceId,
-              displayName: identity.displayName,
-              syncWorkspaceId: workspaceMeta.syncWorkspaceId,
+              workspaceId: workspace.id,
+              workspaceName: workspace.name,
+              displayName: desktopName,
+              hasBaseline: syncState?.hasBaseline ?? false,
             ));
             _send(SyncMessage.manifest(localManifest));
-            onPeerConnected?.call(peer!, wasPaired);
+            onPeerConnected?.call(_activePeer!, wasPaired);
             _status = SyncServerStatus.connected;
             break;
           case SyncMessageType.manifest:
-            if (peer == null) {
-              _send(SyncMessage.error('Handshake required before manifest'));
-              return;
-            }
             _peerManifest = message.readManifest();
-            await _computeAndEmit(peerDeviceId: peerDeviceId);
+            await _emitChangeSet();
             break;
           case SyncMessageType.fileRequest:
             await _handlePeerFileRequest(message.stringPath);
@@ -199,9 +180,9 @@ class SyncSessionServer implements SyncFileTransfer {
           case SyncMessageType.applyComplete:
             final manifest = message.readManifest();
             await _applyRemoteResult(message);
-            if (_activePeer != null && manifest.isNotEmpty) {
-              await _persistBaseline(_activePeer!, manifest);
-              await _computeAndEmit(peerDeviceId: peerDeviceId);
+            if (manifest.isNotEmpty) {
+              await _persistBaseline(manifest);
+              await _emitChangeSet();
             }
             onRemoteApplied?.call();
             break;
@@ -224,6 +205,21 @@ class SyncSessionServer implements SyncFileTransfer {
     );
   }
 
+  Future<void> _emitChangeSet() async {
+    final state = await storage.readSyncState();
+    final baseline = state?.baseline ?? const <String, String>{};
+    final changeSet = computeSessionChangeSet(
+      baseline: baseline,
+      local: localManifest,
+      peer: _peerManifest,
+      peerHasBaseline: _peerHasBaseline,
+    );
+    if (changeSet.isEmpty && _peerManifest.isNotEmpty && _activePeer != null) {
+      await _persistBaseline(localManifest);
+    }
+    onChangeSet?.call(changeSet);
+  }
+
   Future<void> _handlePeerFileRequest(String? path) async {
     if (path == null || path.isEmpty) return;
     final content = await readSyncableWorkspaceFile(workspaceRoot, path);
@@ -237,12 +233,13 @@ class SyncSessionServer implements SyncFileTransfer {
   void _resolvePeerFile(SyncMessage message) {
     final path = message.stringPath;
     if (path == null || path.isEmpty) return;
-    final result = _PeerFileResult(
-      content: message.isDeleted ? null : message.stringContent,
-      deleted: message.isDeleted,
-    );
-    _peerFileCache[path] = result.content;
-    _pendingPeerFiles.remove(path)?.complete(result);
+    _peerFileCache[path] = message.isDeleted ? null : message.stringContent;
+    _pendingPeerFiles.remove(path)?.complete(
+          _PeerFileResult(
+            content: message.isDeleted ? null : message.stringContent,
+            deleted: message.isDeleted,
+          ),
+        );
   }
 
   @override
@@ -250,9 +247,7 @@ class SyncSessionServer implements SyncFileTransfer {
     String path, {
     Duration timeout = kSyncFileRequestTimeout,
   }) async {
-    if (_peerFileCache.containsKey(path)) {
-      return _peerFileCache[path];
-    }
+    if (_peerFileCache.containsKey(path)) return _peerFileCache[path];
     if (_activeSocket == null) return null;
 
     final completer = Completer<_PeerFileResult>();
@@ -278,76 +273,29 @@ class SyncSessionServer implements SyncFileTransfer {
     _send(SyncMessage.applyComplete(manifest, writes: writes, deletes: deletes));
   }
 
-  Future<void> _computeAndEmit({required String? peerDeviceId}) async {
-    Map<String, String> baseline = const {};
-    if (peerDeviceId != null && peerDeviceId.isNotEmpty) {
-      final record = await peerStore.getPeer(peerDeviceId);
-      if (record != null &&
-          record.syncWorkspaceId == workspaceMeta.syncWorkspaceId) {
-        baseline = record.files;
-      }
-    }
-
-    if (_manifestsEqual(localManifest, _peerManifest)) {
-      final peer = _activePeer;
-      if (peer != null) {
-        await _persistBaseline(peer, localManifest);
-      }
-      onChangeSet?.call(const SyncChangeSet());
-      return;
-    }
-
-    final changeSet = baseline.isEmpty
-        ? computeTransferChangeSet(local: localManifest, peer: _peerManifest)
-        : computeSyncChangeSet(
-            baseline: baseline,
-            local: localManifest,
-            peer: _peerManifest,
-          );
-    onChangeSet?.call(changeSet);
-  }
-
   Future<void> _applyRemoteResult(SyncMessage message) async {
-    final writes = message.readWrites();
-    final deletes = message.readDeletes();
-    for (final entry in writes.entries) {
+    for (final entry in message.readWrites().entries) {
       await writeSyncableWorkspaceFile(workspaceRoot, entry.key, entry.value);
     }
-    for (final path in deletes) {
+    for (final path in message.readDeletes()) {
       await deleteSyncableWorkspaceFile(workspaceRoot, path);
     }
   }
 
-  Future<void> _persistBaseline(
-    SyncPeerInfo peer,
-    Map<String, String> files,
-  ) async {
+  Future<void> _persistBaseline(Map<String, String> files) async {
+    final peer = _activePeer;
+    if (peer == null) return;
     final now = DateTime.now().toUtc().toIso8601String();
-    final existing = await peerStore.getPeer(peer.deviceId);
-    await peerStore.savePeer(
-      PeerSyncRecord(
-        peerDeviceId: peer.deviceId,
-        peerDisplayName: peer.displayName,
-        syncWorkspaceId: workspaceMeta.syncWorkspaceId,
-        firstPairedAt: existing?.firstPairedAt ?? now,
+    await storage.saveSyncState(
+      SyncState(
         lastSyncAt: now,
-        lastMode: existing == null ? 'transfer' : 'sync',
-        files: files,
+        peerDisplayName: peer.displayName,
+        baseline: files,
       ),
     );
   }
 
-  bool _manifestsEqual(Map<String, String> a, Map<String, String> b) {
-    if (a.length != b.length) return false;
-    for (final entry in a.entries) {
-      if (b[entry.key] != entry.value) return false;
-    }
-    return true;
-  }
-
-  void _send(SyncMessage message) {
-    _activeSocket?.add(message.encode());
-  }
+  void _send(SyncMessage message) => _activeSocket?.add(message.encode());
 
   Future<void> _closeSocket({bool notify = true}) async {
     final socket = _activeSocket;
@@ -355,9 +303,7 @@ class SyncSessionServer implements SyncFileTransfer {
     _activePeer = null;
     await _socketSub?.cancel();
     _socketSub = null;
-    if (socket != null) {
-      await socket.close();
-    }
+    if (socket != null) await socket.close();
     for (final pending in _pendingPeerFiles.values) {
       if (!pending.isCompleted) {
         pending.completeError(StateError('Connection closed'));
@@ -388,8 +334,10 @@ class _PeerFileResult {
 }
 
 String _generateToken(Random random) {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return List.generate(8, (_) => chars[random.nextInt(chars.length)]).join();
+  return List.generate(
+    kSyncTokenLength,
+    (_) => kSyncTokenAlphabet[random.nextInt(kSyncTokenAlphabet.length)],
+  ).join();
 }
 
 Future<String?> resolveLanIpv4() async {
@@ -403,8 +351,7 @@ Future<String?> resolveLanIpv4() async {
     for (final interface in interfaces) {
       for (final addr in interface.addresses) {
         final ip = addr.address;
-        if (addr.isLoopback) continue;
-        if (ip.startsWith('169.254.')) continue;
+        if (addr.isLoopback || ip.startsWith('169.254.')) continue;
         if (_isPrivateIpv4(ip)) return ip;
         fallback ??= ip;
       }

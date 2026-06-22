@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -33,11 +32,4 @@ Future<Map<String, String>> buildSyncManifest(String workspaceRoot) async {
   return Map.fromEntries(
     manifest.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
   );
-}
-
-String hashManifestJson(Map<String, String> manifest) {
-  final sorted = Map.fromEntries(
-    manifest.entries.toList()..sort((a, b) => a.key.compareTo(b.key)),
-  );
-  return hashFileContent(utf8.encode(jsonEncode(sorted)));
 }

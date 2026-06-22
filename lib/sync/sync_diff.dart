@@ -1,10 +1,11 @@
 import 'models/sync_models.dart';
 
-/// Compares [baseline] (last agreed peer sync) with [local] and [peer] manifests.
+/// Compares [baseline] (last agreed sync) with [local] and [peer] manifests.
 SyncChangeSet computeSyncChangeSet({
   required Map<String, String> baseline,
   required Map<String, String> local,
   required Map<String, String> peer,
+  bool peerHasBaseline = true,
 }) {
   final incoming = <SyncFileChange>[];
   final outgoing = <SyncFileChange>[];
@@ -20,6 +21,31 @@ SyncChangeSet computeSyncChangeSet({
     final baseHash = baseline[path];
     final localHash = local[path];
     final peerHash = peer[path];
+
+    // Peer never synced: missing paths are not peer edits — only local vs baseline.
+    if (!peerHasBaseline && peerHash == null) {
+      final hostChanged = localHash != baseHash;
+      if (!hostChanged) {
+        if (baseHash != null) {
+          outgoing.add(
+            SyncFileChange(
+              path: path,
+              kind: _kindForHostChange(baseHash, localHash),
+              direction: SyncChangeDirection.outgoing,
+            ),
+          );
+        }
+      } else {
+        outgoing.add(
+          SyncFileChange(
+            path: path,
+            kind: _kindForHostChange(baseHash, localHash),
+            direction: SyncChangeDirection.outgoing,
+          ),
+        );
+      }
+      continue;
+    }
 
     final hostChanged = localHash != baseHash;
     final peerChanged = peerHash != baseHash;
@@ -86,7 +112,7 @@ SyncFileChangeKind _kindForHostChange(String? baseline, String? local) {
   return SyncFileChangeKind.modified;
 }
 
-/// Paths that differ between [local] and [peer] without a baseline (full transfer).
+/// Paths that differ between [local] and [peer] with no baseline history.
 SyncChangeSet computeTransferChangeSet({
   required Map<String, String> local,
   required Map<String, String> peer,
@@ -95,5 +121,6 @@ SyncChangeSet computeTransferChangeSet({
     baseline: const {},
     local: local,
     peer: peer,
+    peerHasBaseline: false,
   );
 }

@@ -1,5 +1,5 @@
 import 'models/sync_models.dart';
-import 'storage/peer_sync_store.dart';
+import 'storage/sync_storage.dart';
 import 'sync_diff.dart';
 import 'sync_manifest_builder.dart';
 import 'sync_workspace_io.dart';
@@ -17,11 +17,9 @@ class SyncApplyResult {
   final Map<String, String> newBaseline;
 }
 
-/// Applies the reviewed result so both devices converge from a single Apply.
 Future<SyncApplyResult> applySyncSession({
   required String workspaceRoot,
-  required PeerSyncStore peerStore,
-  required SyncWorkspaceMeta workspaceMeta,
+  required SyncStorage storage,
   required SyncPeerInfo peer,
   required SyncChangeSet changeSet,
   required Set<String> acceptedPaths,
@@ -49,6 +47,56 @@ Future<SyncApplyResult> applySyncSession({
     appliedIncoming++;
   }
 
+  return _finalizeApply(
+    workspaceRoot: workspaceRoot,
+    storage: storage,
+    peer: peer,
+    transfer: transfer,
+    peerManifest: peerManifest,
+    appliedIncoming: appliedIncoming,
+  );
+}
+
+Future<SyncApplyResult> applyReplaceFromPeer({
+  required String workspaceRoot,
+  required SyncStorage storage,
+  required SyncPeerInfo peer,
+  required SyncFileTransfer transfer,
+  required Map<String, String> peerManifest,
+}) async {
+  var appliedIncoming = 0;
+  for (final path in peerManifest.keys) {
+    final content = await transfer.fetchPeerFile(path);
+    if (content == null) continue;
+    await writeSyncableWorkspaceFile(workspaceRoot, path, content);
+    appliedIncoming++;
+  }
+
+  final localManifest = await buildSyncManifest(workspaceRoot);
+  for (final path in localManifest.keys) {
+    if (!peerManifest.containsKey(path)) {
+      await deleteSyncableWorkspaceFile(workspaceRoot, path);
+    }
+  }
+
+  return _finalizeApply(
+    workspaceRoot: workspaceRoot,
+    storage: storage,
+    peer: peer,
+    transfer: transfer,
+    peerManifest: peerManifest,
+    appliedIncoming: appliedIncoming,
+  );
+}
+
+Future<SyncApplyResult> _finalizeApply({
+  required String workspaceRoot,
+  required SyncStorage storage,
+  required SyncPeerInfo peer,
+  required SyncFileTransfer transfer,
+  required Map<String, String> peerManifest,
+  required int appliedIncoming,
+}) async {
   final newBaseline = await buildSyncManifest(workspaceRoot);
 
   final writes = <String, String>{};
@@ -63,17 +111,13 @@ Future<SyncApplyResult> applySyncSession({
   ];
 
   final now = DateTime.now().toUtc().toIso8601String();
-  final existing = await peerStore.getPeer(peer.deviceId);
-  final record = PeerSyncRecord(
-    peerDeviceId: peer.deviceId,
-    peerDisplayName: peer.displayName,
-    syncWorkspaceId: workspaceMeta.syncWorkspaceId,
-    firstPairedAt: existing?.firstPairedAt ?? now,
-    lastSyncAt: now,
-    lastMode: existing == null ? 'transfer' : 'sync',
-    files: newBaseline,
+  await storage.saveSyncState(
+    SyncState(
+      lastSyncAt: now,
+      peerDisplayName: peer.displayName,
+      baseline: newBaseline,
+    ),
   );
-  await peerStore.savePeer(record);
   await transfer.sendApplyComplete(newBaseline, writes: writes, deletes: deletes);
 
   return SyncApplyResult(
@@ -85,13 +129,13 @@ Future<SyncApplyResult> applySyncSession({
 
 Future<int> countUnsyncedOutgoingChanges(String workspaceRoot) async {
   final local = await buildSyncManifest(workspaceRoot);
-  final peerStore = PeerSyncStore(workspaceRoot);
-  final peer = await peerStore.mostRecentPeer();
-  if (peer == null) return 0;
+  final storage = SyncStorage(workspaceRoot);
+  final state = await storage.readSyncState();
+  if (state == null || !state.hasBaseline) return 0;
   final changeSet = computeSyncChangeSet(
-    baseline: peer.files,
+    baseline: state.baseline,
     local: local,
-    peer: peer.files,
+    peer: state.baseline,
   );
   return changeSet.outgoing.length;
 }

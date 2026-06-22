@@ -1,15 +1,8 @@
 import 'dart:convert';
 
+import '../consts.dart';
+
 /// Wire protocol for the LAN sync session.
-///
-/// Messages are JSON objects exchanged over a single WebSocket. Each message
-/// carries a [SyncMessageType] under the `type` key. The host (desktop) is the
-/// server; the phone is the client (Phase B).
-const kSyncProtocolVersion = 1;
-
-/// Default loopback-safe port range the host tries to bind to.
-const kSyncDefaultPort = 4571;
-
 enum SyncMessageType {
   hello,
   helloAck,
@@ -32,7 +25,6 @@ extension SyncMessageTypeWire on SyncMessageType {
   }
 }
 
-/// A parsed envelope `{ "type": ..., "payload": {...} }`.
 class SyncMessage {
   const SyncMessage(this.type, [this.payload = const {}]);
 
@@ -63,47 +55,44 @@ class SyncMessage {
     );
   }
 
-  /// Client → host: introduces the peer and proves it holds the QR token.
   factory SyncMessage.hello({
     required String token,
-    required String deviceId,
+    required String workspaceId,
     required String displayName,
-    required String syncWorkspaceId,
+    bool hasBaseline = false,
   }) {
     return SyncMessage(SyncMessageType.hello, {
       'protocolVersion': kSyncProtocolVersion,
       'token': token,
-      'deviceId': deviceId,
+      'workspaceId': workspaceId,
       'displayName': displayName,
-      'syncWorkspaceId': syncWorkspaceId,
+      'hasBaseline': hasBaseline,
     });
   }
 
-  /// Host → client: confirms the handshake and shares the host identity.
   factory SyncMessage.helloAck({
-    required String deviceId,
+    required String workspaceId,
+    required String workspaceName,
     required String displayName,
-    required String syncWorkspaceId,
+    bool hasBaseline = false,
   }) {
     return SyncMessage(SyncMessageType.helloAck, {
       'protocolVersion': kSyncProtocolVersion,
-      'deviceId': deviceId,
+      'workspaceId': workspaceId,
+      'workspaceName': workspaceName,
       'displayName': displayName,
-      'syncWorkspaceId': syncWorkspaceId,
+      'hasBaseline': hasBaseline,
     });
   }
 
-  /// Either side: the syncable file manifest `{ relativePath: sha256:... }`.
   factory SyncMessage.manifest(Map<String, String> files) {
     return SyncMessage(SyncMessageType.manifest, {'files': files});
   }
 
-  /// Request file bytes for [path] from the peer.
   factory SyncMessage.fileRequest(String path) {
     return SyncMessage(SyncMessageType.fileRequest, {'path': path});
   }
 
-  /// Response carrying workspace file content or a deletion marker.
   factory SyncMessage.fileContent({
     required String path,
     String? content,
@@ -133,20 +122,15 @@ class SyncMessage {
   }
 
   factory SyncMessage.bye([String? reason]) {
-    return SyncMessage(SyncMessageType.bye, {
-      'reason': ?reason,
-    });
+    return SyncMessage(SyncMessageType.bye, {'reason': ?reason});
   }
 
   Map<String, String> readManifest() => _readStringMap('files');
-
   Map<String, String> readWrites() => _readStringMap('writes');
 
   List<String> readDeletes() {
     final raw = payload['deletes'];
-    if (raw is List) {
-      return raw.map((e) => '$e').toList();
-    }
+    if (raw is List) return raw.map((e) => '$e').toList();
     return const [];
   }
 
@@ -162,44 +146,43 @@ class SyncMessage {
   }
 
   String? get stringToken => payload['token'] as String?;
-  String? get stringDeviceId => payload['deviceId'] as String?;
+  String? get stringWorkspaceId => payload['workspaceId'] as String?;
+  String? get stringWorkspaceName => payload['workspaceName'] as String?;
   String? get stringDisplayName => payload['displayName'] as String?;
-  String? get stringSyncWorkspaceId => payload['syncWorkspaceId'] as String?;
+  bool get hasBaseline => payload['hasBaseline'] == true;
   String? get errorMessage => payload['message'] as String?;
   String? get stringPath => payload['path'] as String?;
   String? get stringContent => payload['content'] as String?;
   bool get isDeleted => payload['deleted'] == true;
 }
 
-/// Payload encoded into the QR code shown on the desktop host. The phone scans
-/// this to learn where to connect and which one-time token to present.
 class SyncQrPayload {
   const SyncQrPayload({
     required this.host,
     required this.port,
     required this.token,
-    required this.syncWorkspaceId,
-    required this.hostDeviceId,
-    required this.hostDisplayName,
+    required this.workspaceId,
+    required this.workspaceName,
+    required this.desktopName,
   });
 
   final String host;
   final int port;
   final String token;
-  final String syncWorkspaceId;
-  final String hostDeviceId;
-  final String hostDisplayName;
+  final String workspaceId;
+  final String workspaceName;
+  final String desktopName;
 
-  String get websocketUrl => 'ws://$host:$port/sync';
+  String get websocketUrl => 'ws://$host:$port$kSyncWebSocketPath';
 
   String encode() => jsonEncode({
         'v': kSyncProtocolVersion,
         'host': host,
         'port': port,
         'token': token,
-        'syncWorkspaceId': syncWorkspaceId,
-        'hostDeviceId': hostDeviceId,
-        'hostDisplayName': hostDisplayName,
+        'workspaceId': workspaceId,
+        'workspaceName': workspaceName,
+        'desktopName': desktopName,
       });
 
   static SyncQrPayload? tryDecode(String raw) {
@@ -218,9 +201,9 @@ class SyncQrPayload {
       host: host,
       port: port,
       token: token,
-      syncWorkspaceId: decoded['syncWorkspaceId'] as String? ?? '',
-      hostDeviceId: decoded['hostDeviceId'] as String? ?? '',
-      hostDisplayName: decoded['hostDisplayName'] as String? ?? '',
+      workspaceId: decoded['workspaceId'] as String? ?? '',
+      workspaceName: decoded['workspaceName'] as String? ?? '',
+      desktopName: decoded['desktopName'] as String? ?? '',
     );
   }
 }

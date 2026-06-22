@@ -19,11 +19,13 @@ class SyncDiffPanel extends ConsumerStatefulWidget {
     required this.change,
     required this.workspaceRoot,
     required this.transfer,
+    this.isHost = false,
   });
 
   final SyncFileChange? change;
   final String workspaceRoot;
   final SyncFileTransfer? transfer;
+  final bool isHost;
 
   @override
   ConsumerState<SyncDiffPanel> createState() => _SyncDiffPanelState();
@@ -269,9 +271,9 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
       if (rows.isNotEmpty) {
         return _SyncRawDiffView(
           rows: rows,
-          peerColumnLabel: change.isIncoming
-              ? kLabelSyncDiffIncoming
-              : kLabelSyncDiffPeer,
+          peerColumnLabel: widget.isHost
+              ? kLabelSyncDiffPeerPhone
+              : kLabelSyncDiffPeerComputer,
         );
       }
     }

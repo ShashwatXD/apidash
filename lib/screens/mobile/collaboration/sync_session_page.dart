@@ -7,11 +7,12 @@ import 'package:apidash/providers/providers.dart';
 import 'package:apidash/sync/consts.dart';
 import 'package:apidash/sync/models/sync_models.dart';
 import 'package:apidash/sync/providers/sync_providers.dart';
-import 'package:apidash/sync/storage/peer_sync_store.dart';
-import 'package:apidash/sync/storage/sync_device_store.dart';
+import 'package:apidash/sync/storage/sync_storage.dart';
 import 'package:apidash/sync/sync_apply.dart';
 import 'package:apidash/sync/sync_change_adapter.dart';
+import 'package:apidash/sync/sync_display_name.dart';
 import 'package:apidash/sync/sync_manifest_builder.dart';
+import 'package:apidash/sync/sync_session_compute.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
 import 'package:apidash/sync/transport/sync_session_client.dart';
@@ -20,33 +21,39 @@ import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Post-scan sync session on mobile — review changes and apply.
 class SyncSessionPage extends ConsumerStatefulWidget {
-  const SyncSessionPage({super.key, required this.qrPayload});
+  const SyncSessionPage({
+    super.key,
+    required this.qrPayload,
+    required this.mode,
+  });
 
   final SyncQrPayload qrPayload;
+  final SyncSessionMode mode;
 
   @override
   ConsumerState<SyncSessionPage> createState() => _SyncSessionPageState();
 }
 
 class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
-  static const _emptySession = SyncSessionPreview(
-    peer: SyncPeerInfo(deviceId: '', displayName: '', syncWorkspaceId: ''),
-    changeSet: SyncChangeSet(),
-    isConnected: false,
-    wasPairedBefore: false,
+  static final _emptyPeer = SyncPeerInfo(
+    workspaceId: '',
+    workspaceName: '',
+    displayName: '',
   );
 
-  SyncSessionPreview _session = _emptySession;
+  SyncPeerInfo _peer = _emptyPeer;
+  SyncChangeSet _changeSet = const SyncChangeSet();
   final Set<String> _acceptedPaths = {};
   SyncFileChange? _previewChange;
   Map<String, SyncFileChange> _changesByPath = {};
 
   SyncSessionClient? _client;
-  PeerSyncStore? _peerStore;
+  SyncStorage? _storage;
   String? _workspacePath;
   bool _connecting = true;
+  bool _connected = false;
+  bool _wasPairedBefore = false;
   bool _applying = false;
   String? _error;
 
@@ -74,24 +81,29 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     }
 
     try {
-      final peerStore = PeerSyncStore(workspacePath);
-      final identity = await SyncDeviceStore(workspacePath).getOrCreate();
-      final meta = await peerStore.getOrCreateMeta();
+      final storage = SyncStorage(workspacePath);
+      final localWorkspace = await storage.readWorkspace();
+      final syncState = await storage.readSyncState();
       final manifest = await buildSyncManifest(workspacePath);
 
       final client = SyncSessionClient(
-        identity: identity,
-        workspaceMeta: meta,
+        storage: storage,
         localManifest: manifest,
-        peerStore: peerStore,
         workspaceRoot: workspacePath,
         qrPayload: widget.qrPayload,
-      )
-        ..onHostConnected = _handleHostConnected
-        ..onHostDisconnected = _handleHostDisconnected
-        ..onChangeSet = _handleChangeSet
-        ..onError = _handleError
-        ..onRemoteApplied = _handleRemoteApplied;
+        localDisplayName: syncLocalDisplayName(),
+        localWorkspaceId: localWorkspace?.id ?? '',
+        localHasBaseline: syncState?.hasBaseline ?? false,
+      );
+      client.onPeerConnected = (peer, wasPaired) => setState(() {
+        _peer = peer;
+        _connected = true;
+        _wasPairedBefore = wasPaired;
+      });
+      client.onPeerDisconnected = () => setState(() => _connected = false);
+      client.onChangeSet = _handleChangeSet;
+      client.onError = (msg) => setState(() => _error = msg);
+      client.onRemoteApplied = _handleRemoteApplied;
 
       await client.connect();
       if (!mounted) {
@@ -100,7 +112,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       }
       setState(() {
         _client = client;
-        _peerStore = peerStore;
+        _storage = storage;
         _workspacePath = workspacePath;
         _connecting = false;
       });
@@ -108,69 +120,16 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       if (!mounted) return;
       setState(() {
         _connecting = false;
-        _error = '$kErrSyncConnectFailed ($e)';
+        _error = kErrSyncConnectFailed;
       });
     }
   }
 
-  void _handleHostConnected(SyncPeerInfo host, bool wasPairedBefore) {
-    if (!mounted) return;
-    setState(() {
-      _session = SyncSessionPreview(
-        peer: host,
-        changeSet: _session.changeSet,
-        isConnected: true,
-        wasPairedBefore: wasPairedBefore,
-      );
-    });
-  }
-
-  void _handleHostDisconnected() {
-    if (!mounted) return;
-    setState(() {
-      _session = SyncSessionPreview(
-        peer: _session.peer,
-        changeSet: _session.changeSet,
-        isConnected: false,
-        wasPairedBefore: _session.wasPairedBefore,
-      );
-    });
-  }
-
   void _handleChangeSet(SyncChangeSet changeSet) {
-    if (!mounted) return;
     setState(() {
-      _session = SyncSessionPreview(
-        peer: _session.peer,
-        changeSet: changeSet,
-        isConnected: _session.isConnected,
-        wasPairedBefore: _session.wasPairedBefore,
-      );
+      _changeSet = changeSet;
       _resetChangeSelection(changeSet);
     });
-  }
-
-  void _handleError(String message) {
-    if (!mounted) return;
-    setState(() => _error = message);
-  }
-
-  Future<void> _handleRemoteApplied() async {
-    if (!mounted) return;
-    await reloadWorkspaceFromDisk(ref);
-    await invalidateSyncUnsyncedCount(ref);
-    if (!mounted) return;
-    setState(() {
-      _session = SyncSessionPreview(
-        peer: _session.peer,
-        changeSet: const SyncChangeSet(),
-        isConnected: _session.isConnected,
-        wasPairedBefore: true,
-      );
-      _resetChangeSelection(const SyncChangeSet());
-    });
-    ScaffoldMessenger.of(context)
-        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
   }
 
   void _resetChangeSelection(SyncChangeSet changeSet) {
@@ -181,90 +140,94 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     ]);
     _acceptedPaths
       ..clear()
-      ..addAll([
-        ...changeSet.incoming.map((c) => c.path),
-        ...changeSet.conflicts.map((c) => c.path),
-      ]);
+      ..addAll(defaultAcceptedPaths(changeSet));
     _previewChange = null;
   }
 
-  void _showDiffModal(GitChange change) {
-    final preview = _changesByPath[change.path];
-    if (preview == null) return;
-
-    final workspacePath = _workspacePath;
-    if (workspacePath == null) return;
-
-    setState(() => _previewChange = preview);
-
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final sheetHeight = MediaQuery.sizeOf(sheetContext).height * 0.88;
-        return SizedBox(
-          height: sheetHeight,
-          child: SyncDiffPanel(
-            change: preview,
-            workspaceRoot: workspacePath,
-            transfer: _client,
-          ),
-        );
-      },
-    ).whenComplete(() {
-      if (mounted) setState(() => _previewChange = null);
+  Future<void> _handleRemoteApplied() async {
+    await reloadWorkspaceFromDisk(ref);
+    await invalidateSyncUnsyncedCount(ref);
+    if (!mounted) return;
+    setState(() {
+      _changeSet = const SyncChangeSet();
+      _resetChangeSelection(const SyncChangeSet());
     });
+    ScaffoldMessenger.of(context)
+        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
   }
 
   Future<void> _apply() async {
     final client = _client;
-    final peerStore = _peerStore;
+    final storage = _storage;
     final workspacePath = _workspacePath;
     if (client == null ||
-        peerStore == null ||
+        storage == null ||
         workspacePath == null ||
-        !_session.isConnected ||
+        !_connected ||
         _applying) {
-      return;
-    }
-
-    final outgoing = _session.changeSet.outgoing;
-    if (_acceptedPaths.isEmpty && outgoing.isEmpty) {
-      Navigator.of(context).pop();
       return;
     }
 
     setState(() => _applying = true);
     final messenger = ScaffoldMessenger.of(context);
+    SyncApplyResult? result;
 
     try {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
-      final localMeta = await peerStore.getOrCreateMeta();
-      final result = await applySyncSession(
-        workspaceRoot: workspacePath,
-        peerStore: peerStore,
-        workspaceMeta: SyncWorkspaceMeta(
-          syncWorkspaceId: _session.peer.syncWorkspaceId,
-          displayName: localMeta.displayName,
-        ),
-        peer: _session.peer,
-        changeSet: _session.changeSet,
-        acceptedPaths: _acceptedPaths,
-        transfer: client,
-        peerManifest: client.peerManifest,
-      );
+
+      if (widget.mode == SyncSessionMode.firstLinkEmpty ||
+          widget.mode == SyncSessionMode.workspaceReplace) {
+        await applyReplaceFromPeer(
+          workspaceRoot: workspacePath,
+          storage: storage,
+          peer: _peer,
+          transfer: client,
+          peerManifest: client.peerManifest,
+        );
+        await storage.writeWorkspace(
+          WorkspaceIdentity(
+            id: widget.qrPayload.workspaceId,
+            name: widget.qrPayload.workspaceName,
+          ),
+        );
+      } else {
+        if (!sessionHasWork(_changeSet, _acceptedPaths)) {
+          if (mounted) Navigator.of(context).pop();
+          return;
+        }
+        result = await applySyncSession(
+          workspaceRoot: workspacePath,
+          storage: storage,
+          peer: _peer,
+          changeSet: _changeSet,
+          acceptedPaths: _acceptedPaths,
+          transfer: client,
+          peerManifest: client.peerManifest,
+        );
+        if (widget.mode == SyncSessionMode.firstLinkMerge) {
+          await storage.writeWorkspace(
+            WorkspaceIdentity(
+              id: widget.qrPayload.workspaceId,
+              name: widget.qrPayload.workspaceName,
+            ),
+          );
+        }
+      }
+
       await reloadWorkspaceFromDisk(ref);
       await invalidateSyncUnsyncedCount(ref);
       if (!mounted) return;
       Navigator.of(context).pop();
-      messenger.showSnackBar(
-        getSnackBar(
-          '$kMsgSyncApplySuccess '
-          '(${result.appliedIncoming} from desktop, ${result.sentOutgoing} to desktop)',
-        ),
-      );
+      if (result == null) {
+        messenger.showSnackBar(getSnackBar(kMsgSyncApplySuccess));
+      } else {
+        messenger.showSnackBar(
+          getSnackBar(
+            '$kMsgSyncApplySuccess '
+            '(${result.appliedIncoming} from desktop, ${result.sentOutgoing} to desktop)',
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _applying = false);
@@ -272,49 +235,57 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     }
   }
 
-  Future<void> _leaveSession() async {
-    if (_applying) return;
-    await _client?.disconnect();
-    if (!mounted) return;
-    Navigator.of(context).pop();
+  void _showDiff(GitChange change) {
+    final preview = _changesByPath[change.path];
+    if (preview == null || _workspacePath == null) return;
+    setState(() => _previewChange = preview);
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.sizeOf(ctx).height * 0.88,
+        child: SyncDiffPanel(
+          change: preview,
+          workspaceRoot: _workspacePath!,
+          transfer: _client,
+          isHost: false,
+        ),
+      ),
+    ).whenComplete(() {
+      if (mounted) setState(() => _previewChange = null);
+    });
+  }
+
+  String _applyButtonLabel(bool isReplaceMode, bool canApply) {
+    if (_applying) return kLabelSyncApplying;
+    if (isReplaceMode) {
+      return applyButtonLabel(mode: widget.mode, hasWork: canApply);
+    }
+    if (!canApply || _acceptedPaths.isEmpty) return kLabelSyncApplyChanges;
+    return '$kLabelSyncApplyChanges (${_acceptedPaths.length})';
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final incoming = _session.changeSet.incoming;
-    final outgoing = _session.changeSet.outgoing;
-    final conflicts = _session.changeSet.conflicts;
-    final hasWork = _acceptedPaths.isNotEmpty || outgoing.isNotEmpty;
-    final canApply = _session.isConnected && hasWork && !_applying;
+    final isReplaceMode = widget.mode == SyncSessionMode.firstLinkEmpty ||
+        widget.mode == SyncSessionMode.workspaceReplace;
+    final hasWork =
+        isReplaceMode ? _changeSet.incoming.isNotEmpty || _connected : sessionHasWork(_changeSet, _acceptedPaths);
+    final canApply = _connected && hasWork && !_applying && _error == null;
 
     return Scaffold(
-      backgroundColor: scheme.surfaceContainerLowest,
       appBar: AppBar(
-        leading: BackButton(
-          onPressed: _applying ? null : _leaveSession,
-        ),
         title: Text(
-          _session.isConnected
-              ? '$kLabelSyncConnectedTo ${_session.peer.displayName}'
+          _connected
+              ? '${kLabelSyncConnectedTo} ${_peer.displayName}'
               : kLabelSyncConnecting,
         ),
-        actions: [
-          if (_applying)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            ),
-        ],
       ),
-      body: _buildBody(scheme, textTheme, incoming, conflicts),
+      body: _buildBody(scheme, textTheme, isReplaceMode),
       bottomNavigationBar: _connecting || _error != null
           ? null
           : SafeArea(
@@ -324,21 +295,13 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                      onPressed: _applying ? null : _leaveSession,
+                      onPressed: _applying ? null : () => Navigator.pop(context),
                       child: const Text(kLabelSyncDiscardSession),
                     ),
                     kHSpacer8,
                     FilledButton(
                       onPressed: canApply ? _apply : null,
-                      child: Text(
-                        _applying
-                            ? kLabelSyncApplying
-                            : !canApply
-                                ? kLabelSyncApplyChanges
-                                : _acceptedPaths.isEmpty
-                                    ? kLabelSyncApplyChanges
-                                    : '$kLabelSyncApplyChanges (${_acceptedPaths.length})',
-                      ),
+                      child: Text(_applyButtonLabel(isReplaceMode, hasWork)),
                     ),
                   ],
                 ),
@@ -350,37 +313,19 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   Widget _buildBody(
     ColorScheme scheme,
     TextTheme textTheme,
-    List<SyncFileChange> incoming,
-    List<SyncFileChange> conflicts,
+    bool isReplaceMode,
   ) {
     if (_connecting) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: kP20,
-          child: Text(
-            _error!,
-            textAlign: TextAlign.center,
-            style: textTheme.bodyMedium?.copyWith(color: scheme.error),
-          ),
-        ),
+        child: Text(_error!, style: TextStyle(color: scheme.error)),
       );
     }
-
-    if (!_session.isConnected) {
-      return Center(
-        child: Text(
-          kLabelSyncConnecting,
-          style: textTheme.bodyMedium?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
-        ),
-      );
+    if (!_connected) {
+      return Center(child: Text(kLabelSyncConnecting));
     }
-
-    final reviewable = [...incoming, ...conflicts];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -388,54 +333,104 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Text(
-            _session.wasPairedBefore
-                ? kLabelSyncPairedBefore
-                : kLabelSyncFirstPair,
+            _hintForMode(),
             style: textTheme.labelSmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
           ),
         ),
-        if (reviewable.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Text(
-              kLabelSyncFromDesktop,
-              style: textTheme.labelMedium?.copyWith(
-                color: scheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        if (reviewable.isNotEmpty)
-          Expanded(
-            child: GitChangesTree(
-              roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
-              selectedPaths: _acceptedPaths,
-              previewPath: _previewChange?.path,
-              busy: false,
-              onSelectionChanged: (paths) {
-                setState(() {
-                  _acceptedPaths
-                    ..clear()
-                    ..addAll(paths);
-                });
-              },
-              onFilePreview: _showDiffModal,
-            ),
-          ),
-        if (reviewable.isEmpty)
-          Expanded(
-            child: Center(
-              child: Text(
-                kLabelSyncNoChanges,
-                style: textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
+        Expanded(
+          child: isReplaceMode
+              ? _buildReplaceSummary(textTheme, scheme)
+              : _buildReviewList(textTheme, scheme),
+        ),
       ],
+    );
+  }
+
+  Widget _buildReviewList(TextTheme textTheme, ColorScheme scheme) {
+    final incoming = _changeSet.incoming;
+    final conflicts = _changeSet.conflicts;
+    final reviewable = [...incoming, ...conflicts];
+
+    if (reviewable.isEmpty) {
+      return Center(
+        child: Text(
+          kLabelSyncNoChanges,
+          style: textTheme.bodySmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Text(
+            kLabelSyncFromDesktop,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.primary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: GitChangesTree(
+            roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
+            selectedPaths: _acceptedPaths,
+            previewPath: _previewChange?.path,
+            busy: false,
+            onSelectionChanged: (paths) {
+              setState(() {
+                _acceptedPaths
+                  ..clear()
+                  ..addAll(paths);
+              });
+            },
+            onFilePreview: _showDiff,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _hintForMode() {
+    return switch (widget.mode) {
+      SyncSessionMode.workspaceReplace => kLabelSyncNewWorkspaceBody,
+      SyncSessionMode.firstLinkEmpty => kLabelSyncFirstPair,
+      SyncSessionMode.firstLinkMerge => kLabelSyncFirstLinkMergePrompt,
+      SyncSessionMode.incremental =>
+        _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair,
+    };
+  }
+
+  Widget _buildReplaceSummary(TextTheme textTheme, ColorScheme scheme) {
+    final count = _changeSet.incoming.length + _changeSet.conflicts.length;
+    return Center(
+      child: Padding(
+        padding: kP20,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.qrPayload.workspaceName,
+              style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+            kVSpacer8,
+            Text(
+              '$count files from ${widget.qrPayload.desktopName}',
+              style: textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -46,21 +46,30 @@ class MobileCollaborationPage extends ConsumerWidget {
               future: _loadStatus(workspacePath),
               builder: (context, snapshot) {
                 final status = snapshot.data;
+                final isPaired = status?.isPaired ?? false;
+
                 return ListView(
-                  padding: kP20,
+                  padding: kPh20,
                   children: [
-                    _HeroHeader(scheme: scheme, textTheme: textTheme),
                     kVSpacer20,
-                    const _StepsCard(),
+                    const _SyncHeroIcon(),
                     kVSpacer16,
-                    if (status?.workspaceName != null) ...[
+                    if (!isPaired) ...[
+                      Text(
+                        'Sync with your computer',
+                        textAlign: TextAlign.center,
+                        style: textTheme.headlineSmall,
+                      ),
+                      kVSpacer20,
+                      const _CompactHowItWorks(),
+                    ] else if (status?.workspaceName != null) ...[
                       _StatusCard(
                         workspaceName: status!.workspaceName!,
                         desktopName: status.desktopName,
                         lastSyncAt: status.lastSyncAt,
                       ),
-                      kVSpacer10,
                     ],
+                    kVSpacer20,
                     unsynced.when(
                       data: (count) => count > 0
                           ? Padding(
@@ -78,14 +87,14 @@ class MobileCollaborationPage extends ConsumerWidget {
                       child: FilledButton.icon(
                         onPressed: onScan,
                         style: FilledButton.styleFrom(
+                          backgroundColor: scheme.primary,
+                          foregroundColor: scheme.onPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
-                        icon: const Icon(Icons.qr_code_scanner_rounded),
+                        icon: const Icon(Icons.qr_code_scanner_rounded, size: 20),
                         label: const Text(kLabelSyncScanDesktop),
                       ),
                     ),
-                    kVSpacer10,
-                    SyncInfoBanner(message: kLabelSyncSameWifi),
                   ],
                 );
               },
@@ -101,117 +110,105 @@ class MobileCollaborationPage extends ConsumerWidget {
       workspaceName: workspace?.name,
       desktopName: sync?.peerDisplayName,
       lastSyncAt: sync?.lastSyncAt,
+      isPaired: sync?.hasBaseline ?? false,
     );
   }
 }
 
-class _HeroHeader extends StatelessWidget {
-  const _HeroHeader({
-    required this.scheme,
-    required this.textTheme,
-  });
-
-  final ColorScheme scheme;
-  final TextTheme textTheme;
+class _SyncHeroIcon extends StatelessWidget {
+  const _SyncHeroIcon();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        DecoratedBox(
-          decoration: BoxDecoration(
-            color: scheme.primaryContainer.withValues(alpha: 0.45),
-            shape: BoxShape.circle,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Icon(
-              Icons.sync_rounded,
-              size: 32,
-              color: scheme.onPrimaryContainer,
-            ),
+    final scheme = Theme.of(context).colorScheme;
+
+    return Center(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.primaryContainer.withValues(alpha: 0.35),
+          shape: BoxShape.circle,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Icon(
+            Icons.cloud_sync,
+            size: 48,
+            color: scheme.primary,
           ),
         ),
-        kVSpacer10,
-        Text(
-          'Sync with your computer',
-          style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          textAlign: TextAlign.center,
-        ),
-        kVSpacer6,
-        Text(
-          kLabelMobileCollaborationHint,
-          style: textTheme.bodySmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-            height: 1.4,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _StepsCard extends StatelessWidget {
-  const _StepsCard();
+class _CompactHowItWorks extends StatelessWidget {
+  const _CompactHowItWorks();
+
+  static const _steps = [
+    'Open Collaboration on your computer',
+    'Connect on the same Wi‑Fi and scan the QR',
+    'Review changes and apply on your phone',
+  ];
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Container(
-      padding: kP12,
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.25),
+    return Card(
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: kBorderRadius12,
+        side: BorderSide(
+          color: scheme.outlineVariant.withValues(alpha: 0.22),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'How it works',
-            style: textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w600,
+      child: Padding(
+        padding: kP12,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: scheme.primary,
+                ),
+                kHSpacer8,
+                Text(
+                  'How it works',
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
-          ),
-          kVSpacer10,
-          const _StepRow(
-            number: '1',
-            label: 'Open Sync on your computer',
-            icon: Icons.computer_rounded,
-          ),
-          kVSpacer10,
-          const _StepRow(
-            number: '2',
-            label: 'Scan the QR code',
-            icon: Icons.qr_code_scanner_rounded,
-          ),
-          kVSpacer10,
-          const _StepRow(
-            number: '3',
-            label: 'Review changes and apply',
-            icon: Icons.check_circle_outline_rounded,
-          ),
-        ],
+            kVSpacer10,
+            for (var i = 0; i < _steps.length; i++) ...[
+              if (i > 0) kVSpacer10,
+              _HowItWorksStep(
+                index: i + 1,
+                label: _steps[i],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _StepRow extends StatelessWidget {
-  const _StepRow({
-    required this.number,
+class _HowItWorksStep extends StatelessWidget {
+  const _HowItWorksStep({
+    required this.index,
     required this.label,
-    required this.icon,
   });
 
-  final String number;
+  final int index;
   final String label;
-  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -219,31 +216,29 @@ class _StepRow extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          width: 28,
-          height: 28,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: scheme.primaryContainer.withValues(alpha: 0.5),
-            borderRadius: BorderRadius.circular(8),
-          ),
+        CircleAvatar(
+          radius: 13,
+          backgroundColor: scheme.primaryContainer.withValues(alpha: 0.55),
           child: Text(
-            number,
-            style: textTheme.labelMedium?.copyWith(
+            '$index',
+            style: textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w700,
-              color: scheme.onPrimaryContainer,
+              color: scheme.primary,
             ),
           ),
         ),
         kHSpacer10,
-        Icon(icon, size: 18, color: scheme.onSurfaceVariant),
-        kHSpacer8,
         Expanded(
-          child: Text(
-            label,
-            style: textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              label,
+              style: textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface,
+                height: 1.35,
+              ),
             ),
           ),
         ),
@@ -257,11 +252,13 @@ class _CollabStatus {
     this.workspaceName,
     this.desktopName,
     this.lastSyncAt,
+    this.isPaired = false,
   });
 
   final String? workspaceName;
   final String? desktopName;
   final String? lastSyncAt;
+  final bool isPaired;
 }
 
 class _StatusCard extends StatelessWidget {
@@ -289,12 +286,12 @@ class _StatusCard extends StatelessWidget {
     }
 
     return Container(
-      padding: kP12,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: scheme.surface,
-        borderRadius: BorderRadius.circular(14),
+        color: scheme.surfaceContainerLow.withValues(alpha: 0.5),
+        borderRadius: kBorderRadius12,
         border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.25),
+          color: scheme.outlineVariant.withValues(alpha: 0.22),
         ),
       ),
       child: Row(
@@ -302,25 +299,25 @@ class _StatusCard extends StatelessWidget {
           DecoratedBox(
             decoration: BoxDecoration(
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(8),
             ),
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(7),
               child: Icon(
                 Icons.folder_outlined,
-                size: 20,
+                size: 16,
                 color: scheme.onSurfaceVariant,
               ),
             ),
           ),
-          kHSpacer12,
+          kHSpacer10,
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   workspaceName,
-                  style: textTheme.titleSmall?.copyWith(
+                  style: textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -328,8 +325,9 @@ class _StatusCard extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     'Paired with $desktopName',
-                    style: textTheme.bodySmall?.copyWith(
+                    style: textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
+                      height: 1.3,
                     ),
                   ),
                 ],
@@ -339,6 +337,7 @@ class _StatusCard extends StatelessWidget {
                     lastSyncLabel,
                     style: textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
+                      height: 1.3,
                     ),
                   ),
                 ],

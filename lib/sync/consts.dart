@@ -22,8 +22,6 @@ const kLabelSyncSwitchAndSync = 'Switch & sync';
 const kLabelSyncPairedBefore = 'Paired before - changes sync both ways.';
 const kLabelSyncFirstPair = 'First time pairing';
 const kLabelSyncApplying = 'Applying changes…';
-const kLabelMobileCollaborationHint =
-    'Sync your workspace with API Dash on your computer. Open Collaboration on desktop, then scan the QR code.';
 const kLabelSyncScanDesktop = 'Scan desktop QR';
 const kLabelSyncConnecting = 'Connecting…';
 const kLabelSyncScanHint = 'Point your camera at the QR on your computer';

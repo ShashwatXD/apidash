@@ -8,11 +8,19 @@ class SyncConnectionStatusCard extends StatelessWidget {
     required this.connected,
     required this.peerDisplayName,
     required this.wasPairedBefore,
+    this.peerIcon = Icons.phone_iphone_rounded,
+    this.waitingIcon = Icons.hourglass_empty_rounded,
+    this.waitingLabel = kLabelSyncWaitingForPhone,
+    this.connectedFallbackLabel = 'Phone',
   });
 
   final bool connected;
   final String peerDisplayName;
   final bool wasPairedBefore;
+  final IconData peerIcon;
+  final IconData waitingIcon;
+  final String waitingLabel;
+  final String connectedFallbackLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +46,7 @@ class SyncConnectionStatusCard extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(7),
               child: Icon(
-                connected
-                    ? Icons.phone_iphone_rounded
-                    : Icons.hourglass_empty_rounded,
+                connected ? peerIcon : waitingIcon,
                 size: 16,
                 color: scheme.onSurfaceVariant,
               ),
@@ -53,8 +59,10 @@ class SyncConnectionStatusCard extends StatelessWidget {
               children: [
                 Text(
                   connected
-                      ? (peerDisplayName.isNotEmpty ? peerDisplayName : 'Phone')
-                      : kLabelSyncWaitingForPhone,
+                      ? (peerDisplayName.isNotEmpty
+                          ? peerDisplayName
+                          : connectedFallbackLabel)
+                      : waitingLabel,
                   style: textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

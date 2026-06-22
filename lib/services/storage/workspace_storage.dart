@@ -581,28 +581,43 @@ class WorkspaceStorage {
 
   Future<void> clear() async {
     final collectionIds = getCollectionsIndex().map((e) => e.id).toList();
-    if (collectionIds.isEmpty) {
-      collectionIds.add(kDefaultCollectionId);
-    }
     for (final collectionId in collectionIds) {
-      final existing = getCollection(collectionId);
-      await setCollection(collectionId, {
-        kWorkspaceCollectionIdKey: collectionId,
-        kWorkspaceCollectionNameKey:
-            existing?[kWorkspaceCollectionNameKey] as String? ??
-                (collectionId == kDefaultCollectionId
-                    ? kDefaultCollectionName
-                    : collectionId),
-        kWorkspaceRequestsKey: <Object?>[],
-      });
-      final requestsDir = Directory(
-        _path(p.join(_collectionDir(collectionId), kWorkspaceRequestsSubdir)),
-      );
-      if (await requestsDir.exists()) {
-        await for (final entity in requestsDir.list()) {
-          if (entity is Directory) {
-            await entity.delete(recursive: true);
-          }
+      if (collectionId != kDefaultCollectionId) {
+        await deleteCollection(collectionId);
+      }
+    }
+
+    final collectionsRoot = Directory(_path(kWorkspaceCollectionsDir));
+    if (await collectionsRoot.exists()) {
+      await for (final entity in collectionsRoot.list()) {
+        if (entity is Directory &&
+            p.basename(entity.path) != kDefaultCollectionId) {
+          await entity.delete(recursive: true);
+        }
+      }
+    }
+
+    await setCollectionsIndex([
+      (id: kDefaultCollectionId, name: kDefaultCollectionName),
+    ]);
+    await setCollection(kDefaultCollectionId, {
+      kWorkspaceCollectionIdKey: kDefaultCollectionId,
+      kWorkspaceCollectionNameKey: kDefaultCollectionName,
+      kWorkspaceRequestsKey: <Object?>[],
+    });
+
+    final defaultRequestsDir = Directory(
+      _path(
+        p.join(
+          _collectionDir(kDefaultCollectionId),
+          kWorkspaceRequestsSubdir,
+        ),
+      ),
+    );
+    if (await defaultRequestsDir.exists()) {
+      await for (final entity in defaultRequestsDir.list()) {
+        if (entity is Directory) {
+          await entity.delete(recursive: true);
         }
       }
     }

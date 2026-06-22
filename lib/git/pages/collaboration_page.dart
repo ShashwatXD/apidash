@@ -170,7 +170,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                 icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                 label: unsyncedAsync.maybeWhen(
                   data: (count) => count > 0
-                      ? Text('$kLabelSyncToPhone ($count)')
+                      ? Text('$kLabelSyncToPhone')
                       : const Text(kLabelSyncToPhone),
                   orElse: () => const Text(kLabelSyncToPhone),
                 ),

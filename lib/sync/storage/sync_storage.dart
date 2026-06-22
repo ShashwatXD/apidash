@@ -104,6 +104,13 @@ class SyncStorage {
     if (await file.exists()) await file.delete();
   }
 
+  Future<void> deleteApidashDir() async {
+    final dir = Directory(p.join(workspaceRoot, kSyncApidashDir));
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
+  }
+
   Future<bool> hasSyncedBefore() async {
     final state = await readSyncState();
     return state != null && state.hasBaseline;

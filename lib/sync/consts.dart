@@ -19,7 +19,7 @@ const kLabelSyncIncomingFromPhone = 'From phone';
 const kLabelSyncFromDesktop = 'From computer';
 const kLabelSyncConflicts = 'Conflicts';
 const kLabelSyncSwitchAndSync = 'Switch & sync';
-const kLabelSyncPairedBefore = 'Paired before — changes sync both ways.';
+const kLabelSyncPairedBefore = 'Paired before - changes sync both ways.';
 const kLabelSyncFirstPair = 'First time pairing - review before applying.';
 const kLabelSyncApplying = 'Applying changes…';
 const kLabelMobileCollaborationHint =
@@ -28,12 +28,11 @@ const kLabelSyncScanDesktop = 'Scan desktop QR';
 const kLabelSyncConnecting = 'Connecting…';
 const kLabelSyncScanHint = 'Point your camera at the QR on your computer';
 const kLabelSyncSameWifi = 'Phone and computer must be on the same Wi-Fi';
-const kLabelSyncSecretsNote = 'Secret values stay on each device';
 const kLabelSyncLastSynced = 'Last synced';
 const kLabelSyncUnsynced = 'changes waiting to sync';
 const kLabelSyncAdoptWorkspaceTitle = 'Use this workspace?';
 const kLabelSyncAdoptWorkspaceBody =
-    'This looks like a new workspace from your computer. Use it for syncing to get a fresh copy on your phone — anything here now will be replaced.';
+    'This looks like a new workspace from your computer. Use it for syncing to get a fresh copy on your phone,anything here now will be replaced.';
 const kLabelSyncAdoptWorkspaceConfirm = 'Use for syncing';
 const kLabelSyncAdoptWorkspaceCancel = 'Not now';
 const kLabelSyncClose = 'Close';

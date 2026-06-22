@@ -68,7 +68,7 @@ class MobileCollaborationPage extends ConsumerWidget {
                             )
                           : const SizedBox.shrink(),
                       loading: () => const SizedBox.shrink(),
-                      error: (_, __) => const SizedBox.shrink(),
+                      error: (_, _) => const SizedBox.shrink(),
                     ),
                     FilledButton.icon(
                       onPressed: onScan,
@@ -77,7 +77,7 @@ class MobileCollaborationPage extends ConsumerWidget {
                     ),
                     kVSpacer16,
                     Text(
-                      '${kLabelSyncSameWifi} · ${kLabelSyncSecretsNote}',
+                      '${kLabelSyncSameWifi}',
                       style: textTheme.labelSmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

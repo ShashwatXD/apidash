@@ -4,6 +4,7 @@ import 'package:apidash/sync/storage/sync_storage.dart';
 import 'package:apidash/sync/sync_scan.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
+import 'package:apidash/sync/widgets/sync_scan_overlay.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,12 +20,15 @@ class SyncScanPage extends ConsumerStatefulWidget {
 }
 
 class _SyncScanPageState extends ConsumerState<SyncScanPage> {
+  static const _invalidQrCooldown = Duration(seconds: 3);
+
   final _controller = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
     facing: CameraFacing.back,
   );
   bool _handled = false;
-  bool _torchOn = false;
+  String? _lastInvalidRaw;
+  DateTime? _lastInvalidAt;
 
   @override
   void dispose() {
@@ -39,10 +43,23 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
 
     final payload = SyncQrPayload.tryDecode(raw);
     if (payload == null) {
+      final now = DateTime.now();
+      if (_lastInvalidRaw == raw &&
+          _lastInvalidAt != null &&
+          now.difference(_lastInvalidAt!) < _invalidQrCooldown) {
+        return;
+      }
+      _lastInvalidRaw = raw;
+      _lastInvalidAt = now;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(getSnackBar(kErrSyncInvalidQr));
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(getSnackBar(kErrSyncInvalidQr));
       return;
     }
+
+    _lastInvalidRaw = null;
+    _lastInvalidAt = null;
 
     _handled = true;
     final workspacePath = resolveSyncWorkspaceRoot(ref);
@@ -68,29 +85,13 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
       return;
     }
 
-    final adopt = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(kLabelSyncAdoptWorkspaceTitle),
-        content: Text(
-          '${payload.workspaceName} on ${payload.desktopName}.\n\n'
-          '$kLabelSyncAdoptWorkspaceBody',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(kLabelSyncAdoptWorkspaceCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(kLabelSyncAdoptWorkspaceConfirm),
-          ),
-        ],
-      ),
-    );
+    final adopt = await _showAdoptWorkspaceSheet(payload);
 
     if (adopt != true) {
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        setState(() => _handled = false);
+        Navigator.pop(context);
+      }
       return;
     }
 
@@ -106,6 +107,84 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     await _openSession(payload, SyncSessionMode.workspaceReplace);
   }
 
+  Future<bool?> _showAdoptWorkspaceSheet(SyncQrPayload payload) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    return showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: scheme.surface,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Icon(
+                    Icons.folder_copy_outlined,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+              ),
+              kVSpacer10,
+              Text(
+                kLabelSyncAdoptWorkspaceTitle,
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              kVSpacer10,
+              Text(
+                '${payload.workspaceName} on ${payload.desktopName}.',
+                style: textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              kVSpacer8,
+              Text(
+                kLabelSyncAdoptWorkspaceBody,
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              kVSpacer16,
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text(kLabelSyncAdoptWorkspaceCancel),
+                    ),
+                  ),
+                  kHSpacer8,
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text(kLabelSyncAdoptWorkspaceConfirm),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSession(SyncQrPayload payload, SyncSessionMode mode) async {
     await Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
@@ -114,55 +193,47 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     );
   }
 
-  Future<void> _toggleTorch() async {
-    await _controller.toggleTorch();
-    setState(() => _torchOn = !_torchOn);
-  }
-
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
     return Scaffold(
       backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
+        elevation: 0,
         title: const Text(kLabelSyncScanDesktop),
-        actions: [
-          IconButton(
-            onPressed: _toggleTorch,
-            icon: Icon(_torchOn ? Icons.flash_on : Icons.flash_off),
-          ),
-        ],
       ),
       body: Stack(
         fit: StackFit.expand,
         children: [
           MobileScanner(controller: _controller, onDetect: _onDetect),
+          const IgnorePointer(child: SyncScanOverlay()),
           SafeArea(
             child: Column(
               children: [
                 Padding(
                   padding: kP20,
-                  child: Text(
-                    kLabelSyncScanHint,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white,
-                        ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Text(
+                      kLabelSyncScanHint,
+                      textAlign: TextAlign.center,
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
-                const Spacer(),
-                Padding(
-                  padding: kP20,
-                  child: Text(
-                    kLabelSyncSameWifi,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: scheme.outline,
-                        ),
-                  ),
-                ),
+                
               ],
             ),
           ),

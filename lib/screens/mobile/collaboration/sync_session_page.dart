@@ -16,7 +16,10 @@ import 'package:apidash/sync/sync_session_compute.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
 import 'package:apidash/sync/transport/sync_session_client.dart';
+import 'package:apidash/sync/widgets/sync_connection_status_card.dart';
 import 'package:apidash/sync/widgets/sync_diff_panel.dart';
+import 'package:apidash/sync/widgets/sync_info_banner.dart';
+import 'package:apidash/sync/widgets/sync_replace_summary_panel.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -264,35 +267,49 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final isReplaceMode = widget.mode == SyncSessionMode.workspaceReplace;
-    final hasWork =
-        isReplaceMode ? _changeSet.incoming.isNotEmpty || _connected : sessionHasWork(_changeSet, _acceptedPaths);
+    final hasWork = isReplaceMode
+        ? _changeSet.incoming.isNotEmpty || _connected
+        : sessionHasWork(_changeSet, _acceptedPaths);
     final canApply = _connected && hasWork && !_applying && _error == null;
 
     return Scaffold(
+      backgroundColor: scheme.surfaceContainerLowest,
       appBar: AppBar(
+        backgroundColor: scheme.surfaceContainerLowest,
         title: Text(
           _connected
-              ? '${kLabelSyncConnectedTo} ${_peer.displayName}'
+              ? '${kLabelSyncConnectedTo}'
               : kLabelSyncConnecting,
         ),
+        scrolledUnderElevation: 0,
       ),
       body: _buildBody(scheme, textTheme, isReplaceMode),
       bottomNavigationBar: _connecting || _error != null
           ? null
           : SafeArea(
               child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextButton(
-                      onPressed: _applying ? null : () => Navigator.pop(context),
-                      child: const Text(kLabelSyncDiscardSession),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: canApply ? _apply : null,
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        child: Text(_applyButtonLabel(isReplaceMode, hasWork)),
+                      ),
                     ),
-                    kHSpacer8,
-                    FilledButton(
-                      onPressed: canApply ? _apply : null,
-                      child: Text(_applyButtonLabel(isReplaceMode, hasWork)),
+                    kVSpacer8,
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton(
+                        onPressed: _applying ? null : () => Navigator.pop(context),
+                        child: const Text(kLabelSyncDiscardSession),
+                      ),
                     ),
                   ],
                 ),
@@ -307,32 +324,83 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     bool isReplaceMode,
   ) {
     if (_connecting) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            kVSpacer16,
+            Text(
+              kLabelSyncConnecting,
+              style: textTheme.bodyMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+            kVSpacer6,
+            Text(
+              widget.qrPayload.desktopName,
+              style: textTheme.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      );
     }
     if (_error != null) {
-      return Center(
-        child: Text(_error!, style: TextStyle(color: scheme.error)),
+      return Padding(
+        padding: kP20,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SyncInfoBanner(message: _error!, isError: true),
+            kVSpacer16,
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(kLabelSyncClose),
+            ),
+          ],
+        ),
       );
     }
     if (!_connected) {
-      return Center(child: Text(kLabelSyncConnecting));
+      return Center(
+        child: Text(
+          kLabelSyncConnecting,
+          style: textTheme.bodyMedium?.copyWith(
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: Text(
-            _hintForMode(),
-            style: textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: SyncConnectionStatusCard(
+            connected: _connected,
+            peerDisplayName: _peer.displayName,
+            wasPairedBefore: _wasPairedBefore,
+            peerIcon: Icons.computer_rounded,
+            waitingIcon: Icons.sync_rounded,
+            waitingLabel: kLabelSyncConnecting,
+            connectedFallbackLabel: widget.qrPayload.desktopName,
           ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SyncInfoBanner(message: _hintForMode()),
         ),
         Expanded(
           child: isReplaceMode
-              ? _buildReplaceSummary(textTheme, scheme)
+              ? SyncReplaceSummaryPanel(
+                  workspaceName: widget.qrPayload.workspaceName,
+                  desktopName: widget.qrPayload.desktopName,
+                  fileCount:
+                      _changeSet.incoming.length + _changeSet.conflicts.length,
+                )
               : _buildReviewList(textTheme, scheme),
         ),
       ],
@@ -346,10 +414,25 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
 
     if (reviewable.isEmpty) {
       return Center(
-        child: Text(
-          kLabelSyncNoChanges,
-          style: textTheme.bodySmall?.copyWith(
-            color: scheme.onSurfaceVariant,
+        child: Padding(
+          padding: kP20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check_circle_outline_rounded,
+                size: 40,
+                color: scheme.primary.withValues(alpha: 0.75),
+              ),
+              kVSpacer10,
+              Text(
+                kLabelSyncNoChanges,
+                style: textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
         ),
       );
@@ -359,9 +442,11 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           child: Text(
-            kLabelSyncFromDesktop,
+            conflicts.isNotEmpty && incoming.isEmpty
+                ? kLabelSyncConflicts
+                : kLabelSyncFromDesktop,
             style: textTheme.labelMedium?.copyWith(
               color: scheme.primary,
               fontWeight: FontWeight.w600,
@@ -369,19 +454,32 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
           ),
         ),
         Expanded(
-          child: GitChangesTree(
-            roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
-            selectedPaths: _acceptedPaths,
-            previewPath: _previewChange?.path,
-            busy: false,
-            onSelectionChanged: (paths) {
-              setState(() {
-                _acceptedPaths
-                  ..clear()
-                  ..addAll(paths);
-              });
-            },
-            onFilePreview: _showDiff,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            decoration: BoxDecoration(
+              color: scheme.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.25),
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: GitChangesTree(
+                roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
+                selectedPaths: _acceptedPaths,
+                previewPath: _previewChange?.path,
+                busy: false,
+                onSelectionChanged: (paths) {
+                  setState(() {
+                    _acceptedPaths
+                      ..clear()
+                      ..addAll(paths);
+                  });
+                },
+                onFilePreview: _showDiff,
+              ),
+            ),
           ),
         ),
       ],
@@ -395,32 +493,5 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair,
       _ => kLabelSyncFirstPair,
     };
-  }
-
-  Widget _buildReplaceSummary(TextTheme textTheme, ColorScheme scheme) {
-    final count = _changeSet.incoming.length + _changeSet.conflicts.length;
-    return Center(
-      child: Padding(
-        padding: kP20,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              widget.qrPayload.workspaceName,
-              style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-            kVSpacer8,
-            Text(
-              '$count files from ${widget.qrPayload.desktopName}',
-              style: textTheme.bodyMedium?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }

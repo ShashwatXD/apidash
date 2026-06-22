@@ -228,13 +228,6 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     return '$kLabelSyncApplyChanges (${_acceptedPaths.length})';
   }
 
-  String? _sessionHint() {
-    if (!_connected) return null;
-    if (_waitForPhone) return kLabelSyncPhoneLeadsHint;
-    if (_changeSet.isEmpty) return kLabelSyncNoChanges;
-    return _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair;
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -243,7 +236,6 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     final conflicts = _changeSet.conflicts;
     final hasWork = sessionHasWork(_changeSet, _acceptedPaths);
     final canApply = _connected && hasWork && !_applying && !_waitForPhone;
-    final sessionHint = _sessionHint();
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
@@ -338,7 +330,6 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                             conflicts: conflicts,
                             acceptedPaths: _acceptedPaths,
                             previewPath: _previewChange?.path,
-                            sessionHint: sessionHint,
                             waitForPhone: _waitForPhone,
                             onSelectionChanged: (paths) {
                               setState(() {
@@ -399,16 +390,6 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    if (sessionHint != null && !_changeSet.isEmpty)
-                      Expanded(
-                        child: Text(
-                          sessionHint,
-                          style: textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      )
-                    else
                       const Spacer(),
                     TextButton(
                       onPressed: _applying ? null : () => Navigator.pop(context),

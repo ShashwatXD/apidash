@@ -30,7 +30,7 @@ const kLabelSyncLastSynced = 'Last synced';
 const kLabelSyncUnsynced = 'changes waiting to sync';
 const kLabelSyncAdoptWorkspaceTitle = 'Use this workspace?';
 const kLabelSyncAdoptWorkspaceBody =
-    'This looks like a new workspace from your computer. Use it for syncing to get a fresh copy on your phone,anything here now will be replaced.';
+    'This looks like a new workspace from your computer. Use it for syncing to get a fresh copy on your phone. Anything here now will be replaced.';
 const kLabelSyncAdoptWorkspaceConfirm = 'Use for syncing';
 const kLabelSyncAdoptWorkspaceCancel = 'Not now';
 const kLabelSyncClose = 'Close';

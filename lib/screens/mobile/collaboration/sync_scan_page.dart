@@ -4,6 +4,7 @@ import 'package:apidash/sync/storage/sync_storage.dart';
 import 'package:apidash/sync/sync_scan.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
+import 'package:apidash/sync/widgets/sync_adopt_workspace_sheet.dart';
 import 'package:apidash/sync/widgets/sync_scan_overlay.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
@@ -70,9 +71,11 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
 
     final storage = SyncStorage(workspacePath);
     final local = await storage.readWorkspace();
+    final syncState = await storage.readSyncState();
     final scanCase = resolveScanCase(
       localWorkspaceId: local?.id,
       qrWorkspaceId: payload.workspaceId,
+      hasSyncedBaseline: syncState?.hasBaseline ?? false,
     );
 
     if (!mounted) {
@@ -85,104 +88,23 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
       return;
     }
 
-    final adopt = await _showAdoptWorkspaceSheet(payload);
-
-    if (adopt != true) {
-      if (mounted) {
-        setState(() => _handled = false);
-        Navigator.pop(context);
-      }
-      return;
-    }
-
-    await wipePhoneWorkspaceData(workspacePath);
-    await adoptWorkspaceIdentity(
-      workspacePath,
-      identity: WorkspaceIdentity(
-        id: payload.workspaceId,
-        name: payload.workspaceName,
-      ),
-    );
-    if (!mounted) return;
-    await _openSession(payload, SyncSessionMode.workspaceReplace);
-  }
-
-  Future<bool?> _showAdoptWorkspaceSheet(SyncQrPayload payload) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-    return showModalBottomSheet<bool>(
+    final adopted = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      backgroundColor: scheme.surface,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer.withValues(alpha: 0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Icon(
-                    Icons.folder_copy_outlined,
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
-              ),
-              kVSpacer10,
-              Text(
-                kLabelSyncAdoptWorkspaceTitle,
-                style: textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              kVSpacer10,
-              Text(
-                '${payload.workspaceName} on ${payload.desktopName}.',
-                style: textTheme.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              kVSpacer8,
-              Text(
-                kLabelSyncAdoptWorkspaceBody,
-                style: textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                  height: 1.4,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              kVSpacer16,
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text(kLabelSyncAdoptWorkspaceCancel),
-                    ),
-                  ),
-                  kHSpacer8,
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text(kLabelSyncAdoptWorkspaceConfirm),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) => SyncAdoptWorkspaceSheet(qrPayload: payload),
     );
+
+    if (!mounted) return;
+    if (adopted == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        getSnackBar(kMsgSyncApplySuccess),
+      );
+      Navigator.pop(context);
+    } else {
+      setState(() => _handled = false);
+    }
   }
 
   Future<void> _openSession(SyncQrPayload payload, SyncSessionMode mode) async {

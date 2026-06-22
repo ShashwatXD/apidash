@@ -17,7 +17,6 @@ class MobileCollaborationPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
     final workspacePath = resolveSyncWorkspaceRoot(ref);
     final unsynced = ref.watch(syncUnsyncedCountProvider);
 
@@ -28,7 +27,7 @@ class MobileCollaborationPage extends ConsumerWidget {
         leading: BackButton(
           onPressed: () => ref.read(navRailIndexStateProvider.notifier).state = 0,
         ),
-        title: const Text('Sync'),
+        title: const Text('Collab'),
         centerTitle: true,
         scrolledUnderElevation: 0,
       ),
@@ -52,17 +51,12 @@ class MobileCollaborationPage extends ConsumerWidget {
                   padding: kPh20,
                   children: [
                     kVSpacer20,
-                    const _SyncHeroIcon(),
-                    kVSpacer16,
+                    const _SyncHeroHeader(),
                     if (!isPaired) ...[
-                      Text(
-                        'Sync with your computer',
-                        textAlign: TextAlign.center,
-                        style: textTheme.headlineSmall,
-                      ),
                       kVSpacer20,
                       const _CompactHowItWorks(),
                     ] else if (status?.workspaceName != null) ...[
+                      kVSpacer16,
                       _StatusCard(
                         workspaceName: status!.workspaceName!,
                         desktopName: status.desktopName,
@@ -115,28 +109,38 @@ class MobileCollaborationPage extends ConsumerWidget {
   }
 }
 
-class _SyncHeroIcon extends StatelessWidget {
-  const _SyncHeroIcon();
+class _SyncHeroHeader extends StatelessWidget {
+  const _SyncHeroHeader();
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
 
-    return Center(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.primaryContainer.withValues(alpha: 0.35),
-          shape: BoxShape.circle,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Icon(
-            Icons.cloud_sync,
-            size: 48,
-            color: scheme.primary,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer.withValues(alpha: 0.35),
+            shape: BoxShape.circle,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Icon(
+              Icons.cloud_sync,
+              size: 48,
+              color: scheme.primary,
+            ),
           ),
         ),
-      ),
+        kVSpacer16,
+        Text(
+          'Sync with your Desktop',
+          textAlign: TextAlign.center,
+          style: textTheme.headlineSmall,
+        ),
+      ],
     );
   }
 }

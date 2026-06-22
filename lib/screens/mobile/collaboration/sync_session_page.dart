@@ -13,6 +13,7 @@ import 'package:apidash/sync/sync_change_adapter.dart';
 import 'package:apidash/sync/sync_display_name.dart';
 import 'package:apidash/sync/sync_manifest_builder.dart';
 import 'package:apidash/sync/sync_session_compute.dart';
+import 'package:apidash/sync/sync_scan.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
 import 'package:apidash/sync/transport/sync_session_client.dart';
@@ -22,6 +23,7 @@ import 'package:apidash/sync/widgets/sync_info_banner.dart';
 import 'package:apidash/sync/widgets/sync_replace_summary_panel.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class SyncSessionPage extends ConsumerStatefulWidget {
@@ -104,7 +106,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         _connected = true;
         _wasPairedBefore = wasPaired;
       });
-      client.onPeerDisconnected = () => setState(() => _connected = false);
+      client.onPeerDisconnected = _handlePeerDisconnected;
       client.onChangeSet = _handleChangeSet;
       client.onError = (msg) => setState(() => _error = msg);
       client.onRemoteApplied = _handleRemoteApplied;
@@ -126,6 +128,25 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         _connecting = false;
         _error = kErrSyncConnectFailed;
       });
+    }
+  }
+
+  void _handlePeerDisconnected() {
+    if (!mounted || _applying) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _applying) return;
+      _exitAfterPeerLeft();
+    });
+  }
+
+  void _exitAfterPeerLeft() {
+    final navigator = Navigator.of(context);
+    if (_previewChange != null && navigator.canPop()) {
+      navigator.pop();
+    }
+    if (!mounted) return;
+    if (navigator.canPop()) {
+      navigator.pop();
     }
   }
 
@@ -180,6 +201,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
 
       if (widget.mode == SyncSessionMode.workspaceReplace) {
+        await wipePhoneWorkspaceData(workspacePath);
         await applyReplaceFromPeer(
           workspaceRoot: workspacePath,
           storage: storage,
@@ -187,8 +209,9 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
           transfer: client,
           peerManifest: client.peerManifest,
         );
-        await storage.writeWorkspace(
-          WorkspaceIdentity(
+        await adoptWorkspaceIdentity(
+          workspacePath,
+          identity: WorkspaceIdentity(
             id: widget.qrPayload.workspaceId,
             name: widget.qrPayload.workspaceName,
           ),
@@ -278,7 +301,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         backgroundColor: scheme.surfaceContainerLowest,
         title: Text(
           _connected
-              ? '${kLabelSyncConnectedTo}'
+              ? kLabelSyncConnectedTo
               : kLabelSyncConnecting,
         ),
         scrolledUnderElevation: 0,
@@ -388,10 +411,6 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
             waitingLabel: kLabelSyncConnecting,
             connectedFallbackLabel: widget.qrPayload.desktopName,
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SyncInfoBanner(message: _hintForMode()),
         ),
         Expanded(
           child: isReplaceMode

@@ -334,6 +334,9 @@ class SyncSessionServer implements SyncFileTransfer {
   Future<void> stop() async {
     _sessionTimer?.cancel();
     _sessionTimer = null;
+    if (_activeSocket != null) {
+      _send(SyncMessage.bye());
+    }
     await _closeSocket(notify: false);
     await _httpServer?.close(force: true);
     _httpServer = null;

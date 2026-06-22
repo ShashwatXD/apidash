@@ -9,12 +9,16 @@ import 'storage/sync_storage.dart';
 SyncScanCase resolveScanCase({
   required String? localWorkspaceId,
   required String qrWorkspaceId,
+  bool hasSyncedBaseline = false,
 }) {
   if (localWorkspaceId == null || localWorkspaceId.isEmpty) {
     return SyncScanCase.firstLink;
   }
-  if (localWorkspaceId == qrWorkspaceId) {
+  if (localWorkspaceId == qrWorkspaceId && hasSyncedBaseline) {
     return SyncScanCase.sameWorkspace;
+  }
+  if (localWorkspaceId == qrWorkspaceId) {
+    return SyncScanCase.differentWorkspace;
   }
   return SyncScanCase.differentWorkspace;
 }

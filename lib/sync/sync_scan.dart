@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 
 import 'models/sync_models.dart';
 import 'storage/sync_storage.dart';
-import 'sync_manifest_builder.dart';
 
 SyncScanCase resolveScanCase({
   required String? localWorkspaceId,
@@ -20,25 +19,19 @@ SyncScanCase resolveScanCase({
   return SyncScanCase.differentWorkspace;
 }
 
-SyncSessionMode resolveSessionMode({
-  required SyncScanCase scanCase,
-  required bool phoneHasLocalData,
-  bool useDesktopOnly = false,
-}) {
+bool scanCaseNeedsAdoption(SyncScanCase scanCase) {
   return switch (scanCase) {
-    SyncScanCase.sameWorkspace => SyncSessionMode.incremental,
-    SyncScanCase.differentWorkspace => SyncSessionMode.workspaceReplace,
-    SyncScanCase.firstLink => phoneHasLocalData
-        ? (useDesktopOnly
-            ? SyncSessionMode.workspaceReplace
-            : SyncSessionMode.firstLinkMerge)
-        : SyncSessionMode.firstLinkEmpty,
+    SyncScanCase.sameWorkspace => false,
+    SyncScanCase.firstLink || SyncScanCase.differentWorkspace => true,
   };
 }
 
-Future<bool> phoneHasLocalSyncableData(String workspaceRoot) async {
-  final manifest = await buildSyncManifest(workspaceRoot);
-  return manifest.isNotEmpty;
+SyncSessionMode sessionModeForScanCase(SyncScanCase scanCase) {
+  return switch (scanCase) {
+    SyncScanCase.sameWorkspace => SyncSessionMode.incremental,
+    SyncScanCase.firstLink || SyncScanCase.differentWorkspace =>
+      SyncSessionMode.workspaceReplace,
+  };
 }
 
 Future<void> wipePhoneWorkspaceData(String workspaceRoot) async {

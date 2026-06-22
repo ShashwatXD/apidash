@@ -1,14 +1,15 @@
 import 'dart:async';
 
-import 'package:apidash/git/models/git_change_tree.dart';
-import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
-import 'package:apidash/git/widgets/git_changes_tree.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/sync/widgets/sync_changes_panel.dart';
+import 'package:apidash/sync/widgets/sync_diff_panel.dart';
+import 'package:apidash/sync/widgets/sync_info_banner.dart';
+import 'package:apidash/sync/widgets/sync_panel.dart';
+import 'package:apidash/sync/widgets/sync_qr_panel.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:qr_flutter/qr_flutter.dart';
 
 import '../consts.dart';
 import '../models/sync_models.dart';
@@ -21,7 +22,6 @@ import '../sync_manifest_builder.dart';
 import '../sync_session_compute.dart';
 import '../transport/sync_messages.dart';
 import '../transport/sync_session_server.dart';
-import 'sync_diff_panel.dart';
 
 Future<void> showSyncHostDialog(BuildContext context) {
   return showDialog<void>(
@@ -300,7 +300,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
               if (_startError != null && _qrPayload == null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: _SyncInfoBanner(
+                  child: SyncInfoBanner(
                     message: _startError!,
                     isError: true,
                   ),
@@ -313,10 +313,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                     children: [
                       SizedBox(
                         width: 272,
-                        child: _SyncPanel(
-                          child: _SyncQrPanel(
-                            scheme: scheme,
-                            textTheme: textTheme,
+                        child: SyncPanel(
+                          child: SyncQrPanel(
                             starting: _starting,
                             qrPayload: _qrPayload,
                             startError: _startError,
@@ -329,8 +327,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                       kHSpacer10,
                       SizedBox(
                         width: 300,
-                        child: _SyncPanel(
-                          child: _SyncChangesPanel(
+                        child: SyncPanel(
+                          child: SyncChangesPanel(
                             isConnected: _connected,
                             incoming: incoming,
                             conflicts: conflicts,
@@ -354,7 +352,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                       ),
                       kHSpacer10,
                       Expanded(
-                        child: _SyncPanel(
+                        child: SyncPanel(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -423,363 +421,6 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// Matches Collaboration git panel chrome.
-class _SyncPanel extends StatelessWidget {
-  const _SyncPanel({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Material(
-      color: scheme.surfaceContainerLow.withValues(alpha: 0.55),
-      elevation: 0,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: scheme.outlineVariant.withValues(alpha: 0.25),
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncInfoBanner extends StatelessWidget {
-  const _SyncInfoBanner({required this.message, this.isError = false});
-
-  final String message;
-  final bool isError;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: isError
-            ? scheme.errorContainer.withValues(alpha: 0.35)
-            : scheme.secondaryContainer.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            isError ? Icons.error_outline : Icons.info_outline,
-            size: 18,
-            color: isError ? scheme.error : scheme.onSecondaryContainer,
-          ),
-          kHSpacer10,
-          Expanded(
-            child: Text(
-              message,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SyncQrPanel extends StatelessWidget {
-  const _SyncQrPanel({
-    required this.scheme,
-    required this.textTheme,
-    required this.starting,
-    required this.qrPayload,
-    required this.startError,
-    required this.connected,
-    required this.peerDisplayName,
-    required this.wasPairedBefore,
-  });
-
-  final ColorScheme scheme;
-  final TextTheme textTheme;
-  final bool starting;
-  final SyncQrPayload? qrPayload;
-  final String? startError;
-  final bool connected;
-  final String peerDisplayName;
-  final bool wasPairedBefore;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(
-            aspectRatio: 1,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: _buildQrContent(),
-              ),
-            ),
-          ),
-          kVSpacer10,
-          Text(
-            qrPayload != null ? kLabelSyncScanQr : kLabelSyncQrPlaceholder,
-            style: textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
-          ),
-          kVSpacer10,
-          _ConnectionStatusCard(
-            connected: connected,
-            peerDisplayName: peerDisplayName,
-            wasPairedBefore: wasPairedBefore,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQrContent() {
-    if (starting) {
-      return const Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(strokeWidth: 2.5),
-        ),
-      );
-    }
-    if (qrPayload == null) {
-      return Center(
-        child: Padding(
-          padding: kP12,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.wifi_off_rounded,
-                size: 40,
-                color: scheme.error.withValues(alpha: 0.85),
-              ),
-              kVSpacer8,
-              Text(
-                startError ?? kErrSyncServerStart,
-                style: textTheme.labelMedium?.copyWith(color: scheme.error),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.all(8),
-      child: QrImageView(
-        data: qrPayload!.encode(),
-        version: QrVersions.auto,
-        gapless: true,
-        backgroundColor: Colors.white,
-        errorCorrectionLevel: QrErrorCorrectLevel.M,
-      ),
-    );
-  }
-}
-
-class _ConnectionStatusCard extends StatelessWidget {
-  const _ConnectionStatusCard({
-    required this.connected,
-    required this.peerDisplayName,
-    required this.wasPairedBefore,
-  });
-
-  final bool connected;
-  final String peerDisplayName;
-  final bool wasPairedBefore;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.65),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.25),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            connected
-                ? Icons.phone_iphone_rounded
-                : Icons.hourglass_empty_rounded,
-            size: 20,
-            color: connected ? scheme.primary : scheme.onSurfaceVariant,
-          ),
-          kHSpacer10,
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  connected
-                      ? '$kLabelSyncConnectedTo ${peerDisplayName.isNotEmpty ? peerDisplayName : 'phone'}'
-                      : kLabelSyncWaitingForPhone,
-                  style: textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                if (connected) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    wasPairedBefore
-                        ? kLabelSyncPairedBefore
-                        : kLabelSyncFirstPair,
-                    style: textTheme.labelSmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SyncChangesPanel extends StatelessWidget {
-  const _SyncChangesPanel({
-    required this.isConnected,
-    required this.incoming,
-    required this.conflicts,
-    required this.acceptedPaths,
-    required this.previewPath,
-    required this.onSelectionChanged,
-    required this.onFilePreview,
-    this.sessionHint,
-  });
-
-  final bool isConnected;
-  final List<SyncFileChange> incoming;
-  final List<SyncFileChange> conflicts;
-  final Set<String> acceptedPaths;
-  final String? previewPath;
-  final String? sessionHint;
-  final ValueChanged<Set<String>> onSelectionChanged;
-  final ValueChanged<GitChange> onFilePreview;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    if (!isConnected) {
-      return Center(
-        child: Padding(
-          padding: kP20,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.sync_disabled_rounded,
-                size: 36,
-                color: scheme.outline.withValues(alpha: 0.65),
-              ),
-              kVSpacer10,
-              Text(
-                kLabelSyncWaitingForChanges,
-                textAlign: TextAlign.center,
-                style: textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final reviewable = [...incoming, ...conflicts];
-    final hasReviewable = reviewable.isNotEmpty;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: Text(
-            hasReviewable
-                ? (conflicts.isNotEmpty && incoming.isEmpty
-                    ? kLabelSyncConflicts
-                    : kLabelSyncIncomingFromPhone)
-                : kLabelSyncNoChanges,
-            style: textTheme.labelMedium?.copyWith(
-              color: scheme.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        if (sessionHint != null && hasReviewable)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            child: Text(
-              sessionHint!,
-              style: textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        if (hasReviewable)
-          Expanded(
-            child: GitChangesTree(
-              roots: buildGitChangeTree(syncChangesToGitChanges(reviewable)),
-              selectedPaths: acceptedPaths,
-              previewPath: previewPath,
-              busy: false,
-              onSelectionChanged: onSelectionChanged,
-              onFilePreview: onFilePreview,
-            ),
-          )
-        else
-          Expanded(
-            child: Center(
-              child: Padding(
-                padding: kP20,
-                child: Text(
-                  kLabelSyncNoChanges,
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

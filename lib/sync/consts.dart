@@ -18,12 +18,9 @@ const kLabelSyncNoChanges = 'No changes to review';
 const kLabelSyncIncomingFromPhone = 'From phone';
 const kLabelSyncFromDesktop = 'From computer';
 const kLabelSyncConflicts = 'Conflicts';
-const kLabelSyncGetWorkspace = 'Get workspace';
 const kLabelSyncSwitchAndSync = 'Switch & sync';
-const kLabelSyncUseDesktopOnly = 'Use from computer only';
-const kLabelSyncMerge = 'Merge';
 const kLabelSyncPairedBefore = 'Paired before — changes sync both ways.';
-const kLabelSyncFirstPair = 'First time pairing — review before applying.';
+const kLabelSyncFirstPair = 'First time pairing - review before applying.';
 const kLabelSyncApplying = 'Applying changes…';
 const kLabelMobileCollaborationHint =
     'Sync your workspace with API Dash on your computer. Open Collaboration on desktop, then scan the QR code.';
@@ -34,13 +31,11 @@ const kLabelSyncSameWifi = 'Phone and computer must be on the same Wi-Fi';
 const kLabelSyncSecretsNote = 'Secret values stay on each device';
 const kLabelSyncLastSynced = 'Last synced';
 const kLabelSyncUnsynced = 'changes waiting to sync';
-const kLabelSyncNewWorkspaceTitle = 'New workspace';
-const kLabelSyncSwitchWorkspace = 'Switch to this workspace';
-const kLabelSyncKeepCurrentWorkspace = 'Keep current workspace';
-const kLabelSyncNewWorkspaceBody =
-    'This looks like a different project. Switch to it and sync from your computer? Your current workspace on this phone will be replaced.';
-const kLabelSyncFirstLinkMergePrompt =
-    'You have local requests. Merge with desktop or use the computer copy only?';
+const kLabelSyncAdoptWorkspaceTitle = 'Use this workspace?';
+const kLabelSyncAdoptWorkspaceBody =
+    'This looks like a new workspace from your computer. Use it for syncing to get a fresh copy on your phone — anything here now will be replaced.';
+const kLabelSyncAdoptWorkspaceConfirm = 'Use for syncing';
+const kLabelSyncAdoptWorkspaceCancel = 'Not now';
 const kLabelSyncClose = 'Close';
 
 // --- Messages ---

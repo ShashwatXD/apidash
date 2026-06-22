@@ -35,9 +35,8 @@ String applyButtonLabel({
 }) {
   if (!hasWork) return kLabelSyncAlreadyInSync;
   return switch (mode) {
-    SyncSessionMode.firstLinkEmpty => kLabelSyncGetWorkspace,
     SyncSessionMode.workspaceReplace => kLabelSyncSwitchAndSync,
-    SyncSessionMode.firstLinkMerge || SyncSessionMode.incremental =>
-      kLabelSyncApplyAndSync,
+    SyncSessionMode.incremental => kLabelSyncApplyAndSync,
+    _ => kLabelSyncApplyAndSync,
   };
 }

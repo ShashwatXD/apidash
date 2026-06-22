@@ -63,79 +63,47 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
       return;
     }
 
-    if (scanCase == SyncScanCase.differentWorkspace) {
-      final switchWorkspace = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(kLabelSyncNewWorkspaceTitle),
-          content: Text(
-            'This looks like a different project — ${payload.workspaceName}. '
-            '${kLabelSyncNewWorkspaceBody}',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text(kLabelSyncKeepCurrentWorkspace),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text(kLabelSyncSwitchWorkspace),
-            ),
-          ],
-        ),
-      );
-      if (switchWorkspace != true) {
-        if (mounted) Navigator.pop(context);
-        return;
-      }
-      await wipePhoneWorkspaceData(workspacePath);
-      await adoptWorkspaceIdentity(
-        workspacePath,
-        identity: WorkspaceIdentity(
-          id: payload.workspaceId,
-          name: payload.workspaceName,
-        ),
-      );
-      if (!mounted) return;
-      await _openSession(payload, SyncSessionMode.workspaceReplace);
+    if (!scanCaseNeedsAdoption(scanCase)) {
+      await _openSession(payload, SyncSessionMode.incremental);
       return;
     }
 
-    var mode = resolveSessionMode(
-      scanCase: scanCase,
-      phoneHasLocalData: await phoneHasLocalSyncableData(workspacePath),
+    final adopt = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(kLabelSyncAdoptWorkspaceTitle),
+        content: Text(
+          '${payload.workspaceName} on ${payload.desktopName}.\n\n'
+          '$kLabelSyncAdoptWorkspaceBody',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(kLabelSyncAdoptWorkspaceCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(kLabelSyncAdoptWorkspaceConfirm),
+          ),
+        ],
+      ),
     );
 
-    if (scanCase == SyncScanCase.firstLink && mode == SyncSessionMode.firstLinkMerge) {
-      if (!mounted) return;
-      final choice = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text(kLabelSyncMerge),
-          content: const Text(kLabelSyncFirstLinkMergePrompt),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 'desktop'),
-              child: const Text(kLabelSyncUseDesktopOnly),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, 'merge'),
-              child: const Text(kLabelSyncMerge),
-            ),
-          ],
-        ),
-      );
-      if (choice == null) {
-        if (mounted) Navigator.pop(context);
-        return;
-      }
-      if (choice == 'desktop') {
-        mode = SyncSessionMode.workspaceReplace;
-      }
+    if (adopt != true) {
+      if (mounted) Navigator.pop(context);
+      return;
     }
 
+    await wipePhoneWorkspaceData(workspacePath);
+    await adoptWorkspaceIdentity(
+      workspacePath,
+      identity: WorkspaceIdentity(
+        id: payload.workspaceId,
+        name: payload.workspaceName,
+      ),
+    );
     if (!mounted) return;
-    await _openSession(payload, mode);
+    await _openSession(payload, SyncSessionMode.workspaceReplace);
   }
 
   Future<void> _openSession(SyncQrPayload payload, SyncSessionMode mode) async {

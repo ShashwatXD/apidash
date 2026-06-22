@@ -16,7 +16,7 @@ import 'package:apidash/sync/sync_session_compute.dart';
 import 'package:apidash/sync/sync_workspace_path.dart';
 import 'package:apidash/sync/transport/sync_messages.dart';
 import 'package:apidash/sync/transport/sync_session_client.dart';
-import 'package:apidash/sync/ui/sync_diff_panel.dart';
+import 'package:apidash/sync/widgets/sync_diff_panel.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -175,8 +175,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     try {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
 
-      if (widget.mode == SyncSessionMode.firstLinkEmpty ||
-          widget.mode == SyncSessionMode.workspaceReplace) {
+      if (widget.mode == SyncSessionMode.workspaceReplace) {
         await applyReplaceFromPeer(
           workspaceRoot: workspacePath,
           storage: storage,
@@ -204,14 +203,6 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
           transfer: client,
           peerManifest: client.peerManifest,
         );
-        if (widget.mode == SyncSessionMode.firstLinkMerge) {
-          await storage.writeWorkspace(
-            WorkspaceIdentity(
-              id: widget.qrPayload.workspaceId,
-              name: widget.qrPayload.workspaceName,
-            ),
-          );
-        }
       }
 
       await reloadWorkspaceFromDisk(ref);
@@ -271,8 +262,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final isReplaceMode = widget.mode == SyncSessionMode.firstLinkEmpty ||
-        widget.mode == SyncSessionMode.workspaceReplace;
+    final isReplaceMode = widget.mode == SyncSessionMode.workspaceReplace;
     final hasWork =
         isReplaceMode ? _changeSet.incoming.isNotEmpty || _connected : sessionHasWork(_changeSet, _acceptedPaths);
     final canApply = _connected && hasWork && !_applying && _error == null;
@@ -399,11 +389,10 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
 
   String _hintForMode() {
     return switch (widget.mode) {
-      SyncSessionMode.workspaceReplace => kLabelSyncNewWorkspaceBody,
-      SyncSessionMode.firstLinkEmpty => kLabelSyncFirstPair,
-      SyncSessionMode.firstLinkMerge => kLabelSyncFirstLinkMergePrompt,
+      SyncSessionMode.workspaceReplace => kLabelSyncAdoptWorkspaceBody,
       SyncSessionMode.incremental =>
         _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair,
+      _ => kLabelSyncFirstPair,
     };
   }
 

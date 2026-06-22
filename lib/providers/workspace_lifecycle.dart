@@ -50,7 +50,6 @@ Future<void> clearAllWorkspaceData(WidgetRef ref) async {
     ref.read(autoSaveNotifierProvider.notifier).cancelPending();
 
     final root = workspaceStorage.rootPath;
-    await environmentSecretsStorage.deleteAllForWorkspace(root);
     await SyncStorage(root).deleteApidashDir();
     await workspaceStorage.clear();
 

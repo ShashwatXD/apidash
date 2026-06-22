@@ -94,6 +94,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         localDisplayName: syncLocalDisplayName(),
         localWorkspaceId: localWorkspace?.id ?? '',
         localHasBaseline: syncState?.hasBaseline ?? false,
+        sessionMode: widget.mode,
       );
       client.onPeerConnected = (peer, wasPaired) => setState(() {
         _peer = peer;

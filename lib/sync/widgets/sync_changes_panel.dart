@@ -18,6 +18,7 @@ class SyncChangesPanel extends StatelessWidget {
     required this.onSelectionChanged,
     required this.onFilePreview,
     this.sessionHint,
+    this.waitForPhone = false,
   });
 
   final bool isConnected;
@@ -26,6 +27,7 @@ class SyncChangesPanel extends StatelessWidget {
   final Set<String> acceptedPaths;
   final String? previewPath;
   final String? sessionHint;
+  final bool waitForPhone;
   final ValueChanged<Set<String>> onSelectionChanged;
   final ValueChanged<GitChange> onFilePreview;
 
@@ -49,6 +51,41 @@ class SyncChangesPanel extends StatelessWidget {
               kVSpacer10,
               Text(
                 kLabelSyncWaitingForChanges,
+                textAlign: TextAlign.center,
+                style: textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (waitForPhone) {
+      return Center(
+        child: Padding(
+          padding: kP20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.smartphone_rounded,
+                size: 36,
+                color: scheme.primary.withValues(alpha: 0.85),
+              ),
+              kVSpacer10,
+              Text(
+                kLabelSyncContinueOnPhone,
+                textAlign: TextAlign.center,
+                style: textTheme.titleSmall?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              kVSpacer8,
+              Text(
+                sessionHint ?? kLabelSyncPhoneLeadsHint,
                 textAlign: TextAlign.center,
                 style: textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,

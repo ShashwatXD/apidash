@@ -20,7 +20,7 @@ const kLabelSyncFromDesktop = 'From computer';
 const kLabelSyncConflicts = 'Conflicts';
 const kLabelSyncSwitchAndSync = 'Switch & sync';
 const kLabelSyncPairedBefore = 'Paired before - changes sync both ways.';
-const kLabelSyncFirstPair = 'First time pairing - review before applying.';
+const kLabelSyncFirstPair = 'First time pairing';
 const kLabelSyncApplying = 'Applying changes…';
 const kLabelMobileCollaborationHint =
     'Sync your workspace with API Dash on your computer. Open Collaboration on desktop, then scan the QR code.';
@@ -36,6 +36,10 @@ const kLabelSyncAdoptWorkspaceBody =
 const kLabelSyncAdoptWorkspaceConfirm = 'Use for syncing';
 const kLabelSyncAdoptWorkspaceCancel = 'Not now';
 const kLabelSyncClose = 'Close';
+const kLabelSyncContinueOnPhone = 'Continue on phone';
+const kLabelSyncPhoneLeadsHint =
+    'Finish on your phone, nothing to apply on this computer yet.';
+const kLabelSyncWaitingForPhoneApply = 'Waiting for your phone to finish…';
 
 // --- Messages ---
 

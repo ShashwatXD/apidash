@@ -5,7 +5,7 @@ import 'dart:math';
 import '../consts.dart';
 import '../models/sync_models.dart';
 import '../storage/sync_storage.dart';
-import '../sync_session_compute.dart';
+import '../sync_session_compute.dart' as session_compute;
 import '../sync_workspace_io.dart';
 import 'sync_file_transfer.dart';
 import 'sync_messages.dart';
@@ -48,6 +48,8 @@ class SyncSessionServer implements SyncFileTransfer {
   Map<String, String> _peerManifest = const {};
   SyncPeerInfo? _activePeer;
   bool _peerHasBaseline = true;
+  SyncSessionMode _peerSessionMode = SyncSessionMode.incremental;
+  String _phoneWorkspaceId = '';
   final Map<String, String?> _peerFileCache = {};
   final Map<String, Completer<_PeerFileResult>> _pendingPeerFiles = {};
 
@@ -55,7 +57,8 @@ class SyncSessionServer implements SyncFileTransfer {
   bool get isConnected => _activeSocket != null;
   Map<String, String> get peerManifest => _peerManifest;
 
-  void Function(SyncPeerInfo peer, bool wasPairedBefore)? onPeerConnected;
+  void Function(SyncPeerInfo peer, bool wasPairedBefore, bool waitForPhone)?
+      onPeerConnected;
   void Function()? onPeerDisconnected;
   void Function(SyncChangeSet changeSet)? onChangeSet;
   void Function(String message)? onError;
@@ -150,21 +153,36 @@ class SyncSessionServer implements SyncFileTransfer {
               return;
             }
             _peerHasBaseline = message.hasBaseline;
+            _phoneWorkspaceId = message.stringWorkspaceId ?? '';
+            _peerSessionMode = _parseSessionMode(message.stringSessionMode);
             _activePeer = SyncPeerInfo(
-              workspaceId: workspace.id,
+              workspaceId: _phoneWorkspaceId.isNotEmpty
+                  ? _phoneWorkspaceId
+                  : workspace.id,
               workspaceName: workspace.name,
               displayName: message.stringDisplayName ?? 'Phone',
             );
-            final wasPaired = await storage.hasSyncedBefore();
             final syncState = await storage.readSyncState();
+            final localHadBaseline = syncState?.hasBaseline ?? false;
+            final wasPaired = session_compute.peersPairedBefore(
+              localHadBaseline: localHadBaseline,
+              peerHadBaseline: message.hasBaseline,
+            );
+            final waitForPhone = session_compute.desktopWaitsForPhone(
+              sessionMode: _peerSessionMode,
+              phoneWorkspaceId: _phoneWorkspaceId,
+              desktopWorkspaceId: workspace.id,
+              localHadBaseline: localHadBaseline,
+              peerHadBaseline: message.hasBaseline,
+            );
             _send(SyncMessage.helloAck(
               workspaceId: workspace.id,
               workspaceName: workspace.name,
               displayName: desktopName,
-              hasBaseline: syncState?.hasBaseline ?? false,
+              hasBaseline: localHadBaseline,
             ));
             _send(SyncMessage.manifest(localManifest));
-            onPeerConnected?.call(_activePeer!, wasPaired);
+            onPeerConnected?.call(_activePeer!, wasPaired, waitForPhone);
             _status = SyncServerStatus.connected;
             break;
           case SyncMessageType.manifest:
@@ -208,15 +226,12 @@ class SyncSessionServer implements SyncFileTransfer {
   Future<void> _emitChangeSet() async {
     final state = await storage.readSyncState();
     final baseline = state?.baseline ?? const <String, String>{};
-    final changeSet = computeSessionChangeSet(
+    final changeSet = session_compute.computeSessionChangeSet(
       baseline: baseline,
       local: localManifest,
       peer: _peerManifest,
       peerHasBaseline: _peerHasBaseline,
     );
-    if (changeSet.isEmpty && _peerManifest.isNotEmpty && _activePeer != null) {
-      await _persistBaseline(localManifest);
-    }
     onChangeSet?.call(changeSet);
   }
 
@@ -338,6 +353,14 @@ String _generateToken(Random random) {
     kSyncTokenLength,
     (_) => kSyncTokenAlphabet[random.nextInt(kSyncTokenAlphabet.length)],
   ).join();
+}
+
+SyncSessionMode _parseSessionMode(String? wire) {
+  if (wire == null || wire.isEmpty) return SyncSessionMode.incremental;
+  for (final mode in SyncSessionMode.values) {
+    if (mode.name == wire) return mode;
+  }
+  return SyncSessionMode.incremental;
 }
 
 Future<String?> resolveLanIpv4() async {

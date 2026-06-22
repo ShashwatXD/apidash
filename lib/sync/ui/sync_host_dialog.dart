@@ -59,6 +59,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   bool _starting = true;
   bool _connected = false;
   bool _wasPairedBefore = false;
+  bool _waitForPhone = false;
   bool _applying = false;
   String? _startError;
 
@@ -97,10 +98,11 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         workspaceRoot: workspacePath,
         desktopName: syncLocalDisplayName(),
       );
-      server.onPeerConnected = (peer, wasPaired) => setState(() {
+      server.onPeerConnected = (peer, wasPaired, waitForPhone) => setState(() {
         _peer = peer;
         _connected = true;
         _wasPairedBefore = wasPaired;
+        _waitForPhone = waitForPhone;
       });
       server.onPeerDisconnected = () => setState(() => _connected = false);
       server.onChangeSet = _handleChangeSet;
@@ -165,6 +167,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       _changeSet = const SyncChangeSet();
       _resetChangeSelection(const SyncChangeSet());
       _wasPairedBefore = true;
+      _waitForPhone = false;
     });
     ScaffoldMessenger.of(context)
         .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
@@ -227,6 +230,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
 
   String? _sessionHint() {
     if (!_connected) return null;
+    if (_waitForPhone) return kLabelSyncPhoneLeadsHint;
     if (_changeSet.isEmpty) return kLabelSyncNoChanges;
     return _wasPairedBefore ? kLabelSyncPairedBefore : kLabelSyncFirstPair;
   }
@@ -238,7 +242,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     final incoming = _changeSet.incoming;
     final conflicts = _changeSet.conflicts;
     final hasWork = sessionHasWork(_changeSet, _acceptedPaths);
-    final canApply = _connected && hasWork && !_applying;
+    final canApply = _connected && hasWork && !_applying && !_waitForPhone;
     final sessionHint = _sessionHint();
 
     return Dialog(
@@ -335,6 +339,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                             acceptedPaths: _acceptedPaths,
                             previewPath: _previewChange?.path,
                             sessionHint: sessionHint,
+                            waitForPhone: _waitForPhone,
                             onSelectionChanged: (paths) {
                               setState(() {
                                 _acceptedPaths
@@ -410,10 +415,19 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                       child: const Text(kLabelSyncDiscardSession),
                     ),
                     kHSpacer8,
-                    FilledButton(
-                      onPressed: canApply ? _apply : null,
-                      child: Text(_applyButtonLabel(canApply)),
-                    ),
+                    if (_waitForPhone)
+                      Text(
+                        kLabelSyncContinueOnPhone,
+                        style: textTheme.titleSmall?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    else
+                      FilledButton(
+                        onPressed: canApply ? _apply : null,
+                        child: Text(_applyButtonLabel(canApply)),
+                      ),
                   ],
                 ),
               ),

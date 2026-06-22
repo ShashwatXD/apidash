@@ -60,6 +60,7 @@ class SyncMessage {
     required String workspaceId,
     required String displayName,
     bool hasBaseline = false,
+    String? sessionMode,
   }) {
     return SyncMessage(SyncMessageType.hello, {
       'protocolVersion': kSyncProtocolVersion,
@@ -67,6 +68,7 @@ class SyncMessage {
       'workspaceId': workspaceId,
       'displayName': displayName,
       'hasBaseline': hasBaseline,
+      if (sessionMode != null) 'sessionMode': sessionMode,
     });
   }
 
@@ -147,6 +149,7 @@ class SyncMessage {
 
   String? get stringToken => payload['token'] as String?;
   String? get stringWorkspaceId => payload['workspaceId'] as String?;
+  String? get stringSessionMode => payload['sessionMode'] as String?;
   String? get stringWorkspaceName => payload['workspaceName'] as String?;
   String? get stringDisplayName => payload['displayName'] as String?;
   bool get hasBaseline => payload['hasBaseline'] == true;

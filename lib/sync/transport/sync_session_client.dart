@@ -21,6 +21,7 @@ class SyncSessionClient implements SyncFileTransfer {
     required this.localDisplayName,
     required this.localWorkspaceId,
     required this.localHasBaseline,
+    required this.sessionMode,
   });
 
   final SyncStorage storage;
@@ -30,6 +31,7 @@ class SyncSessionClient implements SyncFileTransfer {
   final String localDisplayName;
   final String localWorkspaceId;
   final bool localHasBaseline;
+  final SyncSessionMode sessionMode;
 
   WebSocket? _socket;
   StreamSubscription<dynamic>? _socketSub;
@@ -75,6 +77,7 @@ class SyncSessionClient implements SyncFileTransfer {
         workspaceId: localWorkspaceId,
         displayName: localDisplayName,
         hasBaseline: localHasBaseline,
+        sessionMode: sessionMode.name,
       ),
     );
   }
@@ -97,7 +100,10 @@ class SyncSessionClient implements SyncFileTransfer {
               displayName:
                   message.stringDisplayName ?? qrPayload.desktopName,
             );
-            _wasPairedBefore = await storage.hasSyncedBefore();
+            _wasPairedBefore = peersPairedBefore(
+              localHadBaseline: localHasBaseline,
+              peerHadBaseline: message.hasBaseline,
+            );
             onPeerConnected?.call(_peer!, _wasPairedBefore);
             break;
           case SyncMessageType.manifest:
@@ -147,9 +153,6 @@ class SyncSessionClient implements SyncFileTransfer {
       peer: _peerManifest,
       peerHasBaseline: _peerHasBaseline,
     );
-    if (changeSet.isEmpty && _peerManifest.isNotEmpty) {
-      await _persistBaseline(_peerManifest);
-    }
     onChangeSet?.call(changeSet);
   }
 

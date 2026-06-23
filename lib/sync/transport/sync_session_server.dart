@@ -5,6 +5,7 @@ import 'dart:math';
 import '../consts.dart';
 import '../models/sync_models.dart';
 import '../storage/sync_storage.dart';
+import '../sync_manifest_builder.dart';
 import '../sync_session_compute.dart' as session_compute;
 import '../sync_workspace_io.dart';
 import 'sync_file_transfer.dart';
@@ -17,22 +18,25 @@ class SyncSessionServer implements SyncFileTransfer {
   SyncSessionServer({
     required this.storage,
     required this.workspace,
-    required this.localManifest,
+    required Map<String, String> localManifest,
     required this.workspaceRoot,
     required this.desktopName,
     int? port,
     Random? random,
     Duration? sessionTimeout,
-  })  : _preferredPort = port ?? kSyncDefaultPort,
+  })  : _localManifest = localManifest,
+        _preferredPort = port ?? kSyncDefaultPort,
         _sessionTimeout = sessionTimeout ?? kSyncSessionTimeout,
         token = _generateToken(random ?? Random.secure());
 
   final SyncStorage storage;
   final WorkspaceIdentity workspace;
-  final Map<String, String> localManifest;
+  Map<String, String> _localManifest;
   final String workspaceRoot;
   final String desktopName;
   final String token;
+
+  Map<String, String> get localManifest => _localManifest;
 
   final int _preferredPort;
   final Duration _sessionTimeout;
@@ -48,7 +52,6 @@ class SyncSessionServer implements SyncFileTransfer {
   Map<String, String> _peerManifest = const {};
   SyncPeerInfo? _activePeer;
   bool _peerHasBaseline = true;
-  SyncSessionMode _peerSessionMode = SyncSessionMode.incremental;
   String _phoneWorkspaceId = '';
   final Map<String, String?> _peerFileCache = {};
   final Map<String, Completer<_PeerFileResult>> _pendingPeerFiles = {};
@@ -57,8 +60,7 @@ class SyncSessionServer implements SyncFileTransfer {
   bool get isConnected => _activeSocket != null;
   Map<String, String> get peerManifest => _peerManifest;
 
-  void Function(SyncPeerInfo peer, bool wasPairedBefore, bool waitForPhone)?
-      onPeerConnected;
+  void Function(SyncPeerInfo peer, bool wasPairedBefore)? onPeerConnected;
   void Function()? onPeerDisconnected;
   void Function(SyncChangeSet changeSet)? onChangeSet;
   void Function(String message)? onError;
@@ -154,7 +156,6 @@ class SyncSessionServer implements SyncFileTransfer {
             }
             _peerHasBaseline = message.hasBaseline;
             _phoneWorkspaceId = message.stringWorkspaceId ?? '';
-            _peerSessionMode = _parseSessionMode(message.stringSessionMode);
             _activePeer = SyncPeerInfo(
               workspaceId: _phoneWorkspaceId.isNotEmpty
                   ? _phoneWorkspaceId
@@ -168,21 +169,14 @@ class SyncSessionServer implements SyncFileTransfer {
               localHadBaseline: localHadBaseline,
               peerHadBaseline: message.hasBaseline,
             );
-            final waitForPhone = session_compute.desktopWaitsForPhone(
-              sessionMode: _peerSessionMode,
-              phoneWorkspaceId: _phoneWorkspaceId,
-              desktopWorkspaceId: workspace.id,
-              localHadBaseline: localHadBaseline,
-              peerHadBaseline: message.hasBaseline,
-            );
             _send(SyncMessage.helloAck(
               workspaceId: workspace.id,
               workspaceName: workspace.name,
               displayName: desktopName,
               hasBaseline: localHadBaseline,
             ));
-            _send(SyncMessage.manifest(localManifest));
-            onPeerConnected?.call(_activePeer!, wasPaired, waitForPhone);
+            _send(SyncMessage.manifest(_localManifest));
+            onPeerConnected?.call(_activePeer!, wasPaired);
             _status = SyncServerStatus.connected;
             break;
           case SyncMessageType.manifest:
@@ -200,8 +194,8 @@ class SyncSessionServer implements SyncFileTransfer {
             await _applyRemoteResult(message);
             if (manifest.isNotEmpty) {
               await _persistBaseline(manifest);
-              await _emitChangeSet();
             }
+            await refreshManifest();
             onRemoteApplied?.call();
             break;
           case SyncMessageType.bye:
@@ -223,12 +217,17 @@ class SyncSessionServer implements SyncFileTransfer {
     );
   }
 
+  Future<void> refreshManifest() async {
+    _localManifest = await buildSyncManifest(workspaceRoot);
+    await _emitChangeSet();
+  }
+
   Future<void> _emitChangeSet() async {
     final state = await storage.readSyncState();
     final baseline = state?.baseline ?? const <String, String>{};
     final changeSet = session_compute.computeSessionChangeSet(
       baseline: baseline,
-      local: localManifest,
+      local: _localManifest,
       peer: _peerManifest,
       peerHasBaseline: _peerHasBaseline,
     );
@@ -356,14 +355,6 @@ String _generateToken(Random random) {
     kSyncTokenLength,
     (_) => kSyncTokenAlphabet[random.nextInt(kSyncTokenAlphabet.length)],
   ).join();
-}
-
-SyncSessionMode _parseSessionMode(String? wire) {
-  if (wire == null || wire.isEmpty) return SyncSessionMode.incremental;
-  for (final mode in SyncSessionMode.values) {
-    if (mode.name == wire) return mode;
-  }
-  return SyncSessionMode.incremental;
 }
 
 Future<String?> resolveLanIpv4() async {

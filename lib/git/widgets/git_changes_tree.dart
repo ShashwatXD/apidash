@@ -16,6 +16,7 @@ class GitChangesTree extends StatefulWidget {
     required this.busy,
     required this.onSelectionChanged,
     required this.onFilePreview,
+    this.enableSelection = true,
   });
 
   final List<GitTreeNode> roots;
@@ -24,6 +25,7 @@ class GitChangesTree extends StatefulWidget {
   final bool busy;
   final ValueChanged<Set<String>> onSelectionChanged;
   final ValueChanged<GitChange> onFilePreview;
+  final bool enableSelection;
 
   @override
   State<GitChangesTree> createState() => _GitChangesTreeState();
@@ -114,33 +116,37 @@ class _GitChangesTreeState extends State<GitChangesTree> {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(6),
-            onTap: widget.busy
-                ? null
-                : () => _toggleSelectAll(!(_selectAllState ?? false)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-              child: Row(
-                children: [
-                  _SelectionRing(
-                    selected: _selectAllState == true,
-                    partial: _selectAllState == null,
-                    onTap: widget.busy
-                        ? null
-                        : () => _toggleSelectAll(!(_selectAllState ?? false)),
+          child: widget.enableSelection
+              ? InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: widget.busy
+                      ? null
+                      : () => _toggleSelectAll(!(_selectAllState ?? false)),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    child: Row(
+                      children: [
+                        _SelectionRing(
+                          selected: _selectAllState == true,
+                          partial: _selectAllState == null,
+                          onTap: widget.busy
+                              ? null
+                              : () =>
+                                  _toggleSelectAll(!(_selectAllState ?? false)),
+                        ),
+                        kHSpacer6,
+                        Text(
+                          kLabelSelectAll,
+                          style: textTheme.labelSmall,
+                        ),
+                      ],
+                    ),
                   ),
-                  kHSpacer6,
-                  Text(
-                    kLabelSelectAll,
-                    style: textTheme.labelSmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
+                )
+              : const SizedBox.shrink(),
         ),
-        const Divider(height: 1),
+        if (widget.enableSelection) const Divider(height: 1),
         Expanded(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
@@ -155,6 +161,7 @@ class _GitChangesTreeState extends State<GitChangesTree> {
                   selectedPaths: widget.selectedPaths,
                   previewPath: widget.previewPath,
                   busy: widget.busy,
+                  enableSelection: widget.enableSelection,
                   onToggleExpand: (path) {
                     setState(() {
                       if (_expanded.contains(path)) {
@@ -186,6 +193,7 @@ class _TreeNodeTile extends StatelessWidget {
     required this.selectedPaths,
     required this.previewPath,
     required this.busy,
+    required this.enableSelection,
     required this.onToggleExpand,
     required this.onToggleFolder,
     required this.onToggleFile,
@@ -200,6 +208,7 @@ class _TreeNodeTile extends StatelessWidget {
   final Set<String> selectedPaths;
   final String? previewPath;
   final bool busy;
+  final bool enableSelection;
   final ValueChanged<String> onToggleExpand;
   final void Function(GitTreeNode folder, bool? value) onToggleFolder;
   final void Function(String path, bool selected) onToggleFile;
@@ -232,17 +241,18 @@ class _TreeNodeTile extends StatelessWidget {
                       isLast: isLast,
                       color: guideColor,
                     ),
-                  _SelectionRing(
-                    selected: checkState == true,
-                    partial: checkState == null,
-                    onTap: busy
-                        ? null
-                        : () => onToggleFolder(
-                              node,
-                              checkState == true ? false : true,
-                            ),
-                  ),
-                  kHSpacer4,
+                  if (enableSelection)
+                    _SelectionRing(
+                      selected: checkState == true,
+                      partial: checkState == null,
+                      onTap: busy
+                          ? null
+                          : () => onToggleFolder(
+                                node,
+                                checkState == true ? false : true,
+                              ),
+                    ),
+                  if (enableSelection) kHSpacer4,
                   Icon(
                     isOpen
                         ? Icons.folder_open_rounded
@@ -282,6 +292,7 @@ class _TreeNodeTile extends StatelessWidget {
                 selectedPaths: selectedPaths,
                 previewPath: previewPath,
                 busy: busy,
+                enableSelection: enableSelection,
                 onToggleExpand: onToggleExpand,
                 onToggleFolder: onToggleFolder,
                 onToggleFile: onToggleFile,
@@ -317,13 +328,14 @@ class _TreeNodeTile extends StatelessWidget {
                     isLast: isLast,
                     color: guideColor,
                   ),
-                _SelectionRing(
-                  selected: isSelected,
-                  onTap: busy
-                      ? null
-                      : () => onToggleFile(node.path, !isSelected),
-                ),
-                kHSpacer4,
+                if (enableSelection)
+                  _SelectionRing(
+                    selected: isSelected,
+                    onTap: busy
+                        ? null
+                        : () => onToggleFile(node.path, !isSelected),
+                  ),
+                if (enableSelection) kHSpacer4,
                 Expanded(
                   child: Tooltip(
                     message: change.path,

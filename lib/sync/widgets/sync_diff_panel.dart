@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../consts.dart';
 import '../models/sync_models.dart';
+import '../storage/sync_storage.dart';
 import '../sync_workspace_io.dart';
 import '../transport/sync_file_transfer.dart';
 
@@ -18,13 +19,21 @@ class SyncDiffPanel extends ConsumerStatefulWidget {
     super.key,
     required this.change,
     required this.workspaceRoot,
+    this.storage,
+    required this.localManifest,
+    required this.peerManifest,
     required this.transfer,
+    required this.directionMode,
     this.isHost = false,
   });
 
   final SyncFileChange? change;
   final String workspaceRoot;
+  final SyncStorage? storage;
+  final Map<String, String> localManifest;
+  final Map<String, String> peerManifest;
   final SyncFileTransfer? transfer;
+  final SyncDirectionMode directionMode;
   final bool isHost;
 
   @override
@@ -33,12 +42,12 @@ class SyncDiffPanel extends ConsumerStatefulWidget {
 
 class _LoadedDiff {
   const _LoadedDiff({
-    required this.localContent,
-    required this.peerContent,
+    required this.baselineContent,
+    required this.currentContent,
   });
 
-  final String? localContent;
-  final String? peerContent;
+  final String? baselineContent;
+  final String? currentContent;
 }
 
 class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
@@ -46,13 +55,24 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
   Future<_LoadedDiff>? _loadFuture;
   _LoadedDiff? _cached;
   String? _loadedPath;
+  SyncDirectionMode? _loadedMode;
 
   @override
   void didUpdateWidget(SyncDiffPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.change?.path != oldWidget.change?.path) {
+    if (widget.change?.path != oldWidget.change?.path ||
+        widget.directionMode != oldWidget.directionMode ||
+        widget.storage != oldWidget.storage) {
       _scheduleLoad();
     }
+  }
+
+  String get _currentColumnLabel {
+    return switch (widget.directionMode) {
+      SyncDirectionMode.send => kLabelSyncDiffLocal,
+      SyncDirectionMode.receive =>
+        widget.isHost ? kLabelSyncDiffPeerPhone : kLabelSyncDiffPeerComputer,
+    };
   }
 
   @override
@@ -70,13 +90,28 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
         _loadFuture = null;
         _cached = null;
         _loadedPath = null;
+        _loadedMode = null;
       });
       return;
     }
-    if (change.path == _loadedPath && _cached != null) return;
+    if (widget.storage == null) {
+      setState(() {
+        _loadFuture = null;
+        _cached = null;
+        _loadedPath = change.path;
+        _loadedMode = widget.directionMode;
+      });
+      return;
+    }
+    if (change.path == _loadedPath &&
+        _loadedMode == widget.directionMode &&
+        _cached != null) {
+      return;
+    }
 
     setState(() {
       _loadedPath = change.path;
+      _loadedMode = widget.directionMode;
       _useVisualDiff = _supportsVisualDiff(change.path);
       _loadFuture = _load(change).then((result) {
         if (mounted) setState(() => _cached = result);
@@ -86,7 +121,19 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
   }
 
   Future<_LoadedDiff> _load(SyncFileChange change) async {
+    final storage = widget.storage;
+    if (storage == null) {
+      return const _LoadedDiff(
+        baselineContent: null,
+        currentContent: null,
+      );
+    }
     final transfer = widget.transfer;
+    final state = await storage.readSyncState();
+    final baseline = state?.baseline ?? const <String, String>{};
+    final baselineHash = baseline[change.path];
+    final localHash = widget.localManifest[change.path];
+    final peerHash = widget.peerManifest[change.path];
 
     String? local;
     if (_shouldLoadLocal(change)) {
@@ -98,23 +145,56 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
       peer = await transfer.fetchPeerFile(change.path);
     }
 
-    return _LoadedDiff(localContent: local, peerContent: peer);
+    final baselineContent = _resolveBaselineContent(
+      baselineHash: baselineHash,
+      localHash: localHash,
+      peerHash: peerHash,
+      localContent: local,
+      peerContent: peer,
+      kind: change.kind,
+    );
+
+    final currentContent = switch (widget.directionMode) {
+      SyncDirectionMode.send => local,
+      SyncDirectionMode.receive => peer,
+    };
+
+    return _LoadedDiff(
+      baselineContent: baselineContent,
+      currentContent: currentContent,
+    );
+  }
+
+  String? _resolveBaselineContent({
+    required String? baselineHash,
+    required String? localHash,
+    required String? peerHash,
+    required String? localContent,
+    required String? peerContent,
+    required SyncFileChangeKind kind,
+  }) {
+    if (kind == SyncFileChangeKind.added || baselineHash == null) {
+      return null;
+    }
+    if (localHash == baselineHash) return localContent;
+    if (peerHash == baselineHash) return peerContent;
+    return null;
   }
 
   bool _shouldLoadLocal(SyncFileChange change) {
-    return switch ((change.direction, change.kind)) {
-      (SyncChangeDirection.incoming, SyncFileChangeKind.added) => false,
-      (SyncChangeDirection.outgoing, SyncFileChangeKind.deleted) => false,
-      _ => true,
-    };
+    if (change.kind == SyncFileChangeKind.deleted &&
+        widget.directionMode == SyncDirectionMode.send) {
+      return false;
+    }
+    return true;
   }
 
   bool _shouldLoadPeer(SyncFileChange change) {
-    return switch ((change.direction, change.kind)) {
-      (SyncChangeDirection.incoming, SyncFileChangeKind.deleted) => false,
-      (SyncChangeDirection.outgoing, SyncFileChangeKind.added) => false,
-      _ => true,
-    };
+    if (change.kind == SyncFileChangeKind.deleted &&
+        widget.directionMode == SyncDirectionMode.receive) {
+      return false;
+    }
+    return true;
   }
 
   bool _supportsVisualDiff(String path) {
@@ -156,20 +236,21 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
       );
     }
 
-    if (_loadFuture != null && _cached == null) {
+    if (widget.storage == null ||
+        (_loadFuture != null && _cached == null)) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2.5));
     }
 
     final loaded = _cached;
-    final localContent = loaded?.localContent;
-    final peerContent = loaded?.peerContent;
+    final baselineContent = loaded?.baselineContent;
+    final currentContent = loaded?.currentContent;
     final fileKind = detectGitDiffFileKind(change.path);
     final supportsVisual = _supportsVisualDiff(change.path);
     final snapshots = GitDiffSnapshots(
-      headRaw: localContent,
-      currentRaw: peerContent,
-      headJson: parseJsonMap(localContent),
-      currentJson: parseJsonMap(peerContent),
+      headRaw: baselineContent,
+      currentRaw: currentContent,
+      headJson: parseJsonMap(baselineContent),
+      currentJson: parseJsonMap(currentContent),
     );
     final fileName = change.path.split('/').last;
 
@@ -234,8 +315,8 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _buildDiffBody(
               change: change,
-              localContent: localContent,
-              peerContent: peerContent,
+              baselineContent: baselineContent,
+              currentContent: currentContent,
               fileKind: fileKind,
               snapshots: snapshots,
               supportsVisual: supportsVisual,
@@ -250,8 +331,8 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
 
   Widget _buildDiffBody({
     required SyncFileChange change,
-    required String? localContent,
-    required String? peerContent,
+    required String? baselineContent,
+    required String? currentContent,
     required GitDiffFileKind fileKind,
     required GitDiffSnapshots snapshots,
     required bool supportsVisual,
@@ -265,15 +346,14 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
       );
     }
 
-    final rawDiff = _buildRawDiff(localContent, peerContent);
+    final rawDiff = _buildRawDiff(baselineContent, currentContent);
     if (rawDiff.trim().isNotEmpty) {
       final rows = parseDiffRows(rawDiff);
       if (rows.isNotEmpty) {
         return _SyncRawDiffView(
           rows: rows,
-          peerColumnLabel: widget.isHost
-              ? kLabelSyncDiffPeerPhone
-              : kLabelSyncDiffPeerComputer,
+          baselineColumnLabel: kLabelSyncDiffBaseline,
+          currentColumnLabel: _currentColumnLabel,
         );
       }
     }
@@ -294,24 +374,24 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
       children: [
         Expanded(
           child: GitJsonFallbackColumn(
-            raw: localContent,
-            fieldKey: 'sync-local-${change.path}',
+            raw: baselineContent,
+            fieldKey: 'sync-baseline-${change.path}',
           ),
         ),
         kHSpacer8,
         Expanded(
           child: GitJsonFallbackColumn(
-            raw: peerContent,
-            fieldKey: 'sync-peer-${change.path}',
+            raw: currentContent,
+            fieldKey: 'sync-current-${change.path}',
           ),
         ),
       ],
     );
   }
 
-  String _buildRawDiff(String? local, String? peer) {
-    final leftLines = _lines(local);
-    final rightLines = _lines(peer);
+  String _buildRawDiff(String? baseline, String? current) {
+    final leftLines = _lines(baseline);
+    final rightLines = _lines(current);
     final rows = <String>[];
 
     final maxLen = leftLines.length > rightLines.length
@@ -339,11 +419,13 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
 class _SyncRawDiffView extends StatelessWidget {
   const _SyncRawDiffView({
     required this.rows,
-    required this.peerColumnLabel,
+    required this.baselineColumnLabel,
+    required this.currentColumnLabel,
   });
 
   final List<DiffRow> rows;
-  final String peerColumnLabel;
+  final String baselineColumnLabel;
+  final String currentColumnLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -370,7 +452,7 @@ class _SyncRawDiffView extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      kLabelSyncDiffLocal,
+                      baselineColumnLabel,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                             fontWeight: FontWeight.w600,
@@ -379,7 +461,7 @@ class _SyncRawDiffView extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      peerColumnLabel,
+                      currentColumnLabel,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                             fontWeight: FontWeight.w600,

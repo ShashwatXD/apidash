@@ -3,8 +3,7 @@ const kLabelSyncScanQr =
     'Open API Dash on your phone and scan this QR to connect.';
 const kLabelSyncWaitingForPhone = 'Waiting for phone…';
 const kLabelSyncConnectedTo = 'Connected';
-const kLabelSyncApplyChanges = 'Apply changes';
-const kLabelSyncApplyAndSync = 'Apply & sync';
+const kLabelSyncUpdate = 'Update';
 const kLabelSyncAlreadyInSync = 'Already in sync';
 const kLabelSyncDiscardSession = 'Discard';
 const kLabelSyncWaitingForChanges =
@@ -12,16 +11,24 @@ const kLabelSyncWaitingForChanges =
 const kLabelSyncSelectFile = 'Select a file to preview changes';
 const kLabelSyncQrPlaceholder = 'QR code will appear here';
 const kLabelSyncDiffLocal = 'Your edits';
+const kLabelSyncDiffBaseline = 'Last synced';
 const kLabelSyncDiffPeerPhone = 'From phone';
 const kLabelSyncDiffPeerComputer = 'From computer';
-const kLabelSyncNoChanges = 'No changes to review';
-const kLabelSyncIncomingFromPhone = 'From phone';
-const kLabelSyncFromDesktop = 'From computer';
-const kLabelSyncConflicts = 'Conflicts';
+const kLabelSyncNoChanges = 'No changes in this direction';
+const kLabelSyncSend = 'Send';
+const kLabelSyncReceive = 'Receive';
+const kLabelSyncSendingToPhone = 'Sending to phone';
+const kLabelSyncSendingToComputer = 'Sending to computer';
+const kLabelSyncReceivingFromPhone = 'Receiving from phone';
+const kLabelSyncReceivingFromComputer = 'Receiving from computer';
+const kLabelSyncUpdatePhone = 'Update phone';
+const kLabelSyncUpdateComputer = 'Update computer';
+const kLabelSyncUpdateFromPhone = 'Update from phone';
+const kLabelSyncUpdateFromComputer = 'Update from computer';
+const kLabelSyncUpdating = 'Updating…';
 const kLabelSyncSwitchAndSync = 'Switch & sync';
-const kLabelSyncPairedBefore = 'Paired before - changes sync both ways.';
+const kLabelSyncPairedBefore = 'Paired before - use Send or Receive to sync.';
 const kLabelSyncFirstPair = 'First time pairing';
-const kLabelSyncApplying = 'Applying changes…';
 const kLabelSyncScanDesktop = 'Scan desktop QR';
 const kLabelSyncConnecting = 'Connecting…';
 const kLabelSyncScanHint = 'Point your camera at the QR on your computer';
@@ -34,14 +41,13 @@ const kLabelSyncAdoptWorkspaceBody =
 const kLabelSyncAdoptWorkspaceConfirm = 'Use for syncing';
 const kLabelSyncAdoptWorkspaceCancel = 'Not now';
 const kLabelSyncClose = 'Close';
-const kLabelSyncContinueOnPhone = 'Continue on phone';
-const kLabelSyncPhoneLeadsHint =
-    'Finish on your phone, nothing to apply on this computer yet.';
-const kLabelSyncWaitingForPhoneApply = 'Waiting for your phone to finish…';
+const kLabelSyncReceiveConfirmTitle = 'Update from peer?';
+const kLabelSyncReceiveConfirmBody =
+    'Files you also edited will be replaced with the peer version.';
 
 // --- Messages ---
 
-const kMsgSyncApplySuccess = 'Sync complete';
+const kMsgSyncUpdateSuccess = 'Update complete';
 const kMsgSyncWorkspaceUpdated = 'Workspace updated from peer';
 
 // --- Errors ---
@@ -52,7 +58,7 @@ const kErrSyncServerStart =
     'Could not start the sync server. Check your network and try again.';
 const kErrSyncNoNetwork =
     'No local network connection found. Connect to Wi-Fi and retry.';
-const kErrSyncApplyFailed = 'Could not apply sync changes';
+const kErrSyncUpdateFailed = 'Could not complete update';
 const kErrSyncSessionExpired = 'Sync session expired. Open sync again.';
 const kErrSyncInvalidQr = 'Not a valid API Dash sync QR code';
 const kErrSyncConnectFailed = 'Could not connect to desktop';

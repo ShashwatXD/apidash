@@ -7,6 +7,9 @@ enum SyncSessionMode {
   workspaceReplace,
 }
 
+/// One-way sync: push local changes (send) or pull peer changes (receive).
+enum SyncDirectionMode { send, receive }
+
 enum SyncFileChangeKind { added, modified, deleted }
 
 enum SyncChangeDirection { incoming, outgoing }
@@ -41,13 +44,17 @@ class SyncChangeSet {
   const SyncChangeSet({
     this.incoming = const [],
     this.outgoing = const [],
-    this.conflicts = const [],
+    this.overlappingPaths = const {},
   });
 
+  /// Peer changed since baseline — used in [SyncDirectionMode.receive].
   final List<SyncFileChange> incoming;
-  final List<SyncFileChange> outgoing;
-  final List<SyncFileChange> conflicts;
 
-  bool get isEmpty =>
-      incoming.isEmpty && outgoing.isEmpty && conflicts.isEmpty;
+  /// Local changed since baseline — used in [SyncDirectionMode.send].
+  final List<SyncFileChange> outgoing;
+
+  /// Both sides changed the same path to different content — warn on update.
+  final Set<String> overlappingPaths;
+
+  bool get isEmpty => incoming.isEmpty && outgoing.isEmpty;
 }

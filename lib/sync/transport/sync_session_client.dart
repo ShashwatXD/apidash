@@ -4,6 +4,7 @@ import 'dart:io';
 import '../consts.dart';
 import '../models/sync_models.dart';
 import '../storage/sync_storage.dart';
+import '../sync_manifest_builder.dart';
 import '../sync_session_compute.dart';
 import '../sync_workspace_io.dart';
 import 'sync_file_transfer.dart';
@@ -15,17 +16,19 @@ enum SyncClientStatus { idle, connecting, connected, error }
 class SyncSessionClient implements SyncFileTransfer {
   SyncSessionClient({
     required this.storage,
-    required this.localManifest,
+    required Map<String, String> localManifest,
     required this.workspaceRoot,
     required this.qrPayload,
     required this.localDisplayName,
     required this.localWorkspaceId,
     required this.localHasBaseline,
     required this.sessionMode,
-  });
+  }) : _localManifest = localManifest;
+
+  Map<String, String> get localManifest => _localManifest;
 
   final SyncStorage storage;
-  final Map<String, String> localManifest;
+  Map<String, String> _localManifest;
   final String workspaceRoot;
   final SyncQrPayload qrPayload;
   final String localDisplayName;
@@ -108,7 +111,7 @@ class SyncSessionClient implements SyncFileTransfer {
             break;
           case SyncMessageType.manifest:
             _peerManifest = message.readManifest();
-            _send(SyncMessage.manifest(localManifest));
+            _send(SyncMessage.manifest(_localManifest));
             await _emitChangeSet();
             _status = SyncClientStatus.connected;
             break;
@@ -122,6 +125,7 @@ class SyncSessionClient implements SyncFileTransfer {
             final manifest = message.readManifest();
             await _applyRemoteResult(message);
             if (manifest.isNotEmpty) await _persistBaseline(manifest);
+            await refreshManifest();
             onRemoteApplied?.call();
             break;
           case SyncMessageType.error:
@@ -143,13 +147,18 @@ class SyncSessionClient implements SyncFileTransfer {
     );
   }
 
+  Future<void> refreshManifest() async {
+    _localManifest = await buildSyncManifest(workspaceRoot);
+    await _emitChangeSet();
+  }
+
   Future<void> _emitChangeSet() async {
     if (_peer == null) return;
     final state = await storage.readSyncState();
     final baseline = state?.baseline ?? const {};
     final changeSet = computeSessionChangeSet(
       baseline: baseline,
-      local: localManifest,
+      local: _localManifest,
       peer: _peerManifest,
       peerHasBaseline: _peerHasBaseline,
     );
@@ -244,7 +253,7 @@ class SyncSessionClient implements SyncFileTransfer {
       }
     }
     _pendingPeerFiles.clear();
-    if (_status == SyncClientStatus.connected) _status = SyncClientStatus.idle;
+    _status = SyncClientStatus.idle;
     onPeerDisconnected?.call();
   }
 

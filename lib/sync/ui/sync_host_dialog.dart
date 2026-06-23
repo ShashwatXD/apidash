@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:apidash/git/providers/providers.dart';
 import 'package:apidash/providers/providers.dart';
-import 'package:apidash/sync/widgets/sync_changes_panel.dart';
+import 'package:apidash/sync/widgets/sync_direction_panel.dart';
 import 'package:apidash/sync/widgets/sync_diff_panel.dart';
 import 'package:apidash/sync/widgets/sync_info_banner.dart';
 import 'package:apidash/sync/widgets/sync_panel.dart';
@@ -48,7 +48,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   SyncPeerInfo _peer = _emptyPeer;
   WorkspaceIdentity? _workspace;
   SyncChangeSet _changeSet = const SyncChangeSet();
-  final Set<String> _acceptedPaths = {};
+  SyncDirectionMode _directionMode = SyncDirectionMode.send;
   SyncFileChange? _previewChange;
   Map<String, SyncFileChange> _changesByPath = {};
 
@@ -59,14 +59,13 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   bool _starting = true;
   bool _connected = false;
   bool _wasPairedBefore = false;
-  bool _waitForPhone = false;
-  bool _applying = false;
+  bool _updating = false;
   String? _startError;
 
   @override
   void initState() {
     super.initState();
-    _resetChangeSelection(const SyncChangeSet());
+    _rebuildChangesByPath(const SyncChangeSet());
     unawaited(_startSession());
   }
 
@@ -98,11 +97,10 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         workspaceRoot: workspacePath,
         desktopName: syncLocalDisplayName(),
       );
-      server.onPeerConnected = (peer, wasPaired, waitForPhone) => setState(() {
+      server.onPeerConnected = (peer, wasPaired) => setState(() {
         _peer = peer;
         _connected = true;
         _wasPairedBefore = wasPaired;
-        _waitForPhone = waitForPhone;
       });
       server.onPeerDisconnected = () => setState(() => _connected = false);
       server.onChangeSet = _handleChangeSet;
@@ -136,19 +134,16 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   void _handleChangeSet(SyncChangeSet changeSet) {
     setState(() {
       _changeSet = changeSet;
-      _resetChangeSelection(changeSet);
+      _directionMode = defaultDirectionMode(changeSet);
+      _rebuildChangesByPath(changeSet);
     });
   }
 
-  void _resetChangeSelection(SyncChangeSet changeSet) {
+  void _rebuildChangesByPath(SyncChangeSet changeSet) {
     _changesByPath = syncChangesByPath([
       ...changeSet.incoming,
       ...changeSet.outgoing,
-      ...changeSet.conflicts,
     ]);
-    _acceptedPaths
-      ..clear()
-      ..addAll(defaultAcceptedPaths(changeSet));
     _previewChange = null;
   }
 
@@ -163,17 +158,41 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     await refreshGitStatus(ref);
     await invalidateSyncUnsyncedCount(ref);
     if (!mounted) return;
-    setState(() {
-      _changeSet = const SyncChangeSet();
-      _resetChangeSelection(const SyncChangeSet());
-      _wasPairedBefore = true;
-      _waitForPhone = false;
-    });
     ScaffoldMessenger.of(context)
         .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
   }
 
-  Future<void> _apply() async {
+  Future<bool> _confirmReceiveIfNeeded() async {
+    final overlap = overlappingForDirection(_changeSet, SyncDirectionMode.receive);
+    if (overlap.isEmpty) return true;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text(kLabelSyncReceiveConfirmTitle),
+        content: Text(
+          overlapWarningMessage(
+                mode: SyncDirectionMode.receive,
+                overlapping: overlap,
+                isHost: true,
+              ) ??
+              kLabelSyncReceiveConfirmBody,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text(kLabelSyncDiscardSession),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text(kLabelSyncUpdate),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _update() async {
     final server = _server;
     final storage = _storage;
     final workspacePath = _workspacePath;
@@ -181,61 +200,70 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         storage == null ||
         workspacePath == null ||
         !_connected ||
-        _applying) {
+        _updating) {
       return;
     }
 
-    if (!sessionHasWork(_changeSet, _acceptedPaths)) {
-      Navigator.of(context).pop();
-      return;
+    final changes = changesForDirection(_changeSet, _directionMode);
+    if (changes.isEmpty) return;
+
+    if (_directionMode == SyncDirectionMode.receive) {
+      final confirmed = await _confirmReceiveIfNeeded();
+      if (!confirmed || !mounted) return;
     }
 
-    setState(() => _applying = true);
+    setState(() => _updating = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
-      final result = await applySyncSession(
-        workspaceRoot: workspacePath,
-        storage: storage,
-        peer: _peer,
-        changeSet: _changeSet,
-        acceptedPaths: _acceptedPaths,
-        transfer: server,
-        peerManifest: server.peerManifest,
-      );
+
+      final SyncApplyResult result;
+      if (_directionMode == SyncDirectionMode.send) {
+        result = await applySend(
+          workspaceRoot: workspacePath,
+          storage: storage,
+          peer: _peer,
+          outgoing: changes,
+          transfer: server,
+          peerManifest: server.peerManifest,
+        );
+      } else {
+        result = await applyReceive(
+          workspaceRoot: workspacePath,
+          storage: storage,
+          peer: _peer,
+          incoming: changes,
+          transfer: server,
+          peerManifest: server.peerManifest,
+        );
+      }
+
+      await server.refreshManifest();
       await reloadWorkspaceFromDisk(ref);
       await refreshGitStatus(ref);
       await invalidateSyncUnsyncedCount(ref);
       if (!mounted) return;
-      Navigator.of(context).pop();
+      setState(() => _updating = false);
       messenger.showSnackBar(
         getSnackBar(
-          '$kMsgSyncApplySuccess '
-          '(${result.appliedIncoming} from phone, ${result.sentOutgoing} to phone)',
+          _directionMode == SyncDirectionMode.send
+              ? '$kMsgSyncUpdateSuccess (${result.sentOutgoing} to phone)'
+              : '$kMsgSyncUpdateSuccess (${result.appliedIncoming} from phone)',
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _applying = false);
-      messenger.showSnackBar(getSnackBar('$kErrSyncApplyFailed: $e'));
+      setState(() => _updating = false);
+      messenger.showSnackBar(getSnackBar('$kErrSyncUpdateFailed: $e'));
     }
-  }
-
-  String _applyButtonLabel(bool canApply) {
-    if (_applying) return kLabelSyncApplying;
-    if (!canApply) return kLabelSyncAlreadyInSync;
-    if (_acceptedPaths.isEmpty) return kLabelSyncApplyChanges;
-    return '$kLabelSyncApplyChanges (${_acceptedPaths.length})';
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final incoming = _changeSet.incoming;
-    final conflicts = _changeSet.conflicts;
-    final hasWork = sessionHasWork(_changeSet, _acceptedPaths);
-    final canApply = _connected && hasWork && !_applying && !_waitForPhone;
+    final activeChanges = changesForDirection(_changeSet, _directionMode);
+    final canUpdate = _connected && activeChanges.isNotEmpty && !_updating;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
@@ -276,7 +304,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                         ],
                       ),
                     ),
-                    if (_applying)
+                    if (_updating)
                       const Padding(
                         padding: EdgeInsets.only(right: 8),
                         child: SizedBox(
@@ -286,7 +314,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                         ),
                       ),
                     IconButton(
-                      onPressed: _applying ? null : () => Navigator.pop(context),
+                      onPressed: _updating ? null : () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded),
                       tooltip: kLabelSyncClose,
                     ),
@@ -324,19 +352,14 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                       SizedBox(
                         width: 300,
                         child: SyncPanel(
-                          child: SyncChangesPanel(
+                          child: SyncDirectionPanel(
                             isConnected: _connected,
-                            incoming: incoming,
-                            conflicts: conflicts,
-                            acceptedPaths: _acceptedPaths,
+                            isHost: true,
+                            changeSet: _changeSet,
+                            directionMode: _directionMode,
                             previewPath: _previewChange?.path,
-                            waitForPhone: _waitForPhone,
-                            onSelectionChanged: (paths) {
-                              setState(() {
-                                _acceptedPaths
-                                  ..clear()
-                                  ..addAll(paths);
-                              });
+                            onDirectionModeChanged: (mode) {
+                              setState(() => _directionMode = mode);
                             },
                             onFilePreview: (change) {
                               setState(() {
@@ -356,7 +379,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                                 Align(
                                   alignment: Alignment.centerLeft,
                                   child: IconButton(
-                                    onPressed: _applying
+                                    onPressed: _updating
                                         ? null
                                         : () => setState(
                                               () => _previewChange = null,
@@ -373,7 +396,13 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                                 child: SyncDiffPanel(
                                   change: _previewChange,
                                   workspaceRoot: _workspacePath ?? '',
+                                  storage: _storage,
+                                  localManifest:
+                                      _server?.localManifest ?? const {},
+                                  peerManifest:
+                                      _server?.peerManifest ?? const {},
                                   transfer: _server,
+                                  directionMode: _directionMode,
                                   isHost: true,
                                 ),
                               ),
@@ -390,25 +419,23 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                      const Spacer(),
+                    const Spacer(),
                     TextButton(
-                      onPressed: _applying ? null : () => Navigator.pop(context),
+                      onPressed: _updating ? null : () => Navigator.pop(context),
                       child: const Text(kLabelSyncDiscardSession),
                     ),
                     kHSpacer8,
-                    if (_waitForPhone)
-                      Text(
-                        kLabelSyncContinueOnPhone,
-                        style: textTheme.titleSmall?.copyWith(
-                          color: scheme.primary,
-                          fontWeight: FontWeight.w600,
+                    FilledButton(
+                      onPressed: canUpdate ? _update : null,
+                      child: Text(
+                        updateButtonLabel(
+                          mode: _directionMode,
+                          isHost: true,
+                          count: activeChanges.length,
+                          updating: _updating,
                         ),
-                      )
-                    else
-                      FilledButton(
-                        onPressed: canApply ? _apply : null,
-                        child: Text(_applyButtonLabel(canApply)),
                       ),
+                    ),
                   ],
                 ),
               ),

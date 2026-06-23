@@ -103,11 +103,12 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
         _workspacePath = workspacePath;
         _connecting = false;
       });
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint('SyncAdoptWorkspaceSheet._connect failed: $e\n$st');
       if (!mounted) return;
       setState(() {
         _connecting = false;
-        _error = kErrSyncConnectFailed;
+        _error = '$kErrSyncConnectFailed ($e)';
       });
     }
   }
@@ -158,7 +159,7 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
       if (!mounted) return;
       setState(() => _applying = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        getSnackBar('$kErrSyncApplyFailed: $e'),
+        getSnackBar('$kErrSyncUpdateFailed: $e'),
       );
     }
   }
@@ -172,7 +173,6 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final fileCount = _changeSet.incoming.length + _changeSet.conflicts.length;
     final canApply = _connected && !_applying && _error == null;
 
     return SafeArea(

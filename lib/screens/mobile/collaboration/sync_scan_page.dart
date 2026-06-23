@@ -66,6 +66,10 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     final workspacePath = resolveSyncWorkspaceRoot(ref);
     if (workspacePath == null) {
       _handled = false;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        getSnackBar(kErrSyncNoWorkspace),
+      );
       return;
     }
 
@@ -99,7 +103,7 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     if (!mounted) return;
     if (adopted == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        getSnackBar(kMsgSyncApplySuccess),
+        getSnackBar(kMsgSyncUpdateSuccess),
       );
       Navigator.pop(context);
     } else {

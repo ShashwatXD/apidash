@@ -1,6 +1,11 @@
 import 'models/sync_models.dart';
 
 /// Compares [baseline] (last agreed sync) with [local] and [peer] manifests.
+///
+/// [incoming] = peer changed since baseline (receive list).
+/// [outgoing] = local changed since baseline (send list).
+/// When both changed the same path it appears in both lists; divergent
+/// content is tracked in [overlappingPaths] for overwrite warnings.
 SyncChangeSet computeSyncChangeSet({
   required Map<String, String> baseline,
   required Map<String, String> local,
@@ -9,7 +14,7 @@ SyncChangeSet computeSyncChangeSet({
 }) {
   final incoming = <SyncFileChange>[];
   final outgoing = <SyncFileChange>[];
-  final conflicts = <SyncFileChange>[];
+  final overlappingPaths = <String>{};
 
   final paths = <String>{
     ...baseline.keys,
@@ -22,20 +27,8 @@ SyncChangeSet computeSyncChangeSet({
     final localHash = local[path];
     final peerHash = peer[path];
 
-    // Peer never synced: missing paths are not peer edits — only local vs baseline.
     if (!peerHasBaseline && peerHash == null) {
-      final hostChanged = localHash != baseHash;
-      if (!hostChanged) {
-        if (baseHash != null) {
-          outgoing.add(
-            SyncFileChange(
-              path: path,
-              kind: _kindForHostChange(baseHash, localHash),
-              direction: SyncChangeDirection.outgoing,
-            ),
-          );
-        }
-      } else {
+      if (localHash != baseHash) {
         outgoing.add(
           SyncFileChange(
             path: path,
@@ -47,20 +40,13 @@ SyncChangeSet computeSyncChangeSet({
       continue;
     }
 
-    final hostChanged = localHash != baseHash;
+    final localChanged = localHash != baseHash;
     final peerChanged = peerHash != baseHash;
 
-    if (!hostChanged && !peerChanged) continue;
+    if (!localChanged && !peerChanged) continue;
 
-    if (hostChanged && peerChanged) {
-      conflicts.add(
-        SyncFileChange(
-          path: path,
-          kind: _kindForPath(baseHash, localHash, peerHash),
-          direction: SyncChangeDirection.incoming,
-        ),
-      );
-      continue;
+    if (localChanged && peerChanged && localHash != peerHash) {
+      overlappingPaths.add(path);
     }
 
     if (peerChanged) {
@@ -71,33 +57,24 @@ SyncChangeSet computeSyncChangeSet({
           direction: SyncChangeDirection.incoming,
         ),
       );
-      continue;
     }
 
-    outgoing.add(
-      SyncFileChange(
-        path: path,
-        kind: _kindForHostChange(baseHash, localHash),
-        direction: SyncChangeDirection.outgoing,
-      ),
-    );
+    if (localChanged) {
+      outgoing.add(
+        SyncFileChange(
+          path: path,
+          kind: _kindForHostChange(baseHash, localHash),
+          direction: SyncChangeDirection.outgoing,
+        ),
+      );
+    }
   }
 
   return SyncChangeSet(
     incoming: incoming,
     outgoing: outgoing,
-    conflicts: conflicts,
+    overlappingPaths: overlappingPaths,
   );
-}
-
-SyncFileChangeKind _kindForPath(
-  String? baseline,
-  String? local,
-  String? peer,
-) {
-  if (baseline == null) return SyncFileChangeKind.added;
-  if (local == null || peer == null) return SyncFileChangeKind.deleted;
-  return SyncFileChangeKind.modified;
 }
 
 SyncFileChangeKind _kindForPeerChange(String? baseline, String? peer) {

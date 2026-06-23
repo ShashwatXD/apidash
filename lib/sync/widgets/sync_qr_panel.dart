@@ -15,6 +15,7 @@ class SyncQrPanel extends StatelessWidget {
     required this.connected,
     required this.peerDisplayName,
     required this.wasPairedBefore,
+    this.isHost = false,
   });
 
   final bool starting;
@@ -23,6 +24,7 @@ class SyncQrPanel extends StatelessWidget {
   final bool connected;
   final String peerDisplayName;
   final bool wasPairedBefore;
+  final bool isHost;
 
   @override
   Widget build(BuildContext context) {
@@ -80,6 +82,7 @@ class SyncQrPanel extends StatelessWidget {
             connected: connected,
             peerDisplayName: peerDisplayName,
             wasPairedBefore: wasPairedBefore,
+            isHost: isHost,
           ),
         ],
       ),

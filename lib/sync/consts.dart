@@ -29,6 +29,10 @@ const kLabelSyncUpdating = 'Updating…';
 const kLabelSyncSwitchAndSync = 'Switch & sync';
 const kLabelSyncPairedBefore = 'Paired before - use Send or Receive to sync.';
 const kLabelSyncFirstPair = 'First time pairing';
+const kLabelSyncFirstPairDesktop = 'First time connection';
+const kLabelSyncFirstPairDesktopHint = 'Finish setup on your phone';
+const kLabelSyncFirstPairDesktopBody =
+    'Your phone will ask to use this workspace. Confirm there and tap Switch & sync to finish.';
 const kLabelSyncScanDesktop = 'Scan desktop QR';
 const kLabelSyncConnecting = 'Connecting…';
 const kLabelSyncScanHint = 'Point your camera at the QR on your computer';

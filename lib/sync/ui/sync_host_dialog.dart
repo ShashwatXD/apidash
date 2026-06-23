@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:apidash/git/providers/providers.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/sync/widgets/sync_host_first_pair_panel.dart';
 import 'package:apidash/sync/widgets/sync_direction_panel.dart';
 import 'package:apidash/sync/widgets/sync_diff_panel.dart';
 import 'package:apidash/sync/widgets/sync_info_banner.dart';
@@ -60,6 +61,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   bool _connected = false;
   bool _wasPairedBefore = false;
   bool _updating = false;
+  bool _sessionEnded = false;
   String? _startError;
 
   @override
@@ -158,8 +160,24 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     await refreshGitStatus(ref);
     await invalidateSyncUnsyncedCount(ref);
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
+    await _endSessionAfterUpdate(
+      successMessage: kMsgSyncWorkspaceUpdated,
+    );
+  }
+
+  Future<void> _endSessionAfterUpdate({String? successMessage}) async {
+    if (_sessionEnded || !mounted) return;
+    _sessionEnded = true;
+
+    if (successMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(getSnackBar(successMessage));
+    }
+
+    final server = _server;
+    _server = null;
+    await server?.stop();
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Future<bool> _confirmReceiveIfNeeded() async {
@@ -243,13 +261,10 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       await refreshGitStatus(ref);
       await invalidateSyncUnsyncedCount(ref);
       if (!mounted) return;
-      setState(() => _updating = false);
-      messenger.showSnackBar(
-        getSnackBar(
-          _directionMode == SyncDirectionMode.send
-              ? '$kMsgSyncUpdateSuccess (${result.sentOutgoing} to phone)'
-              : '$kMsgSyncUpdateSuccess (${result.appliedIncoming} from phone)',
-        ),
+      await _endSessionAfterUpdate(
+        successMessage: _directionMode == SyncDirectionMode.send
+            ? '$kMsgSyncUpdateSuccess (${result.sentOutgoing} to phone)'
+            : '$kMsgSyncUpdateSuccess (${result.appliedIncoming} from phone)',
       );
     } catch (e) {
       if (!mounted) return;
@@ -263,7 +278,9 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final activeChanges = changesForDirection(_changeSet, _directionMode);
-    final canUpdate = _connected && activeChanges.isNotEmpty && !_updating;
+    final isFirstPair = _connected && !_wasPairedBefore;
+    final canUpdate =
+        _connected && activeChanges.isNotEmpty && !_updating && !isFirstPair;
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
@@ -345,71 +362,84 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                             connected: _connected,
                             peerDisplayName: _peer.displayName,
                             wasPairedBefore: _wasPairedBefore,
-                          ),
-                        ),
-                      ),
-                      kHSpacer10,
-                      SizedBox(
-                        width: 300,
-                        child: SyncPanel(
-                          child: SyncDirectionPanel(
-                            isConnected: _connected,
                             isHost: true,
-                            changeSet: _changeSet,
-                            directionMode: _directionMode,
-                            previewPath: _previewChange?.path,
-                            onDirectionModeChanged: (mode) {
-                              setState(() => _directionMode = mode);
-                            },
-                            onFilePreview: (change) {
-                              setState(() {
-                                _previewChange = _changesByPath[change.path];
-                              });
-                            },
                           ),
                         ),
                       ),
                       kHSpacer10,
-                      Expanded(
-                        child: SyncPanel(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (_previewChange != null)
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: IconButton(
-                                    onPressed: _updating
-                                        ? null
-                                        : () => setState(
-                                              () => _previewChange = null,
-                                            ),
-                                    icon: const Icon(
-                                      Icons.arrow_back_rounded,
-                                      size: 20,
+                      if (isFirstPair)
+                        Expanded(
+                          child: SyncPanel(
+                            child: SyncHostFirstPairPanel(
+                              workspaceName: _workspace?.name ?? '',
+                              fileCount: _server?.localManifest.length ?? 0,
+                              peerDisplayName: _peer.displayName,
+                            ),
+                          ),
+                        )
+                      else ...[
+                        SizedBox(
+                          width: 300,
+                          child: SyncPanel(
+                            child: SyncDirectionPanel(
+                              isConnected: _connected,
+                              isHost: true,
+                              changeSet: _changeSet,
+                              directionMode: _directionMode,
+                              previewPath: _previewChange?.path,
+                              onDirectionModeChanged: (mode) {
+                                setState(() => _directionMode = mode);
+                              },
+                              onFilePreview: (change) {
+                                setState(() {
+                                  _previewChange = _changesByPath[change.path];
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                        kHSpacer10,
+                        Expanded(
+                          child: SyncPanel(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_previewChange != null)
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: IconButton(
+                                      onPressed: _updating
+                                          ? null
+                                          : () => setState(
+                                                () => _previewChange = null,
+                                              ),
+                                      icon: const Icon(
+                                        Icons.arrow_back_rounded,
+                                        size: 20,
+                                      ),
+                                      tooltip: kLabelSyncSelectFile,
+                                      visualDensity: VisualDensity.compact,
                                     ),
-                                    tooltip: kLabelSyncSelectFile,
-                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                Expanded(
+                                  child: SyncDiffPanel(
+                                    change: _previewChange,
+                                    workspaceRoot: _workspacePath ?? '',
+                                    storage: _storage,
+                                    localManifest:
+                                        _server?.localManifest ?? const {},
+                                    peerManifest:
+                                        _server?.peerManifest ?? const {},
+                                    transfer: _server,
+                                    directionMode: _directionMode,
+                                    isHost: true,
                                   ),
                                 ),
-                              Expanded(
-                                child: SyncDiffPanel(
-                                  change: _previewChange,
-                                  workspaceRoot: _workspacePath ?? '',
-                                  storage: _storage,
-                                  localManifest:
-                                      _server?.localManifest ?? const {},
-                                  peerManifest:
-                                      _server?.peerManifest ?? const {},
-                                  transfer: _server,
-                                  directionMode: _directionMode,
-                                  isHost: true,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -428,12 +458,14 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                     FilledButton(
                       onPressed: canUpdate ? _update : null,
                       child: Text(
-                        updateButtonLabel(
-                          mode: _directionMode,
-                          isHost: true,
-                          count: activeChanges.length,
-                          updating: _updating,
-                        ),
+                        isFirstPair
+                            ? kLabelSyncFirstPairDesktopHint
+                            : updateButtonLabel(
+                                mode: _directionMode,
+                                isHost: true,
+                                count: activeChanges.length,
+                                updating: _updating,
+                              ),
                       ),
                     ),
                   ],

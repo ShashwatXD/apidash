@@ -257,6 +257,12 @@ class SyncSessionClient implements SyncFileTransfer {
     onPeerDisconnected?.call();
   }
 
+  Future<void> endSession() async {
+    if (_status == SyncClientStatus.idle) return;
+    _send(SyncMessage.bye());
+    await disconnect();
+  }
+
   void setPeerHasBaseline(bool value) => _peerHasBaseline = value;
 }
 

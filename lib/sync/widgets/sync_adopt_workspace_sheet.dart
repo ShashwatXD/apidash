@@ -154,6 +154,9 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
       await reloadWorkspaceFromDisk(ref);
       await invalidateSyncUnsyncedCount(ref);
       if (!mounted) return;
+      _client = null;
+      await client.endSession();
+      if (!mounted) return;
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;

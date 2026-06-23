@@ -12,6 +12,7 @@ class SyncConnectionStatusCard extends StatelessWidget {
     this.waitingIcon = Icons.hourglass_empty_rounded,
     this.waitingLabel = kLabelSyncWaitingForPhone,
     this.connectedFallbackLabel = 'Phone',
+    this.isHost = false,
   });
 
   final bool connected;
@@ -21,6 +22,7 @@ class SyncConnectionStatusCard extends StatelessWidget {
   final IconData waitingIcon;
   final String waitingLabel;
   final String connectedFallbackLabel;
+  final bool isHost;
 
   @override
   Widget build(BuildContext context) {
@@ -72,7 +74,9 @@ class SyncConnectionStatusCard extends StatelessWidget {
                   Text(
                     wasPairedBefore
                         ? kLabelSyncPairedBefore
-                        : kLabelSyncFirstPair,
+                        : isHost
+                            ? kLabelSyncFirstPairDesktopHint
+                            : kLabelSyncFirstPair,
                     style: textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                       height: 1.3,

@@ -1,14 +1,25 @@
 import 'package:apidash/consts.dart';
+import 'package:path/path.dart' as p;
+
+const _ignoredSyncBasenames = {'.DS_Store', 'Thumbs.db'};
 
 /// Whether a workspace-relative path should be included in LAN sync manifests.
 ///
-/// Mirrors [kGitIgnoreTemplate] in `lib/git/services/git_service.dart`.
 bool isSyncablePath(String relativePath) {
   final path = relativePath.replaceAll('\\', '/');
-  if (path.isEmpty || path.startsWith('.git/')) {
+  if (path.isEmpty) {
     return false;
   }
-  if (path.startsWith('.apidash/')) {
+  if (path == '.git' || path.startsWith('.git/')) {
+    return false;
+  }
+  if (path == '.gitignore') {
+    return false;
+  }
+  if (path == '.apidash' || path.startsWith('.apidash/')) {
+    return false;
+  }
+  if (_ignoredSyncBasenames.contains(p.basename(path))) {
     return false;
   }
   if (path.startsWith('history/')) {

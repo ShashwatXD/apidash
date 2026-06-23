@@ -59,6 +59,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   bool _connected = false;
   bool _wasPairedBefore = false;
   bool _updating = false;
+  bool _sessionEnded = false;
   String? _error;
 
   @override
@@ -132,9 +133,9 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   }
 
   void _handlePeerDisconnected() {
-    if (!mounted || _updating || !_connected) return;
+    if (!mounted || !_connected || _sessionEnded) return;
     SchedulerBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _updating) return;
+      if (!mounted || _sessionEnded) return;
       _exitAfterPeerLeft();
     });
   }
@@ -170,8 +171,24 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     await reloadWorkspaceFromDisk(ref);
     await invalidateSyncUnsyncedCount(ref);
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(getSnackBar(kMsgSyncWorkspaceUpdated));
+    await _endSessionAfterUpdate(
+      successMessage: kMsgSyncWorkspaceUpdated,
+    );
+  }
+
+  Future<void> _endSessionAfterUpdate({String? successMessage}) async {
+    if (_sessionEnded || !mounted) return;
+    _sessionEnded = true;
+
+    if (successMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(getSnackBar(successMessage));
+    }
+
+    final client = _client;
+    _client = null;
+    await client?.endSession();
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Future<bool> _confirmReceiveIfNeeded() async {
@@ -282,16 +299,12 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       if (!mounted) return;
 
       if (widget.mode == SyncSessionMode.workspaceReplace) {
-        Navigator.of(context).pop();
-        messenger.showSnackBar(getSnackBar(kMsgSyncUpdateSuccess));
+        await _endSessionAfterUpdate(successMessage: kMsgSyncUpdateSuccess);
       } else {
-        setState(() => _updating = false);
-        messenger.showSnackBar(
-          getSnackBar(
-            _directionMode == SyncDirectionMode.send
-                ? '$kMsgSyncUpdateSuccess ($updatedCount to computer)'
-                : '$kMsgSyncUpdateSuccess ($updatedCount from computer)',
-          ),
+        await _endSessionAfterUpdate(
+          successMessage: _directionMode == SyncDirectionMode.send
+              ? '$kMsgSyncUpdateSuccess ($updatedCount to computer)'
+              : '$kMsgSyncUpdateSuccess ($updatedCount from computer)',
         );
       }
     } catch (e) {

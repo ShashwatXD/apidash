@@ -85,7 +85,7 @@ class SyncHostFirstPairPanel extends StatelessWidget {
             ),
             kVSpacer10,
             Text(
-              '$phoneLabel is connected — continue on your phone.',
+              '$phoneLabel is connected - continue on your phone.',
               style: textTheme.labelSmall?.copyWith(
                 color: scheme.onSurfaceVariant,
                 height: 1.35,

@@ -263,8 +263,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       if (!mounted) return;
       await _endSessionAfterUpdate(
         successMessage: _directionMode == SyncDirectionMode.send
-            ? '$kMsgSyncUpdateSuccess (${result.sentOutgoing} to phone)'
-            : '$kMsgSyncUpdateSuccess (${result.appliedIncoming} from phone)',
+            ? '$kMsgSyncUpdateSuccess'
+            : '$kMsgSyncUpdateSuccess',
       );
     } catch (e) {
       if (!mounted) return;

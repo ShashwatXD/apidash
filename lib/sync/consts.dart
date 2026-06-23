@@ -52,7 +52,7 @@ const kLabelSyncReceiveConfirmBody =
 // --- Messages ---
 
 const kMsgSyncUpdateSuccess = 'Update complete';
-const kMsgSyncWorkspaceUpdated = 'Workspace updated from peer';
+const kMsgSyncWorkspaceUpdated = 'Workspace updated';
 
 // --- Errors ---
 

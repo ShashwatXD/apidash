@@ -303,8 +303,8 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       } else {
         await _endSessionAfterUpdate(
           successMessage: _directionMode == SyncDirectionMode.send
-              ? '$kMsgSyncUpdateSuccess ($updatedCount to computer)'
-              : '$kMsgSyncUpdateSuccess ($updatedCount from computer)',
+              ? '$kMsgSyncUpdateSuccess'
+              : '$kMsgSyncUpdateSuccess',
         );
       }
     } catch (e) {

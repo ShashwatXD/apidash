@@ -20,7 +20,7 @@ class AutoSaveNotifier extends Notifier<void> {
   @override
   void build() {
     void onWorkspaceDataChanged() {
-      if (ref.read(saveDataStateProvider)) {
+      if (ref.read(saveDataStateProvider) || ref.read(clearDataStateProvider)) {
         return;
       }
       _schedule();
@@ -108,7 +108,7 @@ class AutoSaveNotifier extends Notifier<void> {
     if (!force && !ref.read(hasUnsavedChangesProvider)) {
       return;
     }
-    if (ref.read(saveDataStateProvider)) {
+    if (ref.read(saveDataStateProvider) || ref.read(clearDataStateProvider)) {
       return;
     }
     await ref.read(collectionStateNotifierProvider.notifier).saveData();

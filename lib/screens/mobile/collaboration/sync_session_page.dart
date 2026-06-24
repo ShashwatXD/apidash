@@ -60,6 +60,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   bool _wasPairedBefore = false;
   bool _updating = false;
   bool _sessionEnded = false;
+  bool _diffSheetOpen = false;
   String? _error;
 
   @override
@@ -318,6 +319,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     final preview = _changesByPath[change.path];
     if (preview == null || _workspacePath == null) return;
     setState(() => _previewChange = preview);
+    _diffSheetOpen = true;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -337,6 +339,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         ),
       ),
     ).whenComplete(() {
+      _diffSheetOpen = false;
       if (mounted) setState(() => _previewChange = null);
     });
   }
@@ -494,7 +497,13 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
                   directionMode: _directionMode,
                   previewPath: _previewChange?.path,
                   onDirectionModeChanged: (mode) {
-                    setState(() => _directionMode = mode);
+                    if (_diffSheetOpen) {
+                      Navigator.of(context).pop();
+                    }
+                    setState(() {
+                      _directionMode = mode;
+                      _previewChange = null;
+                    });
                   },
                   onFilePreview: _showDiff,
                 ),

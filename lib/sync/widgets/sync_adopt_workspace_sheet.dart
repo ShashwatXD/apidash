@@ -254,13 +254,6 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
                 ),
               ),
               kVSpacer8,
-              Text(
-                kLabelSyncConnecting,
-                textAlign: TextAlign.center,
-                style: textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
             ],
             if (_error != null) ...[
               kVSpacer10,

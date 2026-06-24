@@ -388,7 +388,10 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                               directionMode: _directionMode,
                               previewPath: _previewChange?.path,
                               onDirectionModeChanged: (mode) {
-                                setState(() => _directionMode = mode);
+                                setState(() {
+                                  _directionMode = mode;
+                                  _previewChange = null;
+                                });
                               },
                               onFilePreview: (change) {
                                 setState(() {

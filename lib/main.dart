@@ -6,6 +6,7 @@ import 'package:stac/stac.dart';
 import 'models/models.dart';
 import 'providers/providers.dart';
 import 'services/services.dart';
+import 'screens/mobile/workspace/mobile_workspace_bootstrap.dart';
 import 'consts.dart';
 import 'app.dart';
 
@@ -18,6 +19,9 @@ void main() async {
 
   var settingsModel = await getSettingsFromSharedPrefs();
   var onboardingStatus = await getOnboardingStatusFromSharedPrefs();
+  if (kIsMobile) {
+    settingsModel = await prepareMobileWorkspaces(settingsModel);
+  }
   final initStatus = await initApp(
     kIsDesktop,
     settingsModel: settingsModel,

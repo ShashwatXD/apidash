@@ -74,7 +74,7 @@ const kCodePreviewLinesLimit = 500;
 
 const kAutoSaveDebounceDuration = Duration(seconds: 1);
 
-const kDefaultMobileWorkspaceSubpath = 'apidash/workspace';
+const kMobileWorkspacesParentSubpath = 'apidash/workspaces';
 
 const kMaxSavedWorkspaces = 10;
 
@@ -600,9 +600,9 @@ const kLabelExportDataSubtitle =
     "Export your collection to HAR (HTTP Archive format).\nVersion control this file or import in other API clients.";
 const kLabelExport = "Export";
 const kLabelClearData = "Clear Data";
-const kLabelClearDataSubtitle = "Delete all requests data from the disk";
+const kLabelClearDataSubtitle = "Clear this workspace";
 const kMsgClearDataConfirmation =
-    "This action will clear all the requests data from the disk and is irreversible. Do you want to proceed?";
+    "This action will clear all data in this workspace and is irreversible. Do you want to proceed?";
 const kLabelYes = "Yes";
 const kLabelClear = "Clear";
 const kLabelAboutSubtitle =

@@ -9,6 +9,7 @@ import 'package:apidash/consts.dart';
 
 import '../../common_widgets/common_widgets.dart';
 import '../../home_page/collection_pane.dart';
+import '../workspace/mobile_workspace_selector.dart';
 
 const _kAddCollection = '__add_collection__';
 const _kRenameCollection = '__rename_collection__';
@@ -81,42 +82,49 @@ class MobileCollectionHeader extends ConsumerWidget {
 
     return Padding(
       padding: kPe8,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: _MobileCollectionSelector(
-              collectionSequence: collectionSequence,
-              collections: collections,
-              selectedId: selectedId,
-              selectedName: selectedName,
-            ),
-          ),
-          kHSpacer4,
-          ElevatedButton(
-            onPressed: onAddRequest,
-            style: kButtonSidebarStyle,
-            child: const Text(
-              kLabelPlusNew,
-              style: kTextStyleButton,
-            ),
-          ),
-          kHSpacer4,
-          SizedBox(
-            width: 24,
-            child: SidebarTopMenu(
-              tooltip: kLabelMoreOptions,
-              onSelected: (option) => switch (option) {
-                SidebarMenuOption.import => onImport(),
-              },
-            ),
-          ),
-          IconButton(
-            style: IconButton.styleFrom(
-              padding: const EdgeInsets.all(4),
-              minimumSize: const Size(36, 36),
-            ),
-            onPressed: () => mobileScaffoldKey.currentState?.closeDrawer(),
-            icon: const Icon(Icons.chevron_left),
+          const MobileWorkspaceSelector(),
+          kVSpacer5,
+          Row(
+            children: [
+              Expanded(
+                child: _MobileCollectionSelector(
+                  collectionSequence: collectionSequence,
+                  collections: collections,
+                  selectedId: selectedId,
+                  selectedName: selectedName,
+                ),
+              ),
+              kHSpacer4,
+              ElevatedButton(
+                onPressed: onAddRequest,
+                style: kButtonSidebarStyle,
+                child: const Text(
+                  kLabelPlusNew,
+                  style: kTextStyleButton,
+                ),
+              ),
+              kHSpacer4,
+              SizedBox(
+                width: 24,
+                child: SidebarTopMenu(
+                  tooltip: kLabelMoreOptions,
+                  onSelected: (option) => switch (option) {
+                    SidebarMenuOption.import => onImport(),
+                  },
+                ),
+              ),
+              IconButton(
+                style: IconButton.styleFrom(
+                  padding: const EdgeInsets.all(4),
+                  minimumSize: const Size(36, 36),
+                ),
+                onPressed: () => mobileScaffoldKey.currentState?.closeDrawer(),
+                icon: const Icon(Icons.chevron_left),
+              ),
+            ],
           ),
         ],
       ),

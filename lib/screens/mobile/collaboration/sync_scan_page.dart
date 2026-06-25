@@ -1,3 +1,7 @@
+import 'dart:io';
+import 'package:apidash/consts.dart';
+import 'package:apidash/providers/providers.dart';
+import 'package:apidash/services/services.dart';
 import 'package:apidash/sync/consts.dart';
 import 'package:apidash/sync/models/sync_models.dart';
 import 'package:apidash/sync/storage/sync_storage.dart';
@@ -10,7 +14,9 @@ import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:path/path.dart' as p;
 
+import '../workspace/mobile_workspace_service.dart';
 import 'sync_session_page.dart';
 
 class SyncScanPage extends ConsumerStatefulWidget {
@@ -63,32 +69,95 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     _lastInvalidAt = null;
 
     _handled = true;
-    final workspacePath = resolveSyncWorkspaceRoot(ref);
-    if (workspacePath == null) {
-      _handled = false;
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        getSnackBar(kErrSyncNoWorkspace),
-      );
-      return;
-    }
 
-    final storage = SyncStorage(workspacePath);
-    final local = await storage.readWorkspace();
-    final syncState = await storage.readSyncState();
-    final scanCase = resolveScanCase(
-      localWorkspaceId: local?.id,
-      qrWorkspaceId: payload.workspaceId,
-      hasSyncedBaseline: syncState?.hasBaseline ?? false,
-    );
+    final targetPath = await resolveMobileWorkspacePath(payload.workspaceId);
+    final targetExists = Directory(targetPath).existsSync();
+
+    final activePath = resolveSyncWorkspaceRoot(ref);
+    final isActiveTarget =
+        activePath != null && p.equals(activePath, targetPath);
+
+    var scanCase = SyncScanCase.firstLink;
+    if (targetExists) {
+      final targetStorage = SyncStorage(targetPath);
+      final targetLocal = await targetStorage.readWorkspace();
+      final targetSync = await targetStorage.readSyncState();
+      scanCase = resolveScanCase(
+        localWorkspaceId: targetLocal?.id,
+        qrWorkspaceId: payload.workspaceId,
+        hasSyncedBaseline: targetSync?.hasBaseline ?? false,
+      );
+    }
 
     if (!mounted) {
       _handled = false;
       return;
     }
 
-    if (!scanCaseNeedsAdoption(scanCase)) {
+    final isIncremental = targetExists && !scanCaseNeedsAdoption(scanCase);
+
+    if (isIncremental) {
+      if (isActiveTarget) {
+        await _openSession(payload, SyncSessionMode.incremental);
+        return;
+      }
+      final currentName = savedWorkspaceNameForPath(
+            ref.read(settingsProvider).savedWorkspaces,
+            activePath,
+          ) ??
+          kLabelSelectWorkspace;
+      final proceed = await _confirm(
+        title: 'Sync ${payload.workspaceName}?',
+        body:
+            "From ${payload.desktopName}.\nYou're currently in $currentName - "
+            "we'll switch to ${payload.workspaceName} to sync.",
+        confirmLabel: kLabelSyncSwitchAndSync,
+      );
+      if (!mounted) return;
+      if (proceed != true) {
+        setState(() => _handled = false);
+        return;
+      }
+      final ok = await activateWorkspace(
+        ref,
+        targetPath,
+        createIfMissing: false,
+      );
+      if (!mounted) return;
+      if (!ok) {
+        setState(() => _handled = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          getSnackBar(kMsgWorkspaceOpenFailed),
+        );
+        return;
+      }
       await _openSession(payload, SyncSessionMode.incremental);
+      return;
+    }
+
+    final proceed = await _confirm(
+      title: 'Add "${payload.workspaceName}" to this phone?',
+      body: 'From ${payload.desktopName}. We\'ll create this workspace and '
+          'copy its data - your other workspaces are not affected.',
+      confirmLabel: kLabelSyncSwitchAndSync,
+    );
+    if (!mounted) return;
+    if (proceed != true) {
+      setState(() => _handled = false);
+      return;
+    }
+
+    final createdId = await createMobileWorkspace(
+      ref,
+      id: payload.workspaceId,
+      name: payload.workspaceName.isEmpty ? 'Workspace' : payload.workspaceName,
+    );
+    if (!mounted) return;
+    if (createdId == null) {
+      setState(() => _handled = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        getSnackBar(kMsgWorkspaceCreateFailed),
+      );
       return;
     }
 
@@ -106,9 +175,40 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
         getSnackBar(kMsgSyncUpdateSuccess),
       );
       Navigator.pop(context);
-    } else {
-      setState(() => _handled = false);
+      return;
     }
+
+    if (!targetExists) {
+      if (activePath != null && !p.equals(activePath, targetPath)) {
+        await activateWorkspace(ref, activePath, createIfMissing: false);
+      }
+      await deleteMobileWorkspace(ref, targetPath);
+    }
+    if (mounted) setState(() => _handled = false);
+  }
+
+  Future<bool?> _confirm({
+    required String title,
+    required String body,
+    required String confirmLabel,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(kLabelCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _openSession(SyncQrPayload payload, SyncSessionMode mode) async {

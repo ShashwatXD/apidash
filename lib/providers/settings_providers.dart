@@ -91,6 +91,29 @@ class ThemeStateNotifier extends StateNotifier<SettingsModel> {
       savedWorkspaces: list,
     );
   }
+
+  Future<void> renameWorkspace({
+    required String path,
+    required String name,
+  }) async {
+    final normalized = p.normalize(path);
+    final list = state.savedWorkspaces
+        .map(
+          (e) => p.normalize(e.path) == normalized
+              ? SavedWorkspaceEntry(path: e.path, name: name)
+              : e,
+        )
+        .toList();
+    await update(savedWorkspaces: list);
+  }
+
+  Future<void> forgetWorkspace(String path) async {
+    final normalized = p.normalize(path);
+    final list = state.savedWorkspaces
+        .where((e) => p.normalize(e.path) != normalized)
+        .toList();
+    await update(savedWorkspaces: list);
+  }
 }
 
 String? savedWorkspaceNameForPath(

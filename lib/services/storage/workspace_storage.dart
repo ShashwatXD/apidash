@@ -45,10 +45,7 @@ Future<bool> initWorkspaceStorage(
   bool createIfMissing = false,
 }) async {
   try {
-    final rootPath = await resolveWorkspaceRoot(
-      useDesktopPath: initializeUsingPath,
-      desktopPath: workspaceFolderPath,
-    );
+    final rootPath = await resolveWorkspaceRoot(path: workspaceFolderPath);
     if (rootPath == null) {
       return false;
     }

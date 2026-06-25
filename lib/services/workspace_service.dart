@@ -28,10 +28,13 @@ Future<bool> activateWorkspace(
   } catch (_) {
     // ignore
   }
-  final name = p.basename(path);
+  final existingName = savedWorkspaceNameForPath(
+    ref.read(settingsProvider).savedWorkspaces,
+    path,
+  );
   await ref.read(settingsProvider.notifier).rememberWorkspace(
         path: path,
-        name: name,
+        name: existingName ?? p.basename(path),
       );
   invalidateWorkspaceProviders(ref);
   ref.invalidate(gitStatusProvider);

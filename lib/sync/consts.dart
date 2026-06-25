@@ -49,6 +49,21 @@ const kLabelSyncReceiveConfirmTitle = 'Update from peer?';
 const kLabelSyncReceiveConfirmBody =
     'Files you also edited will be replaced with the peer version.';
 
+// --- Mobile workspaces ---
+
+const kDefaultMobileWorkspaceName = 'Personal Workspace';
+const kLabelWorkspaces = "Workspaces";
+const kLabelNewWorkspace = "New workspace";
+const kLabelNewWorkspaceTitle = "Name your workspace";
+const kLabelAddWorkspaceViaSync = "Add via sync (QR)";
+const kLabelRenameWorkspace = "Rename workspace";
+const kLabelDeleteWorkspace = "Delete workspace";
+const kLabelDelete = "Delete";
+const kMsgWorkspaceCreateFailed = 'Could not create the workspace.';
+const kMsgWorkspaceDeleteFailed = 'Could not delete the workspace.';
+const kMsgWorkspaceNameExists = 'Workspace already exists.';
+const kMsgWorkspaceNameEmpty = 'Enter a workspace name.';
+
 // --- Messages ---
 
 const kMsgSyncUpdateSuccess = 'Update complete';

@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import '../consts.dart';
 
+String newWorkspaceId() => 'ws-${const Uuid().v4()}';
+
 class WorkspaceIdentity {
   const WorkspaceIdentity({required this.id, required this.name});
 
@@ -76,7 +78,7 @@ class SyncStorage {
     if (existing != null && existing.id.isNotEmpty) return existing;
 
     final identity = WorkspaceIdentity(
-      id: 'ws-${const Uuid().v4()}',
+      id: newWorkspaceId(),
       name: name ?? p.basename(workspaceRoot),
     );
     await writeWorkspace(identity);

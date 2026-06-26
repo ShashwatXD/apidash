@@ -135,18 +135,6 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
       return;
     }
 
-    final proceed = await _confirm(
-      title: 'Add "${payload.workspaceName}" to this phone?',
-      body: 'From ${payload.desktopName}. We\'ll create this workspace and '
-          'copy its data - your other workspaces are not affected.',
-      confirmLabel: kLabelSyncSwitchAndSync,
-    );
-    if (!mounted) return;
-    if (proceed != true) {
-      setState(() => _handled = false);
-      return;
-    }
-
     final createdId = await createMobileWorkspace(
       ref,
       id: payload.workspaceId,
@@ -192,22 +180,56 @@ class _SyncScanPageState extends ConsumerState<SyncScanPage> {
     required String body,
     required String confirmLabel,
   }) {
-    return showDialog<bool>(
+    return showModalBottomSheet<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text(kLabelCancel),
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (context) {
+        final scheme = Theme.of(context).colorScheme;
+        final textTheme = Theme.of(context).textTheme;
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  body,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text(kLabelCancel),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () => Navigator.pop(context, true),
+                        child: Text(confirmLabel),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(confirmLabel),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 

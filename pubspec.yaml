@@ -18,6 +18,7 @@ dependencies:
   carousel_slider: ^5.1.2
   code_builder: ^4.11.1
   csv: ^7.2.0
+  crypto: ^3.0.7
   data_table_2: 2.5.16
   dart_style: ^3.1.6
   desktop_drop: ^0.7.0
@@ -60,6 +61,8 @@ dependencies:
   printing: ^5.13.4
   provider: ^6.1.5+1
   pub_semver: ^2.1.5
+  mobile_scanner: ^7.0.1
+  qr_flutter: ^4.1.0
   riverpod: ^3.2.1
   scrollable_positioned_list: ^0.3.8
   share_plus: ^12.0.1

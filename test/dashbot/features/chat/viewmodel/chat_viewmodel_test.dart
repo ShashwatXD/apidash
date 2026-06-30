@@ -29,7 +29,7 @@ void main() {
   late MockChatRemoteRepository mockRepo;
 
   setUp(() async {
-    await testSetUpTempDirForHive();
+    await testSetUpWorkspaceStorage();
     mockRepo = MockChatRemoteRepository();
 
     container = createContainer(
@@ -38,6 +38,7 @@ void main() {
         selectedRequestModelProvider.overrideWith((ref) => null),
       ],
     );
+    await ensureCollectionReady(container);
   });
 
   group('ChatViewmodel Basic Tests', () {
@@ -1225,7 +1226,7 @@ paths:
         overrides: [
           chatRepositoryProvider.overrideWith((ref) => mockRepo),
           selectedRequestModelProvider.overrideWith((ref) => mockRequest),
-          // We don't override collectionStateNotifierProvider, so it may fail
+          // We don't override activeCollectionProvider, so it may fail
           // but the routing logic should be triggered
         ],
       );

@@ -17,7 +17,7 @@ Future<String> resolveGitDiffTitle(
     final json = jsonDecode(await file.readAsString());
     if (json is! Map) return fileName;
 
-    if (fileName == kWorkspaceCollectionFile) {
+    if (fileName == kWorkspaceRequestIndexFile) {
       final name = json[kWorkspaceCollectionNameKey]?.toString().trim();
       if (name != null && name.isNotEmpty) return name;
     }
@@ -34,7 +34,7 @@ Future<String> resolveGitDiffTitle(
         }
       }
       final parent = p.basename(p.dirname(change.path));
-      if (parent.isNotEmpty && parent != kWorkspaceRequestsSubdir) {
+      if (parent.isNotEmpty && parent != kWorkspaceCollectionsDir) {
         return parent;
       }
     }

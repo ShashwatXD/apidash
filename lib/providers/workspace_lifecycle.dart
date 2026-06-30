@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart' show WidgetRef;
 
 import 'auto_save.dart';
-import 'collection_providers.dart';
-import 'collections_providers.dart';
+import 'active_collection_providers.dart';
+import 'collection_catalog_providers.dart';
 import 'environment_providers.dart';
 import 'history_providers.dart';
 
@@ -17,8 +17,8 @@ Future<void> reloadWorkspaceFromDisk(WidgetRef ref) async {
 }
 
 void invalidateWorkspaceProviders(WidgetRef ref) {
-  ref.invalidate(collectionsStateNotifierProvider);
-  ref.invalidate(collectionStateNotifierProvider);
+  ref.invalidate(collectionCatalogProvider);
+  ref.invalidate(activeCollectionProvider);
   ref.invalidate(environmentsStateNotifierProvider);
   ref.invalidate(historyMetaStateNotifier);
   ref.invalidate(selectedIdStateProvider);

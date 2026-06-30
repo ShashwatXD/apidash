@@ -24,7 +24,7 @@ GitDiffFileKind detectGitDiffFileKind(String path) {
   if (fileName == kWorkspaceResponseFile) {
     return GitDiffFileKind.response;
   }
-  if (fileName == kWorkspaceCollectionFile) {
+  if (fileName == kWorkspaceRequestIndexFile) {
     return GitDiffFileKind.collection;
   }
   if (fileName == kWorkspaceCollectionsIndexFile &&

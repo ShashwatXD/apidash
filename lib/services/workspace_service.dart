@@ -1,9 +1,6 @@
 import 'package:apidash/consts.dart';
-import 'package:apidash/providers/auto_save.dart';
+import 'package:apidash/providers/providers.dart';
 import 'package:apidash/git/providers/git_status_provider.dart';
-import 'package:apidash/providers/settings_providers.dart';
-import 'package:apidash/providers/ui_providers.dart';
-import 'package:apidash/providers/workspace_lifecycle.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,10 +25,13 @@ Future<bool> activateWorkspace(
   } catch (_) {
     // ignore
   }
-  final name = p.basename(path);
+  final existingName = savedWorkspaceNameForPath(
+    ref.read(settingsProvider).savedWorkspaces,
+    path,
+  );
   await ref.read(settingsProvider.notifier).rememberWorkspace(
         path: path,
-        name: name,
+        name: existingName ?? p.basename(path),
       );
   invalidateWorkspaceProviders(ref);
   ref.invalidate(gitStatusProvider);

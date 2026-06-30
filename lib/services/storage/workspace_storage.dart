@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/utils/file_utils.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
@@ -21,11 +23,10 @@ String _collectionDir(String collectionId) =>
     p.join(kWorkspaceCollectionsDir, collectionId);
 
 String _collectionFilePath(String collectionId) =>
-    p.join(_collectionDir(collectionId), kWorkspaceCollectionFile);
+    p.join(_collectionDir(collectionId), kWorkspaceRequestIndexFile);
 
 String _requestDirRelative(String collectionId, String requestId) => p.join(
       _collectionDir(collectionId),
-      kWorkspaceRequestsSubdir,
       requestId,
     );
 
@@ -38,6 +39,56 @@ String _responseJsonRelative(String collectionId, String requestId) => p.join(
       _requestDirRelative(collectionId, requestId),
       kWorkspaceResponseFile,
     );
+
+const Set<String> _kMediaFileTypes = {'image', 'audio', 'video'};
+
+String? _contentTypeFromResponseMap(Map<String, Object?> response) {
+  final headers = response['headers'];
+  if (headers is! Map) {
+    return null;
+  }
+  for (final entry in headers.entries) {
+    if (entry.key.toString().toLowerCase() == 'content-type') {
+      return entry.value?.toString();
+    }
+  }
+  return null;
+}
+
+bool _isBinaryMediaContentType(String? contentType) {
+  if (contentType == null) {
+    return false;
+  }
+  final value = contentType.split(';').first.trim().toLowerCase();
+  final parts = value.split('/');
+  if (parts.length != 2 || parts[0].isEmpty || parts[1].isEmpty) {
+    return false;
+  }
+  final type = parts[0];
+  final subtype = parts[1];
+  if (_kMediaFileTypes.contains(type)) {
+    return true;
+  }
+  if (type == 'application') {
+    return subtype == 'pdf' || subtype == 'octet-stream';
+  }
+  return false;
+}
+
+String _responseBodyFileName(String? contentType) {
+  final mimeType = contentType?.split(';').first.trim();
+  final ext = getFileExtension(mimeType) ?? 'bin';
+  return '$kWorkspaceResponseBodyFilePrefix.$ext';
+}
+
+Uint8List? _bytesFromJsonList(Object? value) {
+  if (value is! List) {
+    return null;
+  }
+  return Uint8List.fromList(
+    value.map((e) => (e as num).toInt()).toList(growable: false),
+  );
+}
 
 Future<bool> initWorkspaceStorage(
   bool initializeUsingPath,
@@ -82,43 +133,43 @@ Future<void> _ensureWorkspaceStructure(Directory root) async {
       kWorkspaceCollectionsIndexFile,
     ),
   );
-  if (!await indexFile.exists()) {
+  // Seed the default collection only for a brand-new workspace (no index file
+  // yet). Once the index exists we respect it verbatim, including an empty
+  // list, so a workspace the user has fully emptied is not reseeded on restart.
+  final indexExists = await indexFile.exists();
+
+  if (!indexExists) {
     await writeJsonAtomic(indexFile.path, {
       kWorkspaceCollectionsIndexKey: [
-        {
-          kWorkspaceCollectionIdKey: kDefaultCollectionId,
-          kWorkspaceCollectionNameKey: kDefaultCollectionName,
-        },
+        {kWorkspaceCollectionNameKey: kDefaultCollectionName},
       ],
     });
-  }
 
-  final defaultCollectionDir = Directory(
-    p.join(
-      root.path,
-      kWorkspaceCollectionsDir,
-      kDefaultCollectionId,
-      kWorkspaceRequestsSubdir,
-    ),
-  );
-  if (!await defaultCollectionDir.exists()) {
-    await defaultCollectionDir.create(recursive: true);
-  }
+    final defaultCollectionDir = Directory(
+      p.join(
+        root.path,
+        kWorkspaceCollectionsDir,
+        kDefaultCollectionName,
+      ),
+    );
+    if (!await defaultCollectionDir.exists()) {
+      await defaultCollectionDir.create(recursive: true);
+    }
 
-  final collectionFile = File(
-    p.join(
-      root.path,
-      kWorkspaceCollectionsDir,
-      kDefaultCollectionId,
-      kWorkspaceCollectionFile,
-    ),
-  );
-  if (!await collectionFile.exists()) {
-    await writeJsonAtomic(collectionFile.path, {
-      kWorkspaceCollectionIdKey: kDefaultCollectionId,
-      kWorkspaceCollectionNameKey: kDefaultCollectionName,
-      kWorkspaceRequestsKey: <Map<String, Object?>>[],
-    });
+    final collectionFile = File(
+      p.join(
+        root.path,
+        kWorkspaceCollectionsDir,
+        kDefaultCollectionName,
+        kWorkspaceRequestIndexFile,
+      ),
+    );
+    if (!await collectionFile.exists()) {
+      await writeJsonAtomic(collectionFile.path, {
+        kWorkspaceCollectionNameKey: kDefaultCollectionName,
+        kWorkspaceRequestsKey: <Map<String, Object?>>[],
+      });
+    }
   }
 
   final environmentsDir = Directory(p.join(root.path, kWorkspaceEnvironmentsDir));
@@ -190,14 +241,11 @@ class WorkspaceStorage {
       if (item is! Map) {
         continue;
       }
-      final id = item[kWorkspaceCollectionIdKey]?.toString();
-      if (id == null || id.isEmpty) {
+      final name = item[kWorkspaceCollectionNameKey] as String?;
+      if (name == null || name.trim().isEmpty) {
         continue;
       }
-      result.add((
-        id: id,
-        name: item[kWorkspaceCollectionNameKey] as String? ?? '',
-      ));
+      result.add((id: makeCollectionId(name), name: name));
     }
     return result;
   }
@@ -212,10 +260,7 @@ class WorkspaceStorage {
       {
         kWorkspaceCollectionsIndexKey: [
           for (final entry in collections)
-            {
-              kWorkspaceCollectionIdKey: entry.id,
-              kWorkspaceCollectionNameKey: entry.name,
-            },
+            {kWorkspaceCollectionNameKey: entry.name},
         ],
       },
     );
@@ -226,6 +271,9 @@ class WorkspaceStorage {
     if (json == null) {
       return null;
     }
+    // The folder name is the authoritative id; inject it so callers never
+    // depend on an id field persisted inside collection.json.
+    json[kWorkspaceCollectionIdKey] = collectionId;
     return Map<String, dynamic>.from(json);
   }
 
@@ -237,15 +285,11 @@ class WorkspaceStorage {
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
-    final requestsDir = Directory(
-      p.join(dir.path, kWorkspaceRequestsSubdir),
-    );
-    if (!await requestsDir.exists()) {
-      await requestsDir.create(recursive: true);
-    }
+    final payload = Map<String, Object?>.from(collectionJson)
+      ..remove(kWorkspaceCollectionIdKey);
     await writeJsonAtomic(
       _path(_collectionFilePath(collectionId)),
-      Map<String, Object?>.from(collectionJson),
+      payload,
     );
   }
 
@@ -264,12 +308,13 @@ class WorkspaceStorage {
     if (!await oldDir.exists()) {
       return;
     }
-    oldDir.renameSync(_path(_collectionDir(newId)));
-    final json = getCollection(newId);
-    if (json != null) {
-      json[kWorkspaceCollectionIdKey] = newId;
-      await setCollection(newId, json);
+    final newDirPath = _path(_collectionDir(newId));
+    final isCaseOnlyRename =
+        oldDir.path.toLowerCase() == newDirPath.toLowerCase();
+    if (!isCaseOnlyRename && await Directory(newDirPath).exists()) {
+      return;
     }
+    oldDir.renameSync(newDirPath);
   }
 
   List<String> getIds(String collectionId) {
@@ -287,13 +332,7 @@ class WorkspaceStorage {
     ];
   }
 
-  List<String> existingRequestIds(String collectionId) {
-    return getIds(collectionId)
-        .where((id) => _requestExistsOnDisk(collectionId, id))
-        .toList();
-  }
-
-  bool _requestExistsOnDisk(String collectionId, String id) {
+  bool requestExistsOnDisk(String collectionId, String id) {
     return File(_path(_requestJsonRelative(collectionId, id))).existsSync();
   }
 
@@ -305,7 +344,9 @@ class WorkspaceStorage {
     final merged = Map<String, Object?>.from(requestJson);
     final responseJson = _readJsonSync(_responseJsonRelative(collectionId, id));
     if (responseJson != null) {
-      merged['httpResponseModel'] = responseJson;
+      final requestDirPath = _path(_requestDirRelative(collectionId, id));
+      merged['httpResponseModel'] =
+          _inlineResponseBodyFile(requestDirPath, responseJson);
     }
     return Map<String, dynamic>.from(_fixBodyBytesForFromJson(merged));
   }
@@ -313,8 +354,9 @@ class WorkspaceStorage {
   Future<void> setRequestModel(
     String collectionId,
     String id,
-    Map<String, dynamic>? requestModelJson,
-  ) async {
+    Map<String, dynamic>? requestModelJson, {
+    bool saveMediaAsFiles = false,
+  }) async {
     if (requestModelJson == null) {
       await _deleteRequestStorage(collectionId, id);
       return;
@@ -336,16 +378,90 @@ class WorkspaceStorage {
 
     final responsePath = p.join(requestDirPath, kWorkspaceResponseFile);
     if (response is Map) {
-      await writeJsonAtomic(
+      await _writeResponseStorage(
+        requestDirPath,
         responsePath,
         Map<String, Object?>.from(response),
+        saveMediaAsFiles,
       );
     } else {
-      final responseFile = File(responsePath);
-      if (await responseFile.exists()) {
-        await responseFile.delete();
+      await _deleteResponseStorage(requestDirPath, responsePath);
+    }
+  }
+
+  Future<void> _writeResponseStorage(
+    String requestDirPath,
+    String responsePath,
+    Map<String, Object?> response,
+    bool saveMediaAsFiles,
+  ) async {
+    await _deleteExistingResponseBodyFile(requestDirPath, responsePath);
+
+    final contentType = _contentTypeFromResponseMap(response);
+    final bytes = _bytesFromJsonList(response['bodyBytes']);
+    final shouldExtract = saveMediaAsFiles &&
+        bytes != null &&
+        bytes.isNotEmpty &&
+        _isBinaryMediaContentType(contentType);
+
+    if (shouldExtract) {
+      final fileName = _responseBodyFileName(contentType);
+      await saveFile(p.join(requestDirPath, fileName), bytes);
+      response.remove('bodyBytes');
+      response[kWorkspaceResponseBodyFileKey] = fileName;
+    } else {
+      response.remove(kWorkspaceResponseBodyFileKey);
+    }
+
+    await writeJsonAtomic(responsePath, response);
+  }
+
+  Future<void> _deleteResponseStorage(
+    String requestDirPath,
+    String responsePath,
+  ) async {
+    await _deleteExistingResponseBodyFile(requestDirPath, responsePath);
+    final responseFile = File(responsePath);
+    if (await responseFile.exists()) {
+      await responseFile.delete();
+    }
+  }
+
+  Future<void> _deleteExistingResponseBodyFile(
+    String requestDirPath,
+    String responsePath,
+  ) async {
+    final existing = _readJsonFileSync(responsePath);
+    final fileName = existing?[kWorkspaceResponseBodyFileKey];
+    if (fileName is String && fileName.isNotEmpty) {
+      final bodyFile = File(p.join(requestDirPath, fileName));
+      if (await bodyFile.exists()) {
+        await bodyFile.delete();
       }
     }
+  }
+
+  /// If [responseJson] points to a separate body file, reads it back into
+  /// `bodyBytes` so the in-memory model is identical to an inlined response.
+  Map<String, Object?> _inlineResponseBodyFile(
+    String requestDirPath,
+    Map<String, Object?> responseJson,
+  ) {
+    final fileName = responseJson[kWorkspaceResponseBodyFileKey];
+    if (fileName is! String || fileName.isEmpty) {
+      return responseJson;
+    }
+    final result = Map<String, Object?>.from(responseJson);
+    result.remove(kWorkspaceResponseBodyFileKey);
+    try {
+      final bodyFile = File(p.join(requestDirPath, fileName));
+      if (bodyFile.existsSync()) {
+        result['bodyBytes'] = bodyFile.readAsBytesSync();
+      }
+    } catch (e) {
+      debugPrint('Failed to read response body file $fileName: $e');
+    }
+    return result;
   }
 
   Future<void> _deleteRequestStorage(String collectionId, String id) async {
@@ -360,28 +476,36 @@ class WorkspaceStorage {
     String oldId,
     String newId,
   ) async {
+    renameRequestSync(collectionId, oldId, newId);
+  }
+
+  void renameRequestSync(String collectionId, String oldId, String newId) {
     if (oldId == newId) {
       return;
     }
     final oldDir = Directory(_path(_requestDirRelative(collectionId, oldId)));
-    if (!await oldDir.exists()) {
+    if (!oldDir.existsSync()) {
       return;
     }
     final newDirPath = _path(_requestDirRelative(collectionId, newId));
     oldDir.renameSync(newDirPath);
     final requestFile = File(p.join(newDirPath, kWorkspaceRequestFile));
-    if (await requestFile.exists()) {
-      final json = _readJsonSync(
-        p.join(
-          _requestDirRelative(collectionId, newId),
-          kWorkspaceRequestFile,
-        ),
-      );
-      if (json != null) {
-        json['id'] = newId;
-        await writeJsonAtomic(requestFile.path, Map<String, Object?>.from(json));
-      }
+    if (!requestFile.existsSync()) {
+      return;
     }
+    final json = _readJsonSync(
+      p.join(
+        _requestDirRelative(collectionId, newId),
+        kWorkspaceRequestFile,
+      ),
+    );
+    if (json == null) {
+      return;
+    }
+    json['id'] = newId;
+    unawaited(
+      writeJsonAtomic(requestFile.path, Map<String, Object?>.from(json)),
+    );
   }
 
   // --- Environments ---
@@ -441,6 +565,10 @@ class WorkspaceStorage {
   }
 
   Future<void> renameEnvironment(String oldId, String newId) async {
+    renameEnvironmentSync(oldId, newId);
+  }
+
+  void renameEnvironmentSync(String oldId, String newId) {
     if (oldId == newId) {
       return;
     }
@@ -451,19 +579,21 @@ class WorkspaceStorage {
       p.join(kWorkspaceEnvironmentsDir, _environmentFileName(newId)),
     );
     final oldFile = File(oldPath);
-    if (!await oldFile.exists()) {
+    if (!oldFile.existsSync()) {
       return;
     }
     oldFile.renameSync(newPath);
     final json = getEnvironment(newId);
     if (json != null) {
       json['id'] = newId;
-      await setEnvironment(newId, json);
+      unawaited(
+        writeJsonAtomic(newPath, Map<String, Object?>.from(json)),
+      );
     }
   }
 
   String _historyMetasPath() =>
-      p.join(kWorkspaceHistoryDir, kWorkspaceHistoryMetasFile);
+      p.join(kWorkspaceHistoryDir, kWorkspaceHistoryIndexFile);
 
   Map<String, Map<String, dynamic>>? getAllHistoryMetas() {
     final json = _readJsonSync(_historyMetasPath());
@@ -565,7 +695,7 @@ class WorkspaceStorage {
       await for (final entity in historyDir.list()) {
         if (entity is File) {
           final name = p.basename(entity.path);
-          if (name == kWorkspaceHistoryMetasFile) {
+          if (name == kWorkspaceHistoryIndexFile) {
             continue;
           }
           if (name.endsWith(kJsonFileExtension)) {
@@ -582,7 +712,7 @@ class WorkspaceStorage {
   Future<void> clear() async {
     final collectionIds = getCollectionsIndex().map((e) => e.id).toList();
     if (collectionIds.isEmpty) {
-      collectionIds.add(kDefaultCollectionId);
+      collectionIds.add(kDefaultCollectionName);
     }
     for (final collectionId in collectionIds) {
       final existing = getCollection(collectionId);
@@ -590,16 +720,14 @@ class WorkspaceStorage {
         kWorkspaceCollectionIdKey: collectionId,
         kWorkspaceCollectionNameKey:
             existing?[kWorkspaceCollectionNameKey] as String? ??
-                (collectionId == kDefaultCollectionId
+                (collectionId == kDefaultCollectionName
                     ? kDefaultCollectionName
                     : collectionId),
         kWorkspaceRequestsKey: <Object?>[],
       });
-      final requestsDir = Directory(
-        _path(p.join(_collectionDir(collectionId), kWorkspaceRequestsSubdir)),
-      );
-      if (await requestsDir.exists()) {
-        await for (final entity in requestsDir.list()) {
+      final collectionDir = Directory(_path(_collectionDir(collectionId)));
+      if (await collectionDir.exists()) {
+        await for (final entity in collectionDir.list()) {
           if (entity is Directory) {
             await entity.delete(recursive: true);
           }
@@ -623,13 +751,14 @@ class WorkspaceStorage {
     await clearAllHistory();
   }
 
-  Future<void> removeUnused(String collectionId) async {
-    final ids = getIds(collectionId).toSet();
-    final requestsDir = Directory(
-      _path(p.join(_collectionDir(collectionId), kWorkspaceRequestsSubdir)),
-    );
-    if (await requestsDir.exists()) {
-      await for (final entity in requestsDir.list()) {
+  Future<void> removeUnused(
+    String collectionId, {
+    Set<String>? requestIds,
+  }) async {
+    final ids = requestIds ?? getIds(collectionId).toSet();
+    final collectionDir = Directory(_path(_collectionDir(collectionId)));
+    if (await collectionDir.exists()) {
+      await for (final entity in collectionDir.list()) {
         if (entity is Directory) {
           final dirName = p.basename(entity.path);
           if (!ids.contains(dirName)) {
@@ -675,7 +804,11 @@ class WorkspaceStorage {
   }
 
   Map<String, Object?>? _readJsonSync(String relativePath) {
-    final file = File(_path(relativePath));
+    return _readJsonFileSync(_path(relativePath));
+  }
+
+  Map<String, Object?>? _readJsonFileSync(String absolutePath) {
+    final file = File(absolutePath);
     if (!file.existsSync()) {
       return null;
     }
@@ -690,7 +823,7 @@ class WorkspaceStorage {
       }
       return Map<String, Object?>.from(decoded);
     } catch (e) {
-      debugPrint('_readJsonSync failed for $relativePath: $e');
+      debugPrint('_readJsonFileSync failed for $absolutePath: $e');
       return null;
     }
   }

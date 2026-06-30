@@ -305,7 +305,7 @@ class EnvironmentsStateNotifier
       name: copyName,
     );
 
-    var environmentIds = ref.read(environmentSequenceProvider);
+    var environmentIds = [...ref.read(environmentSequenceProvider)];
     final idx = environmentIds.indexOf(id);
     environmentIds.insert(idx + 1, newId);
 
@@ -400,7 +400,9 @@ class EnvironmentsStateNotifier
       );
     }
     final collectionId = ref.read(selectedCollectionIdStateProvider);
-    await workspaceStorage.removeUnused(collectionId);
+    if (collectionId != null) {
+      await workspaceStorage.removeUnused(collectionId);
+    }
     ref.read(saveDataStateProvider.notifier).state = false;
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }

@@ -78,21 +78,21 @@ const kDefaultMobileWorkspaceSubpath = 'apidash/workspace';
 
 const kMaxSavedWorkspaces = 10;
 
-const kDefaultCollectionId = 'collection-1';
 const kDefaultCollectionName = 'Collection 1';
 const kWorkspaceCollectionsDir = 'collections';
-const kWorkspaceCollectionsIndexFile = 'index.json';
-const kWorkspaceRequestsSubdir = 'requests';
+const kWorkspaceCollectionsIndexFile = 'collectionIndex.json';
 const kWorkspaceRequestFile = 'request.json';
 const kWorkspaceResponseFile = 'response.json';
-const kWorkspaceCollectionFile = 'collection.json';
+const kWorkspaceResponseBodyFilePrefix = 'response_body';
+const kWorkspaceResponseBodyFileKey = 'bodyFile';
+const kWorkspaceRequestIndexFile = 'requestIndex.json';
 const kWorkspaceCollectionsIndexKey = 'collections';
 const kWorkspaceCollectionIdKey = 'id';
 const kWorkspaceCollectionNameKey = 'name';
 const kWorkspaceEnvironmentsDir = 'environments';
-const kWorkspaceEnvironmentIndexFile = 'index.json';
+const kWorkspaceEnvironmentIndexFile = 'environmentIndex.json';
 const kWorkspaceHistoryDir = 'history';
-const kWorkspaceHistoryMetasFile = 'historyMeta.json';
+const kWorkspaceHistoryIndexFile = 'historyIndex.json';
 const kJsonFileExtension = '.json';
 
 const kWorkspaceRequestsKey = 'requests';
@@ -466,7 +466,12 @@ const kLabelPlusNew = "+ New";
 const kLabelNewCollection = "New collection";
 const kLabelRenameCollection = "Rename collection";
 const kLabelDeleteCollection = "Delete collection";
+const kLabelCreateCollection = "Create collection";
+const kMsgNoCollections = "No collections yet";
 const kLabelCollectionName = "Collection name";
+const kMsgCollectionNameInUse = "This collection name already exists";
+const kMsgCollectionNameInvalidChars =
+    r'Name cannot contain / \ : * ? " < > |';
 const kLabelMoreOptions = "More Options";
 const kLabelSend = "Send";
 const kLabelSending = "Sending..";
@@ -588,6 +593,9 @@ const kLabelDefaultLLM = "Default Large Language Model (LLM)";
 const kLabelSaveResponses = "Save Responses";
 const kLabelSaveResponsesSubtitle =
     "Save disk space by not storing API responses";
+const kLabelSaveMediaResponsesAsFiles = "Save Media Responses as Files";
+const kLabelSaveMediaResponsesAsFilesSubtitle =
+    "Store image, audio, video & binary responses as standalone files ";
 const kLabelShowSaveAlert = "Show Save Alert on App Close";
 const kLabelShowSaveAlertSubtitle =
     "Show a confirmation dialog to save workspace when the user closes the app";

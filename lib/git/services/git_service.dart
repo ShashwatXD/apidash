@@ -1,8 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:apidash/consts.dart';
 import 'package:apidash/git/git_error.dart';
+import 'package:apidash/services/workspace_service.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/git_models.dart';
@@ -320,7 +320,11 @@ class GitService {
       };
 
   /// Clones [remoteUrl] into [parentDirectory]. Returns the new workspace path.
-  Future<String> clone(String remoteUrl, String parentDirectory) async {
+  Future<String> clone(
+    String remoteUrl,
+    String parentDirectory, {
+    required String folderName,
+  }) async {
     final trimmed = remoteUrl.trim();
     if (trimmed.isEmpty) {
       throw StateError('Remote URL cannot be empty');
@@ -329,7 +333,10 @@ class GitService {
     if (!await Directory(parent).exists()) {
       throw StateError('Parent directory does not exist');
     }
-    final repoName = repoNameFromCloneUrl(trimmed);
+    final repoName = folderName.trim();
+    if (repoName.isEmpty) {
+      throw StateError('Folder name cannot be empty');
+    }
     final targetPath = p.join(parent, repoName);
     if (await Directory(targetPath).exists()) {
       throw StateError('Folder already exists: $targetPath');
@@ -747,23 +754,6 @@ String repoNameFromCloneUrl(String url) {
     trimmed = trimmed.substring(colonIndex + 1);
   }
   return p.basename(trimmed);
-}
-
-/// Returns true when index files look like API Dash workspace catalogs.
-bool parseApidashWorkspaceIndices({
-  required String collectionsIndexJson,
-  required String environmentsIndexJson,
-}) {
-  try {
-    final collections = jsonDecode(collectionsIndexJson);
-    final environments = jsonDecode(environmentsIndexJson);
-    if (collections is! Map || environments is! Map) return false;
-    if (collections[kWorkspaceCollectionsIndexKey] is! List) return false;
-    if (environments[kWorkspaceEnvironmentIdsKey] is! List) return false;
-    return true;
-  } catch (_) {
-    return false;
-  }
 }
 
 bool looksLikeGitRemoteUrl(String url) {

@@ -90,7 +90,7 @@ const kWorkspaceCollectionsIndexKey = 'collections';
 const kWorkspaceCollectionIdKey = 'id';
 const kWorkspaceCollectionNameKey = 'name';
 const kWorkspaceEnvironmentsDir = 'environments';
-const kWorkspaceEnvironmentIndexFile = 'environmentIndex.json';
+const kWorkspaceEnvironmentIndexFile = 'environment_index.json';
 const kWorkspaceHistoryDir = 'history';
 const kWorkspaceHistoryIndexFile = 'history_index.json';
 const kJsonFileExtension = '.json';
@@ -538,9 +538,45 @@ const kMsgNoContent = "No content";
 const kMsgUnknowContentType = "Unknown Response Content-Type";
 // Workspace Selector
 const kMsgSelectWorkspace = "Create your workspace";
+const kMsgWorkspaceWelcome = 'Welcome to API Dash';
+const kMsgWorkspaceGetStarted = 'Get started with API Dash';
+const kMsgWorkspaceGetStartedSubtitle =
+    'Open a recent workspace or add one from your computer.';
+const kMsgWorkspaceRecentsEmpty = 'No workspaces yet';
+const kMsgWorkspaceRecentsHint =
+    'Create, clone, or open a workspace to get started.';
+const kLabelWorkspaceNew = 'New workspace';
+const kLabelWorkspaceClone = 'Clone shared workspace';
+const kLabelWorkspaceOpen = 'Open existing folder';
+const kLabelWorkspaceLocation = 'Location';
+const kLabelWorkspaceNameOptional = 'Workspace name (optional)';
+const kHintWorkspaceNameOptional =
+    'Creates a subfolder only when you enter a name';
+const kLabelWorkspaceChooseFolder = 'Choose…';
+const kLabelWorkspaceCreate = 'Create workspace';
+const kLabelWorkspaceRepositoryUrl = 'Repository URL';
+const kLabelWorkspaceFolderName = 'Folder name';
+const kLabelWorkspaceParentFolder = 'Parent folder';
+const kLabelWorkspaceCloneRepo = 'Clone repository';
+const kLabelWorkspaceOpenExisting = 'Open workspace';
+const kMsgWorkspacePathPreview = 'Will be created at:';
+const kMsgWorkspaceClonePathPreview = 'Repository will be cloned to:';
+const kMsgWorkspaceNotApidash = 'This folder is not an API Dash workspace.';
+const kMsgWorkspaceMissingIndices =
+    'Missing collections/collection_index.json and environments/environment_index.json.';
+const kMsgWorkspaceValidDetected = 'API Dash workspace detected';
+const kLabelWorkspaceBack = 'Back';
+const kMsgWorkspaceFolderExists = 'A folder already exists at this path.';
+const kMsgWorkspaceFolderNameInvalid =
+    'Folder name contains invalid characters.';
+const kMsgWorkspaceFolderNameRequired = 'Folder name is required';
+const kMsgWorkspaceUrlNotApidash = 'Not an API Dash workspace';
+const kMsgWorkspaceParentRequired = 'Choose a parent folder first';
 const kLabelSelectWorkspace = "Select workspace";
 const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
+const kMsgWorkspaceRecentMissing =
+    'That workspace folder no longer exists on disk.';
 // History Page
 const kTitleClearHistory = 'Clear History';
 const kMsgClearHistory =

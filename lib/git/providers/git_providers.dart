@@ -79,12 +79,17 @@ Future<String> gitCloneRepository(
   WidgetRef ref, {
   required String remoteUrl,
   required String parentDirectory,
+  required String folderName,
 }) async {
   final git = ref.read(gitServiceProvider);
   if (!await git.isGitInstalled()) {
     throw StateError('Git is not installed. Install Git to clone repositories.');
   }
-  return git.clone(remoteUrl, parentDirectory);
+  return git.clone(
+    remoteUrl,
+    parentDirectory,
+    folderName: folderName,
+  );
 }
 
 Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {

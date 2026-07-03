@@ -82,10 +82,9 @@ class _AppState extends ConsumerState<App> with WindowListener {
               FilledButton(
                 child: const Text('Save'),
                 onPressed: () async {
-                  ref.read(autoSaveNotifierProvider.notifier).cancelPending();
                   await ref
-                      .read(activeCollectionProvider.notifier)
-                      .saveData();
+                      .read(autoSaveNotifierProvider.notifier)
+                      .flushNow(force: true);
                   Navigator.of(context).pop();
                   await windowManager.setPreventClose(false);
                   await windowManager.close();
@@ -121,6 +120,7 @@ class DashApp extends ConsumerWidget {
     final userOnboarded = ref.watch(userOnboardedProvider);
     return Portal(
       child: MaterialApp(
+        scaffoldMessengerKey: kAppScaffoldMessengerKey,
         debugShowCheckedModeBanner: false,
         theme: kLightMaterialAppTheme,
         darkTheme: kDarkMaterialAppTheme,

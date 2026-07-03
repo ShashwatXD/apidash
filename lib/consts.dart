@@ -39,6 +39,7 @@ const kMinRequestEditorDetailsCardPaneSize = 300.0;
 final kHomeScaffoldKey = GlobalKey<ScaffoldState>();
 final kEnvScaffoldKey = GlobalKey<ScaffoldState>();
 final kHisScaffoldKey = GlobalKey<ScaffoldState>();
+final kAppScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 const kTabAnimationDuration = Duration(milliseconds: 200);
 const kTabHeight = 40.0;
@@ -576,7 +577,8 @@ const kLabelSelectWorkspace = "Select workspace";
 const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
 const kMsgWorkspaceRecentMissing =
-    'That workspace folder no longer exists on disk.';
+    'Workspace folder no longer exists on disk.';
+const kWorkspaceMissingSnackDuration = Duration(seconds: 4);
 // History Page
 const kTitleClearHistory = 'Clear History';
 const kMsgClearHistory =

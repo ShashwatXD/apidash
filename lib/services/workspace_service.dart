@@ -133,7 +133,7 @@ Future<bool> activateWorkspace(
   }
 
   try {
-    ref.read(autoSaveNotifierProvider.notifier).cancelPending();
+    await ref.read(autoSaveNotifierProvider.notifier).cancelPendingAndWait();
   } catch (_) {
     // ignore
   }
@@ -145,6 +145,8 @@ Future<bool> activateWorkspace(
         path: path,
         name: existingName ?? p.basename(path),
       );
+  resetWorkspaceSelectionState(ref);
+  await SchedulerBinding.instance.endOfFrame;
   invalidateWorkspaceProviders(ref);
   ref.invalidate(gitStatusProvider);
   return true;
@@ -162,8 +164,16 @@ Future<bool> activateClonedWorkspace(WidgetRef ref, String path) async {
 
   final name = p.basename(path);
 
+  try {
+    await ref.read(autoSaveNotifierProvider.notifier).cancelPendingAndWait();
+  } catch (_) {
+    // ignore
+  }
+
   ref.read(saveDataStateProvider.notifier).state = true;
   ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  resetWorkspaceSelectionState(ref);
+  await SchedulerBinding.instance.endOfFrame;
   invalidateWorkspaceProviders(ref);
 
   await ref.read(settingsProvider.notifier).rememberWorkspace(

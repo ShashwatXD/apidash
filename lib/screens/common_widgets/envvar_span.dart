@@ -16,7 +16,7 @@ class EnvVarSpan extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final environments = ref.watch(environmentsStateNotifierProvider);
     final envMap = ref.watch(availableEnvironmentVariablesStateProvider);
-    final activeEnvironmentId = ref.watch(activeEnvironmentIdStateProvider);
+    final activeEnvironmentId = ref.watch(activeEnvironmentIdProvider);
 
     final suggestion = getVariableStatus(
       variableKey,

@@ -903,7 +903,7 @@ class ChatViewmodel extends StateNotifier<ChatState> {
     return svc.ensureBaseUrlEnv(
       baseUrl,
       readEnvs: () => _ref.read(environmentsStateNotifierProvider),
-      readActiveEnvId: () => _ref.read(activeEnvironmentIdStateProvider),
+      readActiveEnvId: () => _ref.read(activeEnvironmentIdProvider),
       updateEnv: (id, {values}) => _ref
           .read(environmentsStateNotifierProvider.notifier)
           .updateEnvironment(id, values: values),
@@ -932,7 +932,7 @@ class ChatViewmodel extends StateNotifier<ChatState> {
         b,
         title: title,
         readEnvs: () => _ref.read(environmentsStateNotifierProvider),
-        readActiveEnvId: () => _ref.read(activeEnvironmentIdStateProvider),
+        readActiveEnvId: () => _ref.read(activeEnvironmentIdProvider),
         updateEnv: (id, {values}) => _ref
             .read(environmentsStateNotifierProvider.notifier)
             .updateEnvironment(id, values: values),

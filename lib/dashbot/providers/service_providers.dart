@@ -53,7 +53,7 @@ final autoFixServiceProvider = Provider<AutoFixService>((ref) {
     ensureBaseUrl: (baseUrl) => urlEnv.ensureBaseUrlEnv(
       baseUrl,
       readEnvs: () => ref.read(environmentsStateNotifierProvider),
-      readActiveEnvId: () => ref.read(activeEnvironmentIdStateProvider),
+      readActiveEnvId: () => ref.read(activeEnvironmentIdProvider),
       updateEnv: (id, {values}) => ref
           .read(environmentsStateNotifierProvider.notifier)
           .updateEnvironment(id, values: values),

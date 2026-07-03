@@ -13,7 +13,6 @@ class GitStatusBadge extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!kIsDesktop) return const SizedBox.shrink();
 
-    ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
     return statusAsync.when(
       loading: () => const SizedBox.shrink(),

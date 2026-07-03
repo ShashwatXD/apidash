@@ -3,20 +3,47 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+Future<void> _ensureDirectory(Directory dir) async {
+  if (!await dir.exists()) {
+    await dir.create(recursive: true);
+  }
+}
+
 Future<void> writeFileAtomic(String path, List<int> bytes) async {
   final file = File(path);
   final parent = file.parent;
-  if (!await parent.exists()) {
-    await parent.create(recursive: true);
-  }
+  await _ensureDirectory(parent);
+
   final tmpPath = '$path.tmp';
   final tmpFile = File(tmpPath);
   try {
     await tmpFile.writeAsBytes(bytes, flush: true);
+    await _ensureDirectory(parent);
     if (await file.exists()) {
       await file.delete();
     }
     await tmpFile.rename(path);
+  } on FileSystemException catch (e) {
+    // Retry once when a concurrent folder rename/remove raced the write.
+    if (e.osError?.errorCode == 2 && await tmpFile.exists()) {
+      try {
+        await _ensureDirectory(parent);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        await tmpFile.rename(path);
+        return;
+      } catch (retryError, retrySt) {
+        debugPrint('writeFileAtomic retry failed for $path: $retryError\n$retrySt');
+      }
+    }
+    debugPrint('writeFileAtomic failed for $path: $e');
+    if (await tmpFile.exists()) {
+      try {
+        await tmpFile.delete();
+      } catch (_) {}
+    }
+    rethrow;
   } catch (e, st) {
     debugPrint('writeFileAtomic failed for $path: $e\n$st');
     if (await tmpFile.exists()) {

@@ -14,6 +14,10 @@ Directory? _workspaceRoot;
 
 bool isWorkspaceStorageInitialized() => _workspaceRoot != null;
 
+void resetWorkspaceStorage() {
+  _workspaceRoot = null;
+}
+
 String _environmentFileName(String id) => '$id$kJsonFileExtension';
 
 String _historyRecordPath(String id) =>
@@ -484,28 +488,17 @@ class WorkspaceStorage {
       return;
     }
     final oldDir = Directory(_path(_requestDirRelative(collectionId, oldId)));
-    if (!oldDir.existsSync()) {
-      return;
-    }
     final newDirPath = _path(_requestDirRelative(collectionId, newId));
-    oldDir.renameSync(newDirPath);
-    final requestFile = File(p.join(newDirPath, kWorkspaceRequestFile));
-    if (!requestFile.existsSync()) {
-      return;
+    final newDir = Directory(newDirPath);
+    if (oldDir.existsSync()) {
+      if (newDir.existsSync()) {
+        return;
+      }
+      oldDir.renameSync(newDirPath);
+    } else if (!newDir.existsSync()) {
+      newDir.createSync(recursive: true);
     }
-    final json = _readJsonSync(
-      p.join(
-        _requestDirRelative(collectionId, newId),
-        kWorkspaceRequestFile,
-      ),
-    );
-    if (json == null) {
-      return;
-    }
-    json['id'] = newId;
-    unawaited(
-      writeJsonAtomic(requestFile.path, Map<String, Object?>.from(json)),
-    );
+    // Request JSON (incl. id) is written by the next saveData/setRequestModel call.
   }
 
   // --- Environments ---

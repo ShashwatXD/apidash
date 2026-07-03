@@ -56,7 +56,9 @@ class WorkspaceShellPage extends HookConsumerWidget {
           );
         }
       } finally {
-        busy.value = false;
+        if (context.mounted) {
+          busy.value = false;
+        }
       }
     }
 

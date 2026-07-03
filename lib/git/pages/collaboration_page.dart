@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:apidash/consts.dart';
 import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/git_error.dart';
+import 'package:apidash/git/git_workspace_path.dart';
 import 'package:apidash/git/models/git_change_tree.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
@@ -15,6 +16,7 @@ import 'package:apidash/git/widgets/git_overview_panel.dart';
 import 'package:apidash/git/widgets/git_recent_commits_section.dart';
 import 'package:apidash/git/widgets/git_sync_toolbar.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,14 +35,34 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   final Set<String> _selectedPaths = {};
   GitChange? _previewChange;
   bool _busy = false;
-  bool _selectionInitialized = false;
   int _diffRevision = 0;
+  ProviderSubscription<AsyncValue<GitStatus>>? _gitStatusSubscription;
+  ProviderSubscription<String?>? _workspacePathSubscription;
 
   @override
   void initState() {
     super.initState();
     _messageController.addListener(_onCommitMessageChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _gitStatusSubscription = ref.listenManual<AsyncValue<GitStatus>>(
+        gitStatusProvider,
+        (previous, next) {
+          next.whenData((status) {
+            if (!status.isRepository || status.remoteUrl == null) return;
+            _scheduleAutoSelect(status.changes);
+          });
+        },
+        fireImmediately: true,
+      );
+      _workspacePathSubscription = ref.listenManual<String?>(
+        settingsProvider.select((s) => s.workspaceFolderPath),
+        (previous, next) {
+          if (previous != null && previous != next && mounted) {
+            setState(_clearGitUiState);
+          }
+        },
+      );
       unawaited(_refreshGitStatus());
     });
   }
@@ -51,24 +73,62 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
 
   @override
   void dispose() {
+    _gitStatusSubscription?.close();
+    _workspacePathSubscription?.close();
     _messageController.removeListener(_onCommitMessageChanged);
     _messageController.dispose();
     super.dispose();
   }
 
+  void _clearGitUiState() {
+    _selectedPaths.clear();
+    _previewChange = null;
+    _messageController.clear();
+    _diffRevision++;
+  }
+
   Future<void> _refreshGitStatus() async {
+    if (!mounted) return;
+    final path = ref.read(settingsProvider).workspaceFolderPath;
+    if (path == null || path.isEmpty || !isWorkspaceStorageInitialized()) {
+      return;
+    }
     await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   }
 
-  void _syncSelection(List<GitChange> changes) {
+  bool _autoSelectWorkspaceChanges(List<GitChange> changes) {
     final paths = changes.map((c) => c.path).toSet();
-    _selectedPaths.removeWhere((p) => !paths.contains(p));
-    for (final change in changes) {
-      _selectedPaths.add(change.path);
+    var changed = false;
+
+    for (final path in _selectedPaths.toList()) {
+      if (!paths.contains(path)) {
+        _selectedPaths.remove(path);
+        changed = true;
+      }
     }
+
+    for (final change in changes) {
+      if (isApidashWorkspaceGitPath(change.path) &&
+          _selectedPaths.add(change.path)) {
+        changed = true;
+      }
+    }
+
     if (_previewChange != null && !paths.contains(_previewChange!.path)) {
       _previewChange = null;
+      changed = true;
     }
+
+    return changed;
+  }
+
+  void _scheduleAutoSelect(List<GitChange> changes) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_autoSelectWorkspaceChanges(changes)) {
+        setState(() {});
+      }
+    });
   }
 
   Future<void> _connectRemote() async {
@@ -84,7 +144,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     if (_busy) return;
     final name = await showGitBranchDialog(
       context,
-      suggestedName:null,
+      suggestedName: null,
     );
     if (name == null || name.isEmpty || !mounted) return;
     await _run(
@@ -134,9 +194,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       await action();
       if (mounted) {
         setState(() {
-          _selectionInitialized = false;
-          _selectedPaths.clear();
-          _previewChange = null;
+          _clearGitUiState();
         });
         onSuccess?.call();
         sm.showSnackBar(getSnackBar(successMessage));
@@ -158,13 +216,14 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       return const Center(child: Text('Collaboration is available on desktop only.'));
     }
 
+    ref.watch(gitWorkspaceWatchProvider);
+
     ref.listen<int>(navRailIndexStateProvider, (previous, next) {
       if (next == kNavRailCollaborationIndex && previous != next) {
         unawaited(_refreshGitStatus());
       }
     });
 
-    ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
     final scheme = Theme.of(context).colorScheme;
 
@@ -199,17 +258,6 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                           ),
                   onConnectRemote: _busy ? null : _connectRemote,
                 );
-              }
-
-              if (!_selectionInitialized && status.changes.isNotEmpty) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    setState(() {
-                      _syncSelection(status.changes);
-                      _selectionInitialized = true;
-                    });
-                  }
-                });
               }
 
               final treeRoots = buildGitChangeTree(status.changes);

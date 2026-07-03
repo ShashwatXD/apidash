@@ -19,7 +19,7 @@ class EnvironmentTriggerOptions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final envMap = ref.watch(availableEnvironmentVariablesStateProvider);
-    final activeEnvironmentId = ref.watch(activeEnvironmentIdStateProvider);
+    final activeEnvironmentId = ref.watch(activeEnvironmentIdProvider);
     final suggestions =
         getEnvironmentTriggerSuggestions(query, envMap, activeEnvironmentId);
     return suggestions == null || suggestions.isEmpty

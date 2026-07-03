@@ -173,7 +173,7 @@ class EnvironmentItem extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedId = ref.watch(selectedEnvironmentIdStateProvider);
-    final activeEnvironmentId = ref.watch(activeEnvironmentIdStateProvider);
+    final activeEnvironmentId = ref.watch(activeEnvironmentIdProvider);
     final editRequestId = ref.watch(selectedIdEditStateProvider);
 
     return SidebarEnvironmentCard(
@@ -184,7 +184,7 @@ class EnvironmentItem extends ConsumerWidget {
       selectedId: selectedId,
       editRequestId: editRequestId,
       setActive: (value) {
-        ref.read(activeEnvironmentIdStateProvider.notifier).state = id;
+        ref.read(settingsProvider.notifier).update(activeEnvironmentId: id);
       },
       onTap: () {
         ref.read(selectedEnvironmentIdStateProvider.notifier).state = id;

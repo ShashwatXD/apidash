@@ -13,13 +13,12 @@ class EnvironmentDropdown extends ConsumerWidget {
     final environmentsList =
         environmentSequence.map((e) => environments?[e]).nonNulls.toList();
 
-    final activeEnvironment = ref.watch(activeEnvironmentIdStateProvider);
+    final activeEnvironment = ref.watch(activeEnvironmentIdProvider);
     return EnvironmentPopupMenu(
       value: environments?[activeEnvironment],
       options: environmentsList,
       onChanged: (value) {
         if (value != null) {
-          ref.read(activeEnvironmentIdStateProvider.notifier).state = value.id;
           ref
               .read(settingsProvider.notifier)
               .update(activeEnvironmentId: value.id);

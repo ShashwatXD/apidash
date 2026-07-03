@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:apidash/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
+import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:path/path.dart' as p;
 
 Future<String> resolveGitDiffTitle(
@@ -49,6 +50,15 @@ Future<String> resolveGitDiffTitle(
   } catch (_) {}
 
   return fileName;
+}
+
+GitDiffChangeKind gitDiffChangeKind(GitChangeType type) {
+  return switch (type) {
+    GitChangeType.added || GitChangeType.untracked => GitDiffChangeKind.added,
+    GitChangeType.deleted => GitDiffChangeKind.removed,
+    GitChangeType.modified => GitDiffChangeKind.modified,
+    GitChangeType.renamed => GitDiffChangeKind.renamed,
+  };
 }
 
 bool _isUnderWorkspaceDir(String changePath, String dirName) {

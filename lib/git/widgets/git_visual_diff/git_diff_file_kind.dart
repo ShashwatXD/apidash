@@ -28,11 +28,15 @@ GitDiffFileKind detectGitDiffFileKind(String path) {
     return GitDiffFileKind.collection;
   }
   if (fileName == kWorkspaceCollectionsIndexFile &&
-      normalized == '$kWorkspaceCollectionsDir/$kWorkspaceCollectionsIndexFile') {
+      normalized.endsWith(
+        '$kWorkspaceCollectionsDir/$kWorkspaceCollectionsIndexFile',
+      )) {
     return GitDiffFileKind.collectionIndex;
   }
   if (fileName == kWorkspaceEnvironmentIndexFile &&
-      normalized == '$kWorkspaceEnvironmentsDir/$kWorkspaceEnvironmentIndexFile') {
+      normalized.endsWith(
+        '$kWorkspaceEnvironmentsDir/$kWorkspaceEnvironmentIndexFile',
+      )) {
     return GitDiffFileKind.environmentIndex;
   }
   if (normalized.startsWith('$kWorkspaceEnvironmentsDir/') &&

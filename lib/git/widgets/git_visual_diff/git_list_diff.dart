@@ -1,6 +1,7 @@
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/collection_model.dart';
 import 'package:apidash/models/request_summary_model.dart';
+import 'package:apidash/utils/file_utils.dart';
 import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
@@ -148,12 +149,13 @@ List<({String id, String name})> _parseCollectionIndex(
   final result = <({String id, String name})>[];
   for (final item in entries) {
     if (item is! Map) continue;
-    final id = item[kWorkspaceCollectionIdKey]?.toString();
-    if (id == null || id.isEmpty) continue;
-    result.add((
-      id: id,
-      name: item[kWorkspaceCollectionNameKey]?.toString() ?? '',
-    ));
+    final name = item[kWorkspaceCollectionNameKey]?.toString().trim() ?? '';
+    final explicitId = item[kWorkspaceCollectionIdKey]?.toString().trim();
+    if (name.isEmpty && (explicitId == null || explicitId.isEmpty)) continue;
+    final id = explicitId != null && explicitId.isNotEmpty
+        ? explicitId
+        : makeCollectionId(name);
+    result.add((id: id, name: name));
   }
   return result;
 }
@@ -311,28 +313,25 @@ class GitListDiffView extends StatelessWidget {
           separatorBuilder: (_, _) => kVSpacer5,
           itemBuilder: (context, index) {
             final row = rows[index];
-            final (marker, bg, fg) = switch (row.kind) {
-              GitListDiffRowKind.added => (
-                  '+',
-                  scheme.tertiaryContainer.withValues(alpha: 0.45),
-                  scheme.tertiary,
-                ),
-              GitListDiffRowKind.removed => (
-                  '−',
-                  scheme.errorContainer.withValues(alpha: 0.35),
-                  scheme.error,
-                ),
-              GitListDiffRowKind.modified => (
-                  '~',
-                  scheme.secondaryContainer.withValues(alpha: 0.35),
-                  scheme.secondary,
-                ),
+            final brightness = Theme.of(context).brightness;
+            final highlight = getGitDiffHighlight(
+              brightness,
+              switch (row.kind) {
+                GitListDiffRowKind.added => GitDiffChangeKind.added,
+                GitListDiffRowKind.removed => GitDiffChangeKind.removed,
+                GitListDiffRowKind.modified => GitDiffChangeKind.modified,
+              },
+            );
+            final marker = switch (row.kind) {
+              GitListDiffRowKind.added => '+',
+              GitListDiffRowKind.removed => '−',
+              GitListDiffRowKind.modified => '~',
             };
 
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: bg,
+                color: highlight.background,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -341,7 +340,7 @@ class GitListDiffView extends StatelessWidget {
                   Text(
                     marker,
                     style: textTheme.titleMedium?.copyWith(
-                      color: fg,
+                      color: highlight.foreground,
                       fontWeight: FontWeight.w700,
                       height: 1.2,
                     ),
@@ -356,7 +355,7 @@ class GitListDiffView extends StatelessWidget {
                             row.method!.name.toUpperCase(),
                             style: kCodeStyle.copyWith(
                               fontSize: 11,
-                              color: fg,
+                              color: highlight.foreground,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -364,6 +363,7 @@ class GitListDiffView extends StatelessWidget {
                           row.label,
                           style: textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.w600,
+                            color: highlight.foreground,
                           ),
                         ),
                         if (row.detail != null && row.detail!.isNotEmpty) ...[

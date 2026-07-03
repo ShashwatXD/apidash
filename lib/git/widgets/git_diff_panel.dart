@@ -1,7 +1,7 @@
 import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
-import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_diff_display.dart';
+import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_file_kind.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_snapshots.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_visual_diff_view.dart';
@@ -376,7 +376,7 @@ class _ChangeTypePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final brightness = Theme.of(context).brightness;
     final label = switch (type) {
       GitChangeType.added => 'Added',
       GitChangeType.modified => 'Modified',
@@ -384,23 +384,22 @@ class _ChangeTypePill extends StatelessWidget {
       GitChangeType.untracked => 'New',
       GitChangeType.renamed => 'Renamed',
     };
-    final color = switch (type) {
-      GitChangeType.added || GitChangeType.untracked => scheme.tertiary,
-      GitChangeType.modified => scheme.secondary,
-      GitChangeType.deleted => scheme.error,
-      GitChangeType.renamed => scheme.primary,
-    };
+    final highlight = getGitDiffHighlight(
+      brightness,
+      gitDiffChangeKind(type),
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: highlight.background,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: highlight.foreground.withValues(alpha: 0.25)),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: color,
+              color: highlight.foreground,
               fontWeight: FontWeight.w600,
             ),
       ),
@@ -539,7 +538,7 @@ class _SideBySideDiff extends StatelessWidget {
                     row: item.row,
                     oldLineNum: item.oldNum,
                     newLineNum: item.newNum,
-                    scheme: scheme,
+                    brightness: Theme.of(context).brightness,
                   );
                 },
               ),
@@ -556,16 +555,17 @@ class _DiffRowView extends StatelessWidget {
     required this.row,
     required this.oldLineNum,
     required this.newLineNum,
-    required this.scheme,
+    required this.brightness,
   });
 
   final DiffRow row;
   final int? oldLineNum;
   final int? newLineNum;
-  final ColorScheme scheme;
+  final Brightness brightness;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -575,6 +575,7 @@ class _DiffRowView extends StatelessWidget {
               lineNumber: oldLineNum,
               text: row.oldLine,
               isRemoved: row.isDeletion,
+              brightness: brightness,
               scheme: scheme,
             ),
           ),
@@ -587,6 +588,7 @@ class _DiffRowView extends StatelessWidget {
               lineNumber: newLineNum,
               text: row.newLine,
               isAdded: row.isAddition,
+              brightness: brightness,
               scheme: scheme,
             ),
           ),
@@ -600,6 +602,7 @@ class _DiffCell extends StatelessWidget {
   const _DiffCell({
     required this.lineNumber,
     required this.text,
+    required this.brightness,
     required this.scheme,
     this.isAdded = false,
     this.isRemoved = false,
@@ -607,23 +610,25 @@ class _DiffCell extends StatelessWidget {
 
   final int? lineNumber;
   final String? text;
+  final Brightness brightness;
   final ColorScheme scheme;
   final bool isAdded;
   final bool isRemoved;
 
   @override
   Widget build(BuildContext context) {
-    Color? bg;
-    if (isAdded) {
-      bg = scheme.tertiaryContainer.withValues(alpha: 0.45);
-    } else if (isRemoved) {
-      bg = scheme.errorContainer.withValues(alpha: 0.35);
-    }
+    final highlight = isAdded
+        ? getGitDiffHighlight(brightness, GitDiffChangeKind.added)
+        : isRemoved
+            ? getGitDiffHighlight(brightness, GitDiffChangeKind.removed)
+            : null;
 
     final displayText = text ?? '';
+    final lineColor = highlight?.foreground ??
+        getGitDiffHighlight(brightness, GitDiffChangeKind.neutral).foreground;
 
     return Container(
-      color: bg,
+      color: highlight?.background,
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -639,11 +644,7 @@ class _DiffCell extends StatelessWidget {
                       style: kCodeStyle.copyWith(
                         fontSize: 11,
                         height: 1.5,
-                        color: isAdded
-                            ? kColorStatusCode200
-                            : isRemoved
-                                ? kColorStatusCode400
-                                : kColorStatusCodeDefault,
+                        color: lineColor,
                       ),
                     ),
                   )
@@ -655,7 +656,8 @@ class _DiffCell extends StatelessWidget {
               style: kCodeStyle.copyWith(
                 fontSize: 12,
                 height: 1.5,
-                color: scheme.onSurface.withValues(alpha: 0.9),
+                color: highlight?.foreground ??
+                    scheme.onSurface.withValues(alpha: 0.9),
               ),
             ),
           ),

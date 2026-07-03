@@ -487,16 +487,19 @@ class _ChangeTypeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (letter, fg) = switch (type) {
+    final (letter, kind) = switch (type) {
       GitChangeType.added || GitChangeType.untracked => (
           'A',
-          scheme.tertiary,
+          GitDiffChangeKind.added,
         ),
-      GitChangeType.modified => ('M', scheme.secondary),
-      GitChangeType.deleted => ('D', scheme.error),
-      GitChangeType.renamed => ('R', scheme.primary),
+      GitChangeType.modified => ('M', GitDiffChangeKind.modified),
+      GitChangeType.deleted => ('D', GitDiffChangeKind.removed),
+      GitChangeType.renamed => ('R', GitDiffChangeKind.renamed),
     };
+    final fg = getGitDiffHighlight(
+      Theme.of(context).brightness,
+      kind,
+    ).foreground;
 
     return Text(
       letter,

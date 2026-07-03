@@ -15,7 +15,7 @@ const kLabelGitDiffCurrent = 'Current';
 const kLabelGitCommitter = 'Committing as';
 const kLabelGitPushOrigin = 'Push origin';
 const kMsgGitCommitterNotConfigured =
-    'Git user.name / user.email not configured for this repository';
+    'Git user.name is not configured for this repository';
 const kMsgGitNotInstalled =
     'Git is not installed. Install Git to clone repositories or use Collaboration.';
 const kMsgGitNotARepository = 'This workspace is not a Git repository yet.';
@@ -77,20 +77,4 @@ const kMsgGitSetupSyncBody =
 String formatGitBehindRemoteHint(int behind) {
   final unit = behind == 1 ? 'commit' : 'commits';
   return '$behind $unit behind remote. Pull to update before pushing.';
-}
-
-String? formatGitCommitterLabel({
-  String? name,
-  String? email,
-}) {
-  final trimmedName = name?.trim();
-  final trimmedEmail = email?.trim();
-  final hasName = trimmedName != null && trimmedName.isNotEmpty;
-  final hasEmail = trimmedEmail != null && trimmedEmail.isNotEmpty;
-  if (hasName && hasEmail) {
-    return '$trimmedName <$trimmedEmail>';
-  }
-  if (hasName) return trimmedName;
-  if (hasEmail) return trimmedEmail;
-  return null;
 }

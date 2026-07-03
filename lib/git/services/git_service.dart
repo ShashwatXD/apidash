@@ -80,7 +80,7 @@ class GitService {
           ? _parseLog(logResult.stdout.toString())
           : const <GitLogEntry>[];
       final branches = await listBranches(workspacePath);
-      final committerName = await _gitConfig(workspacePath, 'user.name');
+      final committerName = await getCommitterName(workspacePath);
       final committerEmail = await _gitConfig(workspacePath, 'user.email');
 
       return GitStatus(
@@ -609,6 +609,17 @@ class GitService {
     if (result.exitCode != 0) return null;
     final url = result.stdout.toString().trim();
     return url.isEmpty ? null : url;
+  }
+
+  Future<String?> getCommitterName(String workspacePath) async {
+    final result = await _git(
+      workspacePath,
+      ['config', 'user.name'],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return null;
+    final value = result.stdout.toString().trim();
+    return value.isEmpty ? null : value;
   }
 
   Future<String?> _gitConfig(String workspacePath, String key) async {

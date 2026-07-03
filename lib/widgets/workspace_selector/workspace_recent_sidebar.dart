@@ -103,7 +103,7 @@ class _RecentTileState extends State<_RecentTile> {
             onTap: widget.enabled ? widget.onTap : null,
             borderRadius: BorderRadius.circular(8),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [

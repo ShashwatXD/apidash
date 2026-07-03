@@ -103,8 +103,8 @@ class WorkspaceActionCard extends StatelessWidget {
       return FilledButton(
         onPressed: enabled ? onTap : null,
         style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-          backgroundColor: scheme.primaryContainer,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 27),
+          backgroundColor: Color(0xFF0066CC),
           foregroundColor: scheme.onPrimary,
           shape: _buttonShape,
         ),
@@ -115,7 +115,7 @@ class WorkspaceActionCard extends StatelessWidget {
     return OutlinedButton(
       onPressed: enabled ? onTap : null,
       style: OutlinedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 27),
         foregroundColor: scheme.onSurface,
         backgroundColor: scheme.surfaceContainerLowest,
         side: BorderSide(color: scheme.outlineVariant),

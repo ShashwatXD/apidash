@@ -546,7 +546,7 @@ const kMsgWorkspaceRecentsEmpty = 'No workspaces yet';
 const kMsgWorkspaceRecentsHint =
     'Create, clone, or open a workspace to get started.';
 const kLabelWorkspaceNew = 'New workspace';
-const kLabelWorkspaceClone = 'Clone shared workspace';
+const kLabelWorkspaceClone = 'Clone a workspace';
 const kLabelWorkspaceOpen = 'Open existing folder';
 const kLabelWorkspaceLocation = 'Location';
 const kLabelWorkspaceNameOptional = 'Workspace name (optional)';

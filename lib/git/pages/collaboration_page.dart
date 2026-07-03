@@ -294,7 +294,6 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                       children: [
                                         _CommitterLine(
                                           name: status.committerName,
-                                          email: status.committerEmail,
                                         ),
                                         kVSpacer8,
                                         ADOutlinedTextField(
@@ -497,30 +496,71 @@ class _GitSidebarHeader extends StatelessWidget {
 class _CommitterLine extends StatelessWidget {
   const _CommitterLine({
     required this.name,
-    required this.email,
   });
 
   final String? name;
-  final String? email;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
-    final label = formatGitCommitterLabel(name: name, email: email);
+    final displayName = name?.trim();
+    final isConfigured = displayName != null && displayName.isNotEmpty;
 
-    return Text(
-      label == null
-          ? kMsgGitCommitterNotConfigured
-          : '$kLabelGitCommitter $label',
-      style: textTheme.labelSmall?.copyWith(
-        color: label == null
-            ? scheme.outline
-            : scheme.onSurfaceVariant,
-        fontStyle: label == null ? FontStyle.italic : FontStyle.normal,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.35),
+        ),
       ),
-      overflow: TextOverflow.ellipsis,
-      maxLines: 2,
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor: isConfigured
+                ? scheme.primaryContainer
+                : scheme.surfaceContainerHigh,
+            child: Icon(
+              Icons.person_outline_rounded,
+              size: 18,
+              color: isConfigured ? scheme.onPrimaryContainer : scheme.outline,
+            ),
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  kLabelGitCommitter,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isConfigured ? displayName : kMsgGitCommitterNotConfigured,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: isConfigured
+                        ? scheme.onSurface
+                        : scheme.outline,
+                    fontStyle:
+                        isConfigured ? FontStyle.normal : FontStyle.italic,
+                    fontWeight:
+                        isConfigured ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

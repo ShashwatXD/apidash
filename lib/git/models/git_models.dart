@@ -31,6 +31,8 @@ class GitStatus {
     this.branch,
     this.syncState = GitSyncState.notRepo,
     this.remoteUrl,
+    this.committerName,
+    this.committerEmail,
     this.ahead = 0,
     this.behind = 0,
     this.changes = const [],
@@ -44,6 +46,8 @@ class GitStatus {
   final String? branch;
   final GitSyncState syncState;
   final String? remoteUrl;
+  final String? committerName;
+  final String? committerEmail;
   final int ahead;
   final int behind;
   final List<GitChange> changes;

@@ -102,6 +102,16 @@ Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {
   await _reloadGitStatus(ref);
 }
 
+Future<void> gitCreateBranch(WidgetRef ref, String branchName) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
+  await ref.read(gitServiceProvider).createBranch(path, branchName);
+  await reloadWorkspaceFromDisk(ref);
+  await _reloadGitStatus(ref);
+}
+
 Future<void> gitRestoreToCommit(WidgetRef ref, String commitHash) async {
   final path = ref.read(settingsProvider).workspaceFolderPath;
   if (path == null || path.isEmpty) return;

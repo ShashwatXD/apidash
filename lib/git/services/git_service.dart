@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/git/branch_name.dart';
+import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/git_error.dart';
 import 'package:apidash/services/workspace_service.dart';
 import 'package:path/path.dart' as p;
@@ -78,11 +80,15 @@ class GitService {
           ? _parseLog(logResult.stdout.toString())
           : const <GitLogEntry>[];
       final branches = await listBranches(workspacePath);
+      final committerName = await _gitConfig(workspacePath, 'user.name');
+      final committerEmail = await _gitConfig(workspacePath, 'user.email');
 
       return GitStatus(
         branch: branch,
         syncState: syncState,
         remoteUrl: remoteUrl,
+        committerName: committerName,
+        committerEmail: committerEmail,
         ahead: ahead,
         behind: behind,
         changes: changes,
@@ -457,9 +463,37 @@ class GitService {
   Future<void> checkoutBranch(String workspacePath, String branch) async {
     final trimmed = branch.trim();
     if (trimmed.isEmpty) {
-      throw StateError('Branch name cannot be empty');
+      throw StateError(kMsgGitBranchNameEmpty);
+    }
+    final validationError = validateGitBranchName(trimmed);
+    if (validationError != null) {
+      throw StateError(validationError);
     }
     await _git(workspacePath, ['checkout', trimmed]);
+  }
+
+  Future<void> createBranch(String workspacePath, String branchName) async {
+    final trimmed = branchName.trim();
+    final validationError = validateGitBranchName(trimmed);
+    if (validationError != null) {
+      throw StateError(validationError);
+    }
+    if (await _localBranchExists(workspacePath, trimmed)) {
+      throw StateError(kMsgGitBranchExists);
+    }
+    await _git(workspacePath, ['checkout', '-b', trimmed]);
+  }
+
+  Future<bool> _localBranchExists(
+    String workspacePath,
+    String branchName,
+  ) async {
+    final result = await _git(
+      workspacePath,
+      ['show-ref', '--verify', '--quiet', 'refs/heads/$branchName'],
+      allowFailure: true,
+    );
+    return result.exitCode == 0;
   }
 
   Future<void> restoreToCommit(String workspacePath, String commitHash) async {
@@ -575,6 +609,17 @@ class GitService {
     if (result.exitCode != 0) return null;
     final url = result.stdout.toString().trim();
     return url.isEmpty ? null : url;
+  }
+
+  Future<String?> _gitConfig(String workspacePath, String key) async {
+    final result = await _git(
+      workspacePath,
+      ['config', '--get', key],
+      allowFailure: true,
+    );
+    if (result.exitCode != 0) return null;
+    final value = result.stdout.toString().trim();
+    return value.isEmpty ? null : value;
   }
 
   Future<String?> _resolveRemoteTrackingRef(String workspacePath) async {

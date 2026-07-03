@@ -313,9 +313,8 @@ class GitListDiffView extends StatelessWidget {
           separatorBuilder: (_, _) => kVSpacer5,
           itemBuilder: (context, index) {
             final row = rows[index];
-            final brightness = Theme.of(context).brightness;
             final highlight = getGitDiffHighlight(
-              brightness,
+              Theme.of(context).brightness,
               switch (row.kind) {
                 GitListDiffRowKind.added => GitDiffChangeKind.added,
                 GitListDiffRowKind.removed => GitDiffChangeKind.removed,

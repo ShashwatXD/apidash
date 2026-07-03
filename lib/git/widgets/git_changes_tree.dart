@@ -496,10 +496,7 @@ class _ChangeTypeBadge extends StatelessWidget {
       GitChangeType.deleted => ('D', GitDiffChangeKind.removed),
       GitChangeType.renamed => ('R', GitDiffChangeKind.renamed),
     };
-    final fg = getGitDiffHighlight(
-      Theme.of(context).brightness,
-      kind,
-    ).foreground;
+    final fg = getGitDiffHighlight(Theme.of(context).brightness, kind).foreground;
 
     return Text(
       letter,

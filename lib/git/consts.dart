@@ -12,6 +12,10 @@ const kLabelGitDiffVisual = 'Visual';
 const kLabelGitDiffRaw = 'Raw';
 const kLabelGitDiffOriginal = 'Original';
 const kLabelGitDiffCurrent = 'Current';
+const kLabelGitCommitter = 'Committing as';
+const kLabelGitPushOrigin = 'Push origin';
+const kMsgGitCommitterNotConfigured =
+    'Git user.name / user.email not configured for this repository';
 const kMsgGitNotInstalled =
     'Git is not installed. Install Git to clone repositories or use Collaboration.';
 const kMsgGitNotARepository = 'This workspace is not a Git repository yet.';
@@ -41,6 +45,21 @@ const kMsgGitOverviewHint =
 const kMsgGitNeverFetched = 'Not fetched yet';
 const kMsgGitLastFetchedJustNow = 'Last fetched: less than a minute ago';
 const kMsgGitCheckoutSuccess = 'Switched branch';
+const kMsgGitCreateBranchSuccess = 'Created and switched to new branch';
+const kLabelGitNewBranch = 'New branch…';
+const kLabelGitCreateBranch = 'Create branch';
+const kLabelGitSwitchBranch = 'Switch branch';
+const kLabelGitNoBranch = 'No branch';
+const kTitleGitNewBranch = 'Create new branch';
+const kHintGitBranchName = 'e.g. feature/my-change';
+const kMsgGitBranchNameEmpty = 'Enter a branch name';
+const kMsgGitBranchNameTooLong = 'Branch name is too long';
+const kMsgGitBranchNameReserved = 'That name is reserved by Git';
+const kMsgGitBranchNameInvalid =
+    'Use letters, numbers, hyphens, underscores, and slashes only';
+const kMsgGitBranchExists = 'A branch with this name already exists';
+const kMsgGitCheckoutLocalChanges =
+    'Commit or discard your changes before switching branches';
 const kGitInstallUrl = 'https://git-scm.com/downloads';
 const kLabelGitSetupStepInstall = 'Install Git';
 const kLabelGitSetupStepInit = 'Initialize repository';
@@ -58,4 +77,20 @@ const kMsgGitSetupSyncBody =
 String formatGitBehindRemoteHint(int behind) {
   final unit = behind == 1 ? 'commit' : 'commits';
   return '$behind $unit behind remote. Pull to update before pushing.';
+}
+
+String? formatGitCommitterLabel({
+  String? name,
+  String? email,
+}) {
+  final trimmedName = name?.trim();
+  final trimmedEmail = email?.trim();
+  final hasName = trimmedName != null && trimmedName.isNotEmpty;
+  final hasEmail = trimmedEmail != null && trimmedEmail.isNotEmpty;
+  if (hasName && hasEmail) {
+    return '$trimmedName <$trimmedEmail>';
+  }
+  if (hasName) return trimmedName;
+  if (hasEmail) return trimmedEmail;
+  return null;
 }

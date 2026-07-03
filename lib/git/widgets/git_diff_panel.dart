@@ -376,7 +376,6 @@ class _ChangeTypePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
     final label = switch (type) {
       GitChangeType.added => 'Added',
       GitChangeType.modified => 'Modified',
@@ -385,7 +384,7 @@ class _ChangeTypePill extends StatelessWidget {
       GitChangeType.renamed => 'Renamed',
     };
     final highlight = getGitDiffHighlight(
-      brightness,
+      Theme.of(context).brightness,
       gitDiffChangeKind(type),
     );
 
@@ -538,7 +537,7 @@ class _SideBySideDiff extends StatelessWidget {
                     row: item.row,
                     oldLineNum: item.oldNum,
                     newLineNum: item.newNum,
-                    brightness: Theme.of(context).brightness,
+                    scheme: Theme.of(context).colorScheme,
                   );
                 },
               ),
@@ -555,17 +554,16 @@ class _DiffRowView extends StatelessWidget {
     required this.row,
     required this.oldLineNum,
     required this.newLineNum,
-    required this.brightness,
+    required this.scheme,
   });
 
   final DiffRow row;
   final int? oldLineNum;
   final int? newLineNum;
-  final Brightness brightness;
+  final ColorScheme scheme;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -575,7 +573,6 @@ class _DiffRowView extends StatelessWidget {
               lineNumber: oldLineNum,
               text: row.oldLine,
               isRemoved: row.isDeletion,
-              brightness: brightness,
               scheme: scheme,
             ),
           ),
@@ -588,7 +585,6 @@ class _DiffRowView extends StatelessWidget {
               lineNumber: newLineNum,
               text: row.newLine,
               isAdded: row.isAddition,
-              brightness: brightness,
               scheme: scheme,
             ),
           ),
@@ -602,7 +598,6 @@ class _DiffCell extends StatelessWidget {
   const _DiffCell({
     required this.lineNumber,
     required this.text,
-    required this.brightness,
     required this.scheme,
     this.isAdded = false,
     this.isRemoved = false,
@@ -610,13 +605,13 @@ class _DiffCell extends StatelessWidget {
 
   final int? lineNumber;
   final String? text;
-  final Brightness brightness;
   final ColorScheme scheme;
   final bool isAdded;
   final bool isRemoved;
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     final highlight = isAdded
         ? getGitDiffHighlight(brightness, GitDiffChangeKind.added)
         : isRemoved

@@ -6,11 +6,14 @@ import 'package:apidash/git/git_error.dart';
 import 'package:apidash/git/models/git_change_tree.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
+import 'package:apidash/git/widgets/dialog_git_branch.dart';
 import 'package:apidash/git/widgets/dialog_git_remote.dart';
+import 'package:apidash/git/widgets/git_branch_switcher.dart';
 import 'package:apidash/git/widgets/git_changes_tree.dart';
 import 'package:apidash/git/widgets/git_diff_panel.dart';
 import 'package:apidash/git/widgets/git_overview_panel.dart';
 import 'package:apidash/git/widgets/git_recent_commits_section.dart';
+import 'package:apidash/git/widgets/git_sync_toolbar.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
@@ -36,13 +39,19 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   @override
   void initState() {
     super.initState();
+    _messageController.addListener(_onCommitMessageChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refreshGitStatus());
     });
   }
 
+  void _onCommitMessageChanged() {
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    _messageController.removeListener(_onCommitMessageChanged);
     _messageController.dispose();
     super.dispose();
   }
@@ -68,6 +77,19 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     await _run(
       () => gitSetRemote(ref, url),
       'Remote connected',
+    );
+  }
+
+  Future<void> _createBranch(GitStatus status) async {
+    if (_busy) return;
+    final name = await showGitBranchDialog(
+      context,
+      suggestedName:null,
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    await _run(
+      () => gitCreateBranch(ref, name),
+      kMsgGitCreateBranchSuccess,
     );
   }
 
@@ -100,7 +122,11 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     );
   }
 
-  Future<void> _run(Future<void> Function() action, String successMessage) async {
+  Future<void> _run(
+    Future<void> Function() action,
+    String successMessage, {
+    VoidCallback? onSuccess,
+  }) async {
     if (_busy) return;
     setState(() => _busy = true);
     final sm = ScaffoldMessenger.of(context);
@@ -112,6 +138,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
           _selectedPaths.clear();
           _previewChange = null;
         });
+        onSuccess?.call();
         sm.showSnackBar(getSnackBar(successMessage));
       }
     } catch (e) {
@@ -214,6 +241,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                       () => gitCheckoutBranch(ref, branch),
                                       kMsgGitCheckoutSuccess,
                                     ),
+                                    onCreateBranch: () => _createBranch(status),
                                   ),
                                   if (status.recentCommits.isEmpty)
                                     Padding(
@@ -264,6 +292,11 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
                                       children: [
+                                        _CommitterLine(
+                                          name: status.committerName,
+                                          email: status.committerEmail,
+                                        ),
+                                        kVSpacer8,
                                         ADOutlinedTextField(
                                           keyId: 'git-commit-message',
                                           controller: _messageController,
@@ -288,6 +321,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                                           .toList(),
                                                     ),
                                                     kMsgGitCommitSuccess,
+                                                    onSuccess: () =>
+                                                        _messageController
+                                                            .clear(),
                                                   ),
                                           icon: const Icon(
                                             Icons.check_rounded,
@@ -318,53 +354,44 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                           kHSpacer10,
                           Expanded(
                             child: _GitPanel(
-                              child: _previewChange == null
-                                  ? GitOverviewPanel(
-                                      status: status,
-                                      busy: _busy,
-                                      onFetch: () => _run(
-                                        () => gitFetch(ref),
-                                        kMsgGitFetchSuccess,
-                                      ),
-                                      onPull: () => _run(
-                                        () => gitPull(ref),
-                                        kMsgGitPullSuccess,
-                                      ),
-                                      onPush: () => _run(
-                                        () => gitPush(ref),
-                                        kMsgGitPushSuccess,
-                                      ),
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: IconButton(
-                                            onPressed: _busy
-                                                ? null
-                                                : () => setState(
-                                                      () =>
-                                                          _previewChange = null,
-                                                    ),
-                                            icon: const Icon(
-                                              Icons.arrow_back_rounded,
-                                              size: 20,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  GitSyncToolbar(
+                                    status: status,
+                                    busy: _busy,
+                                    showBack: _previewChange != null,
+                                    onBack: () => setState(
+                                      () => _previewChange = null,
+                                    ),
+                                    onPush: status.ahead > 0
+                                        ? () => _run(
+                                              () => gitPush(ref),
+                                              kMsgGitPushSuccess,
+                                            )
+                                        : null,
+                                  ),
+                                  Expanded(
+                                    child: _previewChange == null
+                                        ? GitOverviewPanel(
+                                            status: status,
+                                            busy: _busy,
+                                            onFetch: () => _run(
+                                              () => gitFetch(ref),
+                                              kMsgGitFetchSuccess,
                                             ),
-                                            tooltip: kLabelGitBackToOverview,
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: GitDiffPanel(
+                                            onPull: () => _run(
+                                              () => gitPull(ref),
+                                              kMsgGitPullSuccess,
+                                            ),
+                                          )
+                                        : GitDiffPanel(
                                             change: _previewChange,
                                             refreshToken: _diffRevision,
                                           ),
-                                        ),
-                                      ],
-                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -425,12 +452,14 @@ class _GitSidebarHeader extends StatelessWidget {
     required this.branches,
     required this.busy,
     required this.onBranchSelected,
+    required this.onCreateBranch,
   });
 
   final GitStatus status;
   final List<String> branches;
   final bool busy;
   final ValueChanged<String> onBranchSelected;
+  final VoidCallback onCreateBranch;
 
   @override
   Widget build(BuildContext context) {
@@ -442,13 +471,13 @@ class _GitSidebarHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (branches.isNotEmpty)
-            _BranchPill(
-              branches: branches,
-              currentBranch: status.branch,
-              busy: busy,
-              onBranchSelected: onBranchSelected,
-            ),
+          GitBranchSwitcher(
+            branches: branches,
+            currentBranch: status.branch,
+            busy: busy,
+            onBranchSelected: onBranchSelected,
+            onCreateBranch: onCreateBranch,
+          ),
           if (status.remoteUrl != null) ...[
             kVSpacer5,
             Text(
@@ -465,55 +494,33 @@ class _GitSidebarHeader extends StatelessWidget {
   }
 }
 
-class _BranchPill extends StatelessWidget {
-  const _BranchPill({
-    required this.branches,
-    required this.currentBranch,
-    required this.busy,
-    required this.onBranchSelected,
+class _CommitterLine extends StatelessWidget {
+  const _CommitterLine({
+    required this.name,
+    required this.email,
   });
 
-  final List<String> branches;
-  final String? currentBranch;
-  final bool busy;
-  final ValueChanged<String> onBranchSelected;
+  final String? name;
+  final String? email;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final selected = currentBranch != null && branches.contains(currentBranch)
-        ? currentBranch
-        : null;
+    final textTheme = Theme.of(context).textTheme;
+    final label = formatGitCommitterLabel(name: name, email: email);
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-      decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(20),
+    return Text(
+      label == null
+          ? kMsgGitCommitterNotConfigured
+          : '$kLabelGitCommitter $label',
+      style: textTheme.labelSmall?.copyWith(
+        color: label == null
+            ? scheme.outline
+            : scheme.onSurfaceVariant,
+        fontStyle: label == null ? FontStyle.italic : FontStyle.normal,
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          isDense: true,
-          value: selected,
-          icon: Icon(Icons.expand_more_rounded, size: 18, color: scheme.primary),
-          items: [
-            for (final branch in branches)
-              DropdownMenuItem(
-                value: branch,
-                child: Text(
-                  branch,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-          ],
-          onChanged: busy || selected == null
-              ? null
-              : (branch) {
-                  if (branch == null || branch == selected) return;
-                  onBranchSelected(branch);
-                },
-        ),
-      ),
+      overflow: TextOverflow.ellipsis,
+      maxLines: 2,
     );
   }
 }

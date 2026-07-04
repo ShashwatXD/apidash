@@ -11,11 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class GitDiffPanel extends ConsumerStatefulWidget {
-  const GitDiffPanel({
-    super.key,
-    required this.change,
-    this.refreshToken = 0,
-  });
+  const GitDiffPanel({super.key, required this.change, this.refreshToken = 0});
 
   final GitChange? change;
   final int refreshToken;
@@ -171,6 +167,8 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
 
     final fileName = change.path.split('/').last;
     final supportsVisual = gitDiffSupportsVisual(change.path);
+    final isResponseBodyFile = gitDiffIsResponseBodyFile(change.path);
+    final canToggleRawDiff = supportsVisual && !isResponseBodyFile;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -181,8 +179,9 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
             future: _diffFuture,
             builder: (context, snapshot) {
               final title = snapshot.data?.title;
-              final displayTitle =
-                  title != null && title.isNotEmpty ? title : fileName;
+              final displayTitle = title != null && title.isNotEmpty
+                  ? title
+                  : fileName;
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,7 +214,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                           ),
                         ),
                       ),
-                      if (supportsVisual) ...[
+                      if (canToggleRawDiff) ...[
                         kHSpacer8,
                         _DiffModeToggle(
                           useVisual: _useVisualDiff,
@@ -255,9 +254,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                   return Center(
                     child: Text(
                       kLabelGitDiffEmpty,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: scheme.error,
-                      ),
+                      style: textTheme.bodySmall?.copyWith(color: scheme.error),
                     ),
                   );
                 }
@@ -265,7 +262,8 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                   return _GitDiffLoadingIndicator(scheme: scheme);
                 }
 
-                final showVisual = supportsVisual && _useVisualDiff;
+                final showVisual =
+                    supportsVisual && (isResponseBodyFile || _useVisualDiff);
                 if (showVisual) {
                   return GitVisualDiffView(
                     fileKind: result.fileKind,
@@ -317,9 +315,9 @@ class _GitDiffLoadingIndicator extends StatelessWidget {
           kVSpacer10,
           Text(
             kLabelGitDiffLoading,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -328,10 +326,7 @@ class _GitDiffLoadingIndicator extends StatelessWidget {
 }
 
 class _DiffModeToggle extends StatelessWidget {
-  const _DiffModeToggle({
-    required this.useVisual,
-    required this.onChanged,
-  });
+  const _DiffModeToggle({required this.useVisual, required this.onChanged});
 
   final bool useVisual;
   final ValueChanged<bool> onChanged;
@@ -341,14 +336,8 @@ class _DiffModeToggle extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return SegmentedButton<bool>(
       segments: const [
-        ButtonSegment(
-          value: true,
-          label: Text(kLabelGitDiffVisual),
-        ),
-        ButtonSegment(
-          value: false,
-          label: Text(kLabelGitDiffRaw),
-        ),
+        ButtonSegment(value: true, label: Text(kLabelGitDiffVisual)),
+        ButtonSegment(value: false, label: Text(kLabelGitDiffRaw)),
       ],
       selected: {useVisual},
       onSelectionChanged: (selection) {
@@ -398,9 +387,9 @@ class _ChangeTypePill extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: highlight.foreground,
-              fontWeight: FontWeight.w600,
-            ),
+          color: highlight.foreground,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -431,15 +420,9 @@ List<DiffRow> parseDiffRows(String diff) {
   final rows = <DiffRow>[];
   for (final line in visibleDiffLines(diff)) {
     if (line.startsWith('-')) {
-      rows.add(DiffRow(
-        oldLine: line.substring(1),
-        isDeletion: true,
-      ));
+      rows.add(DiffRow(oldLine: line.substring(1), isDeletion: true));
     } else if (line.startsWith('+')) {
-      rows.add(DiffRow(
-        newLine: line.substring(1),
-        isAddition: true,
-      ));
+      rows.add(DiffRow(newLine: line.substring(1), isAddition: true));
     } else {
       final content = line.startsWith(' ') ? line.substring(1) : line;
       rows.add(DiffRow(oldLine: content, newLine: content));
@@ -494,9 +477,7 @@ class _SideBySideDiff extends StatelessWidget {
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -511,18 +492,18 @@ class _SideBySideDiff extends StatelessWidget {
                     child: Text(
                       kLabelGitDiffOriginal,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   Expanded(
                     child: Text(
                       kLabelGitDiffCurrent,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: scheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
@@ -615,11 +596,12 @@ class _DiffCell extends StatelessWidget {
     final highlight = isAdded
         ? getGitDiffHighlight(brightness, GitDiffChangeKind.added)
         : isRemoved
-            ? getGitDiffHighlight(brightness, GitDiffChangeKind.removed)
-            : null;
+        ? getGitDiffHighlight(brightness, GitDiffChangeKind.removed)
+        : null;
 
     final displayText = text ?? '';
-    final lineColor = highlight?.foreground ??
+    final lineColor =
+        highlight?.foreground ??
         getGitDiffHighlight(brightness, GitDiffChangeKind.neutral).foreground;
 
     return Container(
@@ -651,7 +633,8 @@ class _DiffCell extends StatelessWidget {
               style: kCodeStyle.copyWith(
                 fontSize: 12,
                 height: 1.5,
-                color: highlight?.foreground ??
+                color:
+                    highlight?.foreground ??
                     scheme.onSurface.withValues(alpha: 0.9),
               ),
             ),

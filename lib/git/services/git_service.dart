@@ -204,6 +204,20 @@ class GitService {
     return text.isEmpty ? null : text;
   }
 
+  Future<List<int>?> showObjectBytes(String workspacePath, String object) async {
+    final result = await Process.run(
+      'git',
+      ['show', object],
+      workingDirectory: workspacePath,
+      environment: _gitEnv,
+      stdoutEncoding: null,
+    );
+    if (result.exitCode != 0) return null;
+    final bytes = result.stdout;
+    if (bytes is! List<int> || bytes.isEmpty) return null;
+    return bytes;
+  }
+
   Future<bool> validateCloneUrl(String url) async {
     final trimmed = url.trim();
     if (trimmed.isEmpty || !looksLikeGitRemoteUrl(trimmed)) return false;

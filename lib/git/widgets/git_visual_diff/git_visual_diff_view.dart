@@ -23,41 +23,47 @@ class GitVisualDiffView extends StatelessWidget {
 
     return switch (fileKind) {
       GitDiffFileKind.request => GitRequestVisualDiff(
-          original: parseRequestModel(snapshots.headJson),
-          current: parseRequestModel(snapshots.currentJson),
-          originalRaw: snapshots.headRaw,
-          currentRaw: snapshots.currentRaw,
-        ),
+        original: parseRequestModel(snapshots.headJson),
+        current: parseRequestModel(snapshots.currentJson),
+        originalRaw: snapshots.headRaw,
+        currentRaw: snapshots.currentRaw,
+      ),
       GitDiffFileKind.response => GitResponseVisualDiff(
-          original: parseResponseModel(snapshots.headJson),
-          current: parseResponseModel(snapshots.currentJson),
-          originalRaw: snapshots.headRaw,
-          currentRaw: snapshots.currentRaw,
-        ),
+        original: parseResponseModel(snapshots.headJson),
+        current: parseResponseModel(snapshots.currentJson),
+        originalRaw: snapshots.headRaw,
+        currentRaw: snapshots.currentRaw,
+      ),
+      GitDiffFileKind.responseBody => GitResponseVisualDiff(
+        original: parseResponseModel(snapshots.headJson),
+        current: parseResponseModel(snapshots.currentJson),
+        originalRaw: snapshots.headRaw,
+        currentRaw: snapshots.currentRaw,
+      ),
       GitDiffFileKind.collection => _buildListDiff(
-          diffCollectionRows(
-            head: snapshots.headJson,
-            current: snapshots.currentJson,
-          ),
+        diffCollectionRows(
+          head: snapshots.headJson,
+          current: snapshots.currentJson,
         ),
+      ),
       GitDiffFileKind.collectionIndex => _buildListDiff(
-          diffCollectionIndexRows(
-            head: snapshots.headJson,
-            current: snapshots.currentJson,
-          ),
+        diffCollectionIndexRows(
+          head: snapshots.headJson,
+          current: snapshots.currentJson,
         ),
+      ),
       GitDiffFileKind.environment => _buildListDiff(
-          diffEnvironmentRows(
-            head: snapshots.headJson,
-            current: snapshots.currentJson,
-          ),
+        diffEnvironmentRows(
+          head: snapshots.headJson,
+          current: snapshots.currentJson,
         ),
+      ),
       GitDiffFileKind.environmentIndex => _buildListDiff(
-          diffEnvironmentIndexRows(
-            head: snapshots.headJson,
-            current: snapshots.currentJson,
-          ),
+        diffEnvironmentIndexRows(
+          head: snapshots.headJson,
+          current: snapshots.currentJson,
         ),
+      ),
       GitDiffFileKind.unsupported => const SizedBox.shrink(),
     };
   }
@@ -66,9 +72,6 @@ class GitVisualDiffView extends StatelessWidget {
     if (rows.isNotEmpty) {
       return GitListDiffView(rows: rows);
     }
-    return GitListSnapshotPreview(
-      fileKind: fileKind,
-      snapshots: snapshots,
-    );
+    return GitListSnapshotPreview(fileKind: fileKind, snapshots: snapshots);
   }
 }

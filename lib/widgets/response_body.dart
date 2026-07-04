@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash/models/models.dart';
@@ -21,25 +24,22 @@ class ResponseBody extends StatelessWidget {
     final responseModel = selectedRequestModel?.httpResponseModel;
     if (responseModel == null) {
       return const ErrorMessage(
-          message: '$kNullResponseModelError $kUnexpectedRaiseIssue');
+        message: '$kNullResponseModelError $kUnexpectedRaiseIssue',
+      );
     }
 
-    var body = responseModel.body;
+    final mediaType =
+        responseModel.mediaType ?? MediaType(kTypeText, kSubTypePlain);
+    final body = responseModel.body ?? '';
+    final bytes = responseModel.bodyBytes ?? _bytesFromBody(responseModel.body);
 
-    if (body == null) {
-      return const ErrorMessage(
-          message: '$kMsgNullBody $kUnexpectedRaiseIssue');
-    }
-    if (body.isEmpty) {
+    if (body.isEmpty && (bytes == null || bytes.isEmpty)) {
       return const ErrorMessage(
         message: kMsgNoContent,
         showIcon: false,
         showIssueButton: false,
       );
     }
-
-    final mediaType =
-        responseModel.mediaType ?? MediaType(kTypeText, kSubTypePlain);
     // Fix #415: Treat null Content-type as plain text instead of Error message
     // if (mediaType == null) {
     //   return ErrorMessage(
@@ -67,7 +67,7 @@ class ResponseBody extends StatelessWidget {
       key: Key("${selectedRequestModel!.id}-response"),
       mediaType: mediaType,
       options: options,
-      bytes: responseModel.bodyBytes!,
+      bytes: bytes ?? Uint8List(0),
       body: body,
       formattedBody: formattedBody,
       highlightLanguage: highlightLanguage,
@@ -76,5 +76,12 @@ class ResponseBody extends StatelessWidget {
       aiRequestModel: selectedRequestModel?.aiRequestModel,
       isPartOfHistory: isPartOfHistory,
     );
+  }
+
+  Uint8List? _bytesFromBody(String? body) {
+    if (body == null) {
+      return null;
+    }
+    return Uint8List.fromList(utf8.encode(body));
   }
 }

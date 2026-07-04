@@ -11,13 +11,13 @@ import '../utils/history_utils.dart';
 
 final selectedHistoryIdStateProvider = StateProvider<String?>((ref) => null);
 
-final selectedRequestGroupIdStateProvider = StateProvider<String?>((ref) {
+final selectedRequestGroupIdStateProvider = Provider<String?>((ref) {
   final selectedHistoryId = ref.watch(selectedHistoryIdStateProvider);
-  final historyMetaState = ref.read(historyMetaStateNotifier);
-  if (selectedHistoryId == null) {
+  final historyMetaState = ref.watch(historyMetaStateNotifier);
+  if (selectedHistoryId == null || historyMetaState == null) {
     return null;
   }
-  return getHistoryRequestKey(historyMetaState![selectedHistoryId]!);
+  return getHistoryRequestKey(historyMetaState[selectedHistoryId]!);
 });
 
 final selectedHistoryRequestModelProvider = StateProvider<HistoryRequestModel?>(
@@ -25,7 +25,7 @@ final selectedHistoryRequestModelProvider = StateProvider<HistoryRequestModel?>(
 );
 
 final historySequenceProvider =
-    StateProvider<Map<DateTime, List<HistoryMetaModel>>?>((ref) {
+    Provider<Map<DateTime, List<HistoryMetaModel>>?>((ref) {
       final historyMetas = ref.watch(historyMetaStateNotifier);
       return getTemporalGroups(historyMetas?.values.toList());
     });

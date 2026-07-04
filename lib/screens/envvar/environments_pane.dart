@@ -16,7 +16,7 @@ class EnvironmentsPane extends ConsumerWidget {
     return Padding(
       padding:
           (!context.isMediumWindow && kIsMacOS ? kPt24l4 : kPt8l4) +
-          (context.isMediumWindow ? kPb70 : EdgeInsets.zero),
+                (context.isMediumWindow ? kPb70 : EdgeInsets.zero),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -173,7 +173,7 @@ class EnvironmentItem extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedId = ref.watch(selectedEnvironmentIdStateProvider);
-    final activeEnvironmentId = ref.watch(activeEnvironmentIdStateProvider);
+    final activeEnvironmentId = ref.watch(activeEnvironmentIdProvider);
     final editRequestId = ref.watch(selectedIdEditStateProvider);
 
     return SidebarEnvironmentCard(
@@ -184,7 +184,7 @@ class EnvironmentItem extends ConsumerWidget {
       selectedId: selectedId,
       editRequestId: editRequestId,
       setActive: (value) {
-        ref.read(activeEnvironmentIdStateProvider.notifier).state = id;
+        ref.read(settingsProvider.notifier).update(activeEnvironmentId: id);
       },
       onTap: () {
         ref.read(selectedEnvironmentIdStateProvider.notifier).state = id;
@@ -196,23 +196,27 @@ class EnvironmentItem extends ConsumerWidget {
       focusNode: ref.watch(nameTextFieldFocusNodeProvider),
       onChangedNameEditor: (value) {
         value = value.trim();
-        ref
-            .read(environmentsStateNotifierProvider.notifier)
-            .updateEnvironment(editRequestId!, name: value);
+        if (id != kGlobalEnvironmentId) {
+          ref
+              .read(environmentsStateNotifierProvider.notifier)
+              .updateEnvironment(editRequestId!, name: value);
+        }
       },
       onTapOutsideNameEditor: () {
         ref.read(selectedIdEditStateProvider.notifier).state = null;
       },
       onMenuSelected: (ItemMenuOption item) {
         if (item == ItemMenuOption.edit) {
-          ref.read(selectedIdEditStateProvider.notifier).state = id;
-          Future.delayed(
-            const Duration(milliseconds: 150),
-            () => ref
-                .read(nameTextFieldFocusNodeProvider.notifier)
-                .state
-                .requestFocus(),
-          );
+          if (id != kGlobalEnvironmentId) {
+            ref.read(selectedIdEditStateProvider.notifier).state = id;
+            Future.delayed(
+              const Duration(milliseconds: 150),
+              () => ref
+                  .read(nameTextFieldFocusNodeProvider.notifier)
+                  .state
+                  .requestFocus(),
+            );
+          }
         }
         if (item == ItemMenuOption.delete) {
           ref

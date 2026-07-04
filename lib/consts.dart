@@ -39,6 +39,7 @@ const kMinRequestEditorDetailsCardPaneSize = 300.0;
 final kHomeScaffoldKey = GlobalKey<ScaffoldState>();
 final kEnvScaffoldKey = GlobalKey<ScaffoldState>();
 final kHisScaffoldKey = GlobalKey<ScaffoldState>();
+final kAppScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 const kTabAnimationDuration = Duration(milliseconds: 200);
 const kTabHeight = 40.0;
@@ -78,21 +79,21 @@ const kMobileWorkspacesParentSubpath = 'apidash/workspaces';
 
 const kMaxSavedWorkspaces = 10;
 
-const kDefaultCollectionId = 'collection-1';
 const kDefaultCollectionName = 'Collection 1';
 const kWorkspaceCollectionsDir = 'collections';
-const kWorkspaceCollectionsIndexFile = 'index.json';
-const kWorkspaceRequestsSubdir = 'requests';
+const kWorkspaceCollectionsIndexFile = 'collection_index.json';
 const kWorkspaceRequestFile = 'request.json';
 const kWorkspaceResponseFile = 'response.json';
-const kWorkspaceCollectionFile = 'collection.json';
+const kWorkspaceResponseBodyFilePrefix = 'response_body';
+const kWorkspaceResponseBodyFileKey = 'bodyFile';
+const kWorkspaceRequestIndexFile = 'request_index.json';
 const kWorkspaceCollectionsIndexKey = 'collections';
 const kWorkspaceCollectionIdKey = 'id';
 const kWorkspaceCollectionNameKey = 'name';
 const kWorkspaceEnvironmentsDir = 'environments';
-const kWorkspaceEnvironmentIndexFile = 'index.json';
+const kWorkspaceEnvironmentIndexFile = 'environment_index.json';
 const kWorkspaceHistoryDir = 'history';
-const kWorkspaceHistoryMetasFile = 'historyMeta.json';
+const kWorkspaceHistoryIndexFile = 'history_index.json';
 const kJsonFileExtension = '.json';
 
 const kWorkspaceRequestsKey = 'requests';
@@ -466,7 +467,12 @@ const kLabelPlusNew = "+ New";
 const kLabelNewCollection = "New collection";
 const kLabelRenameCollection = "Rename collection";
 const kLabelDeleteCollection = "Delete collection";
+const kLabelCreateCollection = "Create collection";
+const kMsgNoCollections = "No collections yet";
 const kLabelCollectionName = "Collection name";
+const kMsgCollectionNameInUse = "This collection name already exists";
+const kMsgCollectionNameInvalidChars =
+    r'Name cannot contain / \ : * ? " < > |';
 const kLabelMoreOptions = "More Options";
 const kLabelSend = "Send";
 const kLabelSending = "Sending..";
@@ -533,9 +539,46 @@ const kMsgNoContent = "No content";
 const kMsgUnknowContentType = "Unknown Response Content-Type";
 // Workspace Selector
 const kMsgSelectWorkspace = "Create your workspace";
+const kMsgWorkspaceWelcome = 'Welcome to API Dash';
+const kMsgWorkspaceGetStarted = 'Get started with API Dash';
+const kMsgWorkspaceGetStartedSubtitle =
+    'Open a recent workspace or add one from your computer.';
+const kMsgWorkspaceRecentsEmpty = 'No workspaces yet';
+const kMsgWorkspaceRecentsHint =
+    'Create, clone, or open a workspace to get started.';
+const kLabelWorkspaceNew = 'New workspace';
+const kLabelWorkspaceClone = 'Clone a workspace';
+const kLabelWorkspaceOpen = 'Open existing folder';
+const kLabelWorkspaceLocation = 'Location';
+const kLabelWorkspaceNameOptional = 'Workspace name (optional)';
+const kHintWorkspaceNameOptional =
+    'Creates a subfolder only when you enter a name';
+const kLabelWorkspaceChooseFolder = 'Choose…';
+const kLabelWorkspaceCreate = 'Create workspace';
+const kLabelWorkspaceRepositoryUrl = 'Repository URL';
+const kLabelWorkspaceFolderName = 'Folder name';
+const kLabelWorkspaceParentFolder = 'Parent folder';
+const kLabelWorkspaceCloneRepo = 'Clone repository';
+const kLabelWorkspaceOpenExisting = 'Open workspace';
+const kMsgWorkspacePathPreview = 'Will be created at:';
+const kMsgWorkspaceClonePathPreview = 'Repository will be cloned to:';
+const kMsgWorkspaceNotApidash = 'This folder is not an API Dash workspace.';
+const kMsgWorkspaceMissingIndices =
+    'Missing collections/collection_index.json and environments/environment_index.json.';
+const kMsgWorkspaceValidDetected = 'API Dash workspace detected';
+const kLabelWorkspaceBack = 'Back';
+const kMsgWorkspaceFolderExists = 'A folder already exists at this path.';
+const kMsgWorkspaceFolderNameInvalid =
+    'Folder name contains invalid characters.';
+const kMsgWorkspaceFolderNameRequired = 'Folder name is required';
+const kMsgWorkspaceUrlNotApidash = 'Not an API Dash workspace';
+const kMsgWorkspaceParentRequired = 'Choose a parent folder first';
 const kLabelSelectWorkspace = "Select workspace";
 const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
+const kMsgWorkspaceRecentMissing =
+    'Workspace folder no longer exists on disk.';
+const kWorkspaceMissingSnackDuration = Duration(seconds: 4);
 // History Page
 const kTitleClearHistory = 'Clear History';
 const kMsgClearHistory =
@@ -570,7 +613,7 @@ const kLabelPush = "Push";
 const kLabelCommitChanges = "Commit Changes";
 const kLabelInitializeRepository = "Initialize repository";
 const kLabelConnectRemote = "Connect";
-const kLabelCommitMessage = "Commit message";
+const kLabelCommitMessage = "Commit message (Required)";
 const kLabelSelectAll = "Select all";
 const kLabelRecentCommits = "Recent commits";
 const kLabelBranch = "Branch";
@@ -591,6 +634,9 @@ const kLabelDefaultLLM = "Default Large Language Model (LLM)";
 const kLabelSaveResponses = "Save Responses";
 const kLabelSaveResponsesSubtitle =
     "Save disk space by not storing API responses";
+const kLabelSaveMediaResponsesAsFiles = "Save Media Responses as Files";
+const kLabelSaveMediaResponsesAsFilesSubtitle =
+    "Store image, audio, video & binary responses as standalone files ";
 const kLabelShowSaveAlert = "Show Save Alert on App Close";
 const kLabelShowSaveAlertSubtitle =
     "Show a confirmation dialog to save workspace when the user closes the app";

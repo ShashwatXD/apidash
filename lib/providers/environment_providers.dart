@@ -17,16 +17,16 @@ final selectedEnvironmentIdStateProvider = StateProvider<String?>(
   (ref) => null,
 );
 
-final selectedEnvironmentModelProvider = StateProvider<EnvironmentModel?>((
-  ref,
-) {
+final selectedEnvironmentModelProvider = Provider<EnvironmentModel?>((ref) {
   final selectedId = ref.watch(selectedEnvironmentIdStateProvider);
   final environments = ref.watch(environmentsStateNotifierProvider);
-  return selectedId != null ? environments![selectedId] : null;
+  return selectedId != null && environments != null
+      ? environments[selectedId]
+      : null;
 });
 
-final activeEnvironmentModelProvider = StateProvider<EnvironmentModel?>((ref) {
-  final activeId = ref.watch(activeEnvironmentIdStateProvider);
+final activeEnvironmentModelProvider = Provider<EnvironmentModel?>((ref) {
+  final activeId = ref.watch(activeEnvironmentIdProvider);
   final environments = ref.watch(environmentsStateNotifierProvider);
   if (activeId != null && environments != null) {
     return environments[activeId];
@@ -35,10 +35,10 @@ final activeEnvironmentModelProvider = StateProvider<EnvironmentModel?>((ref) {
 });
 
 final availableEnvironmentVariablesStateProvider =
-    StateProvider<Map<String, List<EnvironmentVariableModel>>>((ref) {
+    Provider<Map<String, List<EnvironmentVariableModel>>>((ref) {
       Map<String, List<EnvironmentVariableModel>> result = {};
       final environments = ref.watch(environmentsStateNotifierProvider);
-      final activeEnviormentId = ref.watch(activeEnvironmentIdStateProvider);
+      final activeEnviormentId = ref.watch(activeEnvironmentIdProvider);
       if (activeEnviormentId != null) {
         result[activeEnviormentId] =
             environments?[activeEnviormentId]?.values
@@ -80,6 +80,12 @@ class EnvironmentsStateNotifier
       final status = await loadEnvironments();
       if (status) {
         ref.read(environmentSequenceProvider.notifier).state = [...state!.keys];
+        final activeId = ref.read(activeEnvironmentIdProvider);
+        if (activeId == null || !state!.containsKey(activeId)) {
+          await ref
+              .read(settingsProvider.notifier)
+              .update(activeEnvironmentId: kGlobalEnvironmentId);
+        }
       }
       ref.read(selectedEnvironmentIdStateProvider.notifier).state =
           kGlobalEnvironmentId;
@@ -263,9 +269,12 @@ class EnvironmentsStateNotifier
     if (ref.read(selectedEnvironmentIdStateProvider) == oldId) {
       ref.read(selectedEnvironmentIdStateProvider.notifier).state = newId;
     }
-    if (ref.read(activeEnvironmentIdStateProvider) == oldId) {
-      ref.read(activeEnvironmentIdStateProvider.notifier).state = newId;
-      ref.read(settingsProvider.notifier).update(activeEnvironmentId: newId);
+    if (ref.read(activeEnvironmentIdProvider) == oldId) {
+      unawaited(
+        ref
+            .read(settingsProvider.notifier)
+            .update(activeEnvironmentId: newId),
+      );
     }
 
     unawaited(_persistEnvironmentRename(oldId, newId, environment));
@@ -305,7 +314,7 @@ class EnvironmentsStateNotifier
       name: copyName,
     );
 
-    var environmentIds = ref.read(environmentSequenceProvider);
+    var environmentIds = [...ref.read(environmentSequenceProvider)];
     final idx = environmentIds.indexOf(id);
     environmentIds.insert(idx + 1, newId);
 
@@ -400,7 +409,9 @@ class EnvironmentsStateNotifier
       );
     }
     final collectionId = ref.read(selectedCollectionIdStateProvider);
-    await workspaceStorage.removeUnused(collectionId);
+    if (collectionId != null) {
+      await workspaceStorage.removeUnused(collectionId);
+    }
     ref.read(saveDataStateProvider.notifier).state = false;
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
   }

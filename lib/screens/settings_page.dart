@@ -22,14 +22,15 @@ class SettingsPage extends ConsumerWidget {
       children: [
         !context.isMediumWindow
             ? Padding(
-                padding: kPh20t40,
-                child: kIsDesktop
-                    ? Text(
+              padding: kPh20t40,
+              child:
+                  kIsDesktop
+                      ? Text(
                         kLabelSettings,
                         style: Theme.of(context).textTheme.headlineLarge,
                       )
-                    : kSizedBoxEmpty,
-              )
+                      : kSizedBoxEmpty,
+            )
             : kSizedBoxEmpty,
         kIsDesktop
             ? const Padding(padding: kPh20, child: Divider(height: 1))
@@ -89,17 +90,17 @@ class SettingsPage extends ConsumerWidget {
               ),
               !kIsWeb
                   ? ADListTile(
-                      type: ListTileType.switchOnOff,
-                      title: kLabelDisableSSL,
-                      subtitle:
-                          '$kLabelCurrentSelectionPrefix${settings.isSSLDisabled ? kLabelSSLDisabled : kLabelSSLEnabled}',
-                      value: settings.isSSLDisabled,
-                      onChanged: (bool? value) {
-                        ref
-                            .read(settingsProvider.notifier)
-                            .update(isSSLDisabled: value ?? false);
-                      },
-                    )
+                    type: ListTileType.switchOnOff,
+                    title: kLabelDisableSSL,
+                    subtitle:
+                        '$kLabelCurrentSelectionPrefix${settings.isSSLDisabled ? kLabelSSLDisabled : kLabelSSLEnabled}',
+                    value: settings.isSSLDisabled,
+                    onChanged: (bool? value) {
+                      ref
+                          .read(settingsProvider.notifier)
+                          .update(isSSLDisabled: value ?? false);
+                    },
+                  )
                   : kSizedBoxEmpty,
               ListTile(
                 hoverColor: kColorTransparent,
@@ -124,14 +125,15 @@ class SettingsPage extends ConsumerWidget {
                     ref
                         .read(settingsProvider.notifier)
                         .update(
-                          defaultAIModel: d
-                              .copyWith(
-                                modelConfigs: [],
-                                stream: null,
-                                systemPrompt: '',
-                                userPrompt: '',
-                              )
-                              .toJson(),
+                          defaultAIModel:
+                              d
+                                  .copyWith(
+                                    modelConfigs: [],
+                                    stream: null,
+                                    systemPrompt: '',
+                                    userPrompt: '',
+                                  )
+                                  .toJson(),
                         );
                   },
                 ),
@@ -145,6 +147,19 @@ class SettingsPage extends ConsumerWidget {
                       .read(settingsProvider.notifier)
                       .update(saveResponses: value);
                 },
+              ),
+              CheckboxListTile(
+                title: const Text(kLabelSaveMediaResponsesAsFiles),
+                subtitle: const Text(kLabelSaveMediaResponsesAsFilesSubtitle),
+                value: settings.saveMediaResponsesAsFiles,
+                onChanged:
+                    settings.saveResponses
+                        ? (value) {
+                          ref
+                              .read(settingsProvider.notifier)
+                              .update(saveMediaResponsesAsFiles: value);
+                        }
+                        : null,
               ),
               CheckboxListTile(
                 title: const Text(kLabelShowSaveAlert),
@@ -177,9 +192,10 @@ class SettingsPage extends ConsumerWidget {
                 subtitle: const Text(kLabelExportDataSubtitle),
                 trailing: FilledButton.icon(
                   onPressed: () async {
-                    var data = await ref
-                        .read(collectionStateNotifierProvider.notifier)
-                        .exportDataToHAR();
+                    var data =
+                        await ref
+                            .read(activeCollectionProvider.notifier)
+                            .exportDataToHAR();
                     await saveCollection(data, sm);
                   },
                   label: const Text(kLabelExport),
@@ -192,56 +208,65 @@ class SettingsPage extends ConsumerWidget {
                 subtitle: const Text(kLabelClearDataSubtitle),
                 trailing: FilledButton.tonalIcon(
                   style: FilledButton.styleFrom(
-                    backgroundColor: settings.isDark
-                        ? kColorDarkDanger
-                        : kColorLightDanger,
+                    backgroundColor:
+                        settings.isDark ? kColorDarkDanger : kColorLightDanger,
                     surfaceTintColor: kColorRed,
                     foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   ),
-                  onPressed: clearingData
-                      ? null
-                      : () => showDialog<String>(
-                          context: context,
-                          builder: (BuildContext context) => AlertDialog(
-                            icon: const Icon(Icons.manage_history_rounded),
-                            iconColor: settings.isDark
-                                ? kColorDarkDanger
-                                : kColorLightDanger,
-                            title: const Text(kLabelClearData),
-                            titleTextStyle: Theme.of(
-                              context,
-                            ).textTheme.titleLarge,
-                            content: ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 300),
-                              child: const Text(kMsgClearDataConfirmation),
-                            ),
-                            actions: <Widget>[
-                              TextButton(
-                                onPressed: () =>
-                                    Navigator.pop(context, 'Cancel'),
-                                child: const Text(kLabelCancel),
-                              ),
-                              TextButton(
-                                onPressed: () async {
-                                  Navigator.pop(context, 'Yes');
-                                  await clearAllWorkspaceData(ref);
-                                  sm.hideCurrentSnackBar();
-                                  sm.showSnackBar(
-                                    getSnackBar(kMsgRequestsDataCleared),
-                                  );
-                                },
-                                child: Text(
-                                  kLabelYes,
-                                  style: kTextStyleButton.copyWith(
-                                    color: settings.isDark
-                                        ? kColorDarkDanger
-                                        : kColorLightDanger,
+                  onPressed:
+                      clearingData
+                          ? null
+                          : () => showDialog<String>(
+                            context: context,
+                            builder:
+                                (BuildContext context) => AlertDialog(
+                                  icon: const Icon(
+                                    Icons.manage_history_rounded,
                                   ),
+                                  iconColor:
+                                      settings.isDark
+                                          ? kColorDarkDanger
+                                          : kColorLightDanger,
+                                  title: const Text(kLabelClearData),
+                                  titleTextStyle:
+                                      Theme.of(context).textTheme.titleLarge,
+                                  content: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 300,
+                                    ),
+                                    child: const Text(
+                                      kMsgClearDataConfirmation,
+                                    ),
+                                  ),
+                                  actions: <Widget>[
+                                    TextButton(
+                                      onPressed:
+                                          () =>
+                                              Navigator.pop(context, 'Cancel'),
+                                      child: const Text(kLabelCancel),
+                                    ),
+                                    TextButton(
+                                      onPressed: () async {
+                                        Navigator.pop(context, 'Yes');
+                                        await clearAllWorkspaceData(ref);
+                                        sm.hideCurrentSnackBar();
+                                        sm.showSnackBar(
+                                          getSnackBar(kMsgRequestsDataCleared),
+                                        );
+                                      },
+                                      child: Text(
+                                        kLabelYes,
+                                        style: kTextStyleButton.copyWith(
+                                          color:
+                                              settings.isDark
+                                                  ? kColorDarkDanger
+                                                  : kColorLightDanger,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                            ],
                           ),
-                        ),
                   label: const Text(kLabelClear),
                   icon: Icon(
                     Icons.delete_forever_rounded,

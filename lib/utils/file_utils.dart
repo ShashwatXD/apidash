@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:file_selector/file_selector.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:mime_dart/mime_dart.dart';
 import 'package:uuid/uuid.dart';
@@ -33,6 +34,36 @@ String makeStorageId(String name, {String? suffix}) {
   return '${_slugifyStorageName(name)}_$stableSuffix';
 }
 
+String _sanitizeForFileName(String name) {
+  final cleaned = name
+      .trim()
+      .replaceAll(RegExp(r'[/\\:*?"<>|]'), '-')
+      .replaceAll(RegExp(r'-+'), '-')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .replaceAll(RegExp(r'^-+|-+$'), '')
+      .trim();
+  return cleaned.isEmpty ? 'request' : cleaned;
+}
+
+String makeHistoryId({
+  required DateTime timeStamp,
+  required String name,
+}) {
+  final label = _sanitizeForFileName(name);
+  final stamp = DateFormat('yyyy-MM-dd hh.mm.ss a').format(timeStamp);
+  return '$label $stamp';
+}
+
+String makeCollectionId(String name) {
+  final cleaned = name.trim();
+  return cleaned.isEmpty ? 'untitled' : cleaned;
+}
+
+final _illegalFileNameChars = RegExp(r'[/\\:*?"<>|]');
+
+bool collectionNameHasIllegalChars(String name) =>
+    _illegalFileNameChars.hasMatch(name);
+
 String? storageIdSuffix(String id) {
   if (!_storageIdSuffixPattern.hasMatch(id)) {
     return null;
@@ -46,6 +77,18 @@ String renameStorageId(String oldId, String newName) {
     return oldId;
   }
   return makeStorageId(newName, suffix: suffix);
+}
+
+String renameEnvironmentStorageId(String currentId, String name) {
+  final renamed = renameStorageId(currentId, name);
+  if (renamed != currentId) {
+    return renamed;
+  }
+  if (storageIdSuffix(currentId) != null) {
+    return currentId;
+  }
+  final trimmed = name.trim();
+  return trimmed.isEmpty ? currentId : makeStorageId(trimmed);
 }
 
 String? getFileExtension(String? mimeType) {

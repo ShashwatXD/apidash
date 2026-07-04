@@ -3,15 +3,20 @@ import 'dart:async';
 import 'package:apidash/consts.dart';
 import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/git_error.dart';
+import 'package:apidash/git/git_workspace_path.dart';
 import 'package:apidash/git/models/git_change_tree.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/providers/providers.dart';
+import 'package:apidash/git/widgets/dialog_git_branch.dart';
 import 'package:apidash/git/widgets/dialog_git_remote.dart';
+import 'package:apidash/git/widgets/git_branch_switcher.dart';
 import 'package:apidash/git/widgets/git_changes_tree.dart';
 import 'package:apidash/git/widgets/git_diff_panel.dart';
 import 'package:apidash/git/widgets/git_overview_panel.dart';
 import 'package:apidash/git/widgets/git_recent_commits_section.dart';
+import 'package:apidash/git/widgets/git_sync_toolbar.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/sync/consts.dart';
 import 'package:apidash/sync/providers/sync_providers.dart';
 import 'package:apidash/sync/ui/sync_host_dialog.dart';
@@ -33,8 +38,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   final Set<String> _selectedPaths = {};
   GitChange? _previewChange;
   bool _busy = false;
-  bool _selectionInitialized = false;
   int _diffRevision = 0;
+  ProviderSubscription<AsyncValue<GitStatus>>? _gitStatusSubscription;
+  ProviderSubscription<String?>? _workspacePathSubscription;
 
   Future<void> _openSyncToPhoneDialog() async {
     if (!mounted) return;
@@ -46,62 +52,130 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   @override
   void initState() {
     super.initState();
+    _messageController.addListener(_onCommitMessageChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _gitStatusSubscription = ref.listenManual<AsyncValue<GitStatus>>(
+        gitStatusProvider,
+        (previous, next) {
+          next.whenData((status) {
+            if (!status.isRepository || status.remoteUrl == null) return;
+            _scheduleAutoSelect(status.changes);
+          });
+        },
+        fireImmediately: true,
+      );
+      _workspacePathSubscription = ref.listenManual<String?>(
+        settingsProvider.select((s) => s.workspaceFolderPath),
+        (previous, next) {
+          if (previous != null && previous != next && mounted) {
+            setState(_clearGitUiState);
+          }
+        },
+      );
       unawaited(_refreshGitStatus());
     });
   }
 
+  void _onCommitMessageChanged() {
+    setState(() {});
+  }
+
   @override
   void dispose() {
+    _gitStatusSubscription?.close();
+    _workspacePathSubscription?.close();
+    _messageController.removeListener(_onCommitMessageChanged);
     _messageController.dispose();
     super.dispose();
   }
 
+  void _clearGitUiState() {
+    _selectedPaths.clear();
+    _previewChange = null;
+    _messageController.clear();
+    _diffRevision++;
+  }
+
   Future<void> _refreshGitStatus() async {
+    if (!mounted) return;
+    final path = ref.read(settingsProvider).workspaceFolderPath;
+    if (path == null || path.isEmpty || !isWorkspaceStorageInitialized()) {
+      return;
+    }
     await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   }
 
-  void _syncSelection(List<GitChange> changes) {
+  bool _autoSelectWorkspaceChanges(List<GitChange> changes) {
     final paths = changes.map((c) => c.path).toSet();
-    _selectedPaths.removeWhere((p) => !paths.contains(p));
-    for (final change in changes) {
-      _selectedPaths.add(change.path);
+    var changed = false;
+
+    for (final path in _selectedPaths.toList()) {
+      if (!paths.contains(path)) {
+        _selectedPaths.remove(path);
+        changed = true;
+      }
     }
+
+    for (final change in changes) {
+      if (isApidashWorkspaceGitPath(change.path) &&
+          _selectedPaths.add(change.path)) {
+        changed = true;
+      }
+    }
+
     if (_previewChange != null && !paths.contains(_previewChange!.path)) {
       _previewChange = null;
+      changed = true;
     }
+
+    return changed;
+  }
+
+  void _scheduleAutoSelect(List<GitChange> changes) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_autoSelectWorkspaceChanges(changes)) {
+        setState(() {});
+      }
+    });
   }
 
   Future<void> _connectRemote() async {
     final url = await showGitRemoteDialog(context);
     if (url == null || url.isEmpty || !mounted) return;
-    await _run(
-      () => gitSetRemote(ref, url),
-      'Remote connected',
-    );
+    await _run(() => gitSetRemote(ref, url), 'Remote connected');
+  }
+
+  Future<void> _createBranch(GitStatus status) async {
+    if (_busy) return;
+    final name = await showGitBranchDialog(context, suggestedName: null);
+    if (name == null || name.isEmpty || !mounted) return;
+    await _run(() => gitCreateBranch(ref, name), kMsgGitCreateBranchSuccess);
   }
 
   Future<void> _confirmRestoreCommit(GitLogEntry entry) async {
     if (_busy) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text(kMsgGitRestoreCommitConfirmTitle),
-        content: Text(
-          '${entry.message}\n\n${entry.author} · ${entry.relativeTime}\n\n'
-          '$kMsgGitRestoreCommitConfirmBody',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text(kLabelCancel),
+      builder:
+          (context) => AlertDialog(
+            title: const Text(kMsgGitRestoreCommitConfirmTitle),
+            content: Text(
+              '${entry.message}\n\n${entry.author} · ${entry.relativeTime}\n\n'
+              '$kMsgGitRestoreCommitConfirmBody',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text(kLabelCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(kLabelGitRestoreCommit),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text(kLabelGitRestoreCommit),
-          ),
-        ],
-      ),
     );
     if (confirmed != true || !mounted) return;
     await _run(
@@ -110,7 +184,11 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     );
   }
 
-  Future<void> _run(Future<void> Function() action, String successMessage) async {
+  Future<void> _run(
+    Future<void> Function() action,
+    String successMessage, {
+    VoidCallback? onSuccess,
+  }) async {
     if (_busy) return;
     setState(() => _busy = true);
     final sm = ScaffoldMessenger.of(context);
@@ -118,10 +196,9 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       await action();
       if (mounted) {
         setState(() {
-          _selectionInitialized = false;
-          _selectedPaths.clear();
-          _previewChange = null;
+          _clearGitUiState();
         });
+        onSuccess?.call();
         sm.showSnackBar(getSnackBar(successMessage));
       }
     } catch (e) {
@@ -138,8 +215,12 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   @override
   Widget build(BuildContext context) {
     if (!kIsDesktop) {
-      return const Center(child: Text('Collaboration is available on desktop only.'));
+      return const Center(
+        child: Text('Collaboration is available on desktop only.'),
+      );
     }
+
+    ref.watch(gitWorkspaceWatchProvider);
 
     ref.listen<int>(navRailIndexStateProvider, (previous, next) {
       if (next == kNavRailCollaborationIndex && previous != next) {
@@ -147,7 +228,6 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       }
     });
 
-    ref.watch(gitWorkspaceWatchProvider);
     final statusAsync = ref.watch(gitStatusProvider);
     final unsyncedAsync = ref.watch(syncUnsyncedCountProvider);
     final scheme = Theme.of(context).colorScheme;
@@ -169,9 +249,11 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                 onPressed: _busy ? null : _openSyncToPhoneDialog,
                 icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
                 label: unsyncedAsync.maybeWhen(
-                  data: (count) => count > 0
-                      ? Text('$kLabelSyncToPhone')
-                      : const Text(kLabelSyncToPhone),
+                  data:
+                      (count) =>
+                          count > 0
+                              ? const Text(kLabelSyncToPhone)
+                              : const Text(kLabelSyncToPhone),
                   orElse: () => const Text(kLabelSyncToPhone),
                 ),
               ),
@@ -191,25 +273,15 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                 return CollaborationSetupGuide(
                   status: status,
                   busy: _busy,
-                  onInitialize: _busy
-                      ? null
-                      : () => _run(
+                  onInitialize:
+                      _busy
+                          ? null
+                          : () => _run(
                             () => gitInitRepository(ref),
                             'Repository initialized',
                           ),
                   onConnectRemote: _busy ? null : _connectRemote,
                 );
-              }
-
-              if (!_selectionInitialized && status.changes.isNotEmpty) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    setState(() {
-                      _syncSelection(status.changes);
-                      _selectionInitialized = true;
-                    });
-                  }
-                });
               }
 
               final treeRoots = buildGitChangeTree(status.changes);
@@ -237,10 +309,12 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                     status: status,
                                     branches: _branchOptions(status),
                                     busy: _busy,
-                                    onBranchSelected: (branch) => _run(
-                                      () => gitCheckoutBranch(ref, branch),
-                                      kMsgGitCheckoutSuccess,
-                                    ),
+                                    onBranchSelected:
+                                        (branch) => _run(
+                                          () => gitCheckoutBranch(ref, branch),
+                                          kMsgGitCheckoutSuccess,
+                                        ),
+                                    onCreateBranch: () => _createBranch(status),
                                   ),
                                   if (status.recentCommits.isEmpty)
                                     Padding(
@@ -250,39 +324,44 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                       ),
                                       child: Text(
                                         kMsgGitSetupSyncBody,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .labelSmall
-                                            ?.copyWith(
-                                              color: scheme.onSurfaceVariant,
-                                            ),
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.labelSmall?.copyWith(
+                                          color: scheme.onSurfaceVariant,
+                                        ),
                                       ),
                                     ),
                                   Expanded(
-                                    child: status.changes.isEmpty
-                                        ? _EmptyChangesState()
-                                        : GitChangesTree(
-                                            roots: treeRoots,
-                                            selectedPaths: _selectedPaths,
-                                            previewPath: _previewChange?.path,
-                                            busy: _busy,
-                                            onSelectionChanged: (paths) {
-                                              setState(() => _selectedPaths
-                                                ..clear()
-                                                ..addAll(paths));
-                                            },
-                                            onFilePreview: (change) async {
-                                              await ref
-                                                  .read(autoSaveNotifierProvider
-                                                      .notifier)
-                                                  .flushNow(force: true);
-                                              if (!mounted) return;
-                                              setState(() {
-                                                _previewChange = change;
-                                                _diffRevision++;
-                                              });
-                                            },
-                                          ),
+                                    child:
+                                        status.changes.isEmpty
+                                            ? _EmptyChangesState()
+                                            : GitChangesTree(
+                                              roots: treeRoots,
+                                              selectedPaths: _selectedPaths,
+                                              previewPath: _previewChange?.path,
+                                              busy: _busy,
+                                              onSelectionChanged: (paths) {
+                                                setState(
+                                                  () =>
+                                                      _selectedPaths
+                                                        ..clear()
+                                                        ..addAll(paths),
+                                                );
+                                              },
+                                              onFilePreview: (change) async {
+                                                await ref
+                                                    .read(
+                                                      autoSaveNotifierProvider
+                                                          .notifier,
+                                                    )
+                                                    .flushNow(force: true);
+                                                if (!mounted) return;
+                                                setState(() {
+                                                  _previewChange = change;
+                                                  _diffRevision++;
+                                                });
+                                              },
+                                            ),
                                   ),
                                   const Divider(height: 1),
                                   Padding(
@@ -291,6 +370,10 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
                                       children: [
+                                        _CommitterLine(
+                                          name: status.committerName,
+                                        ),
+                                        kVSpacer8,
                                         ADOutlinedTextField(
                                           keyId: 'git-commit-message',
                                           controller: _messageController,
@@ -299,22 +382,28 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                         ),
                                         kVSpacer8,
                                         FilledButton.icon(
-                                          onPressed: _busy ||
-                                                  _selectedPaths.isEmpty ||
-                                                  _messageController.text
-                                                      .trim()
-                                                      .isEmpty
-                                              ? null
-                                              : () => _run(
+                                          onPressed:
+                                              _busy ||
+                                                      _selectedPaths.isEmpty ||
+                                                      _messageController.text
+                                                          .trim()
+                                                          .isEmpty
+                                                  ? null
+                                                  : () => _run(
                                                     () => gitCommitChanges(
                                                       ref,
                                                       message:
                                                           _messageController
                                                               .text,
-                                                      paths: _selectedPaths
-                                                          .toList(),
+                                                      paths:
+                                                          _selectedPaths
+                                                              .toList(),
                                                     ),
                                                     kMsgGitCommitSuccess,
+                                                    onSuccess:
+                                                        () =>
+                                                            _messageController
+                                                                .clear(),
                                                   ),
                                           icon: const Icon(
                                             Icons.check_rounded,
@@ -345,53 +434,49 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                           kHSpacer10,
                           Expanded(
                             child: _GitPanel(
-                              child: _previewChange == null
-                                  ? GitOverviewPanel(
-                                      status: status,
-                                      busy: _busy,
-                                      onFetch: () => _run(
-                                        () => gitFetch(ref),
-                                        kMsgGitFetchSuccess,
-                                      ),
-                                      onPull: () => _run(
-                                        () => gitPull(ref),
-                                        kMsgGitPullSuccess,
-                                      ),
-                                      onPush: () => _run(
-                                        () => gitPush(ref),
-                                        kMsgGitPushSuccess,
-                                      ),
-                                    )
-                                  : Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: IconButton(
-                                            onPressed: _busy
-                                                ? null
-                                                : () => setState(
-                                                      () =>
-                                                          _previewChange = null,
-                                                    ),
-                                            icon: const Icon(
-                                              Icons.arrow_back_rounded,
-                                              size: 20,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  GitSyncToolbar(
+                                    status: status,
+                                    busy: _busy,
+                                    showBack: _previewChange != null,
+                                    onBack:
+                                        () => setState(
+                                          () => _previewChange = null,
+                                        ),
+                                    onPush:
+                                        status.ahead > 0
+                                            ? () => _run(
+                                              () => gitPush(ref),
+                                              kMsgGitPushSuccess,
+                                            )
+                                            : null,
+                                  ),
+                                  Expanded(
+                                    child:
+                                        _previewChange == null
+                                            ? GitOverviewPanel(
+                                              status: status,
+                                              busy: _busy,
+                                              onFetch:
+                                                  () => _run(
+                                                    () => gitFetch(ref),
+                                                    kMsgGitFetchSuccess,
+                                                  ),
+                                              onPull:
+                                                  () => _run(
+                                                    () => gitPull(ref),
+                                                    kMsgGitPullSuccess,
+                                                  ),
+                                            )
+                                            : GitDiffPanel(
+                                              change: _previewChange,
+                                              refreshToken: _diffRevision,
                                             ),
-                                            tooltip: kLabelGitBackToOverview,
-                                            visualDensity:
-                                                VisualDensity.compact,
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: GitDiffPanel(
-                                            change: _previewChange,
-                                            refreshToken: _diffRevision,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -437,10 +522,7 @@ class _GitPanel extends StatelessWidget {
             color: scheme.outlineVariant.withValues(alpha: 0.25),
           ),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: child,
-        ),
+        child: ClipRRect(borderRadius: BorderRadius.circular(16), child: child),
       ),
     );
   }
@@ -452,12 +534,14 @@ class _GitSidebarHeader extends StatelessWidget {
     required this.branches,
     required this.busy,
     required this.onBranchSelected,
+    required this.onCreateBranch,
   });
 
   final GitStatus status;
   final List<String> branches;
   final bool busy;
   final ValueChanged<String> onBranchSelected;
+  final VoidCallback onCreateBranch;
 
   @override
   Widget build(BuildContext context) {
@@ -469,13 +553,13 @@ class _GitSidebarHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (branches.isNotEmpty)
-            _BranchPill(
-              branches: branches,
-              currentBranch: status.branch,
-              busy: busy,
-              onBranchSelected: onBranchSelected,
-            ),
+          GitBranchSwitcher(
+            branches: branches,
+            currentBranch: status.branch,
+            busy: busy,
+            onBranchSelected: onBranchSelected,
+            onCreateBranch: onCreateBranch,
+          ),
           if (status.remoteUrl != null) ...[
             kVSpacer5,
             Text(
@@ -492,54 +576,70 @@ class _GitSidebarHeader extends StatelessWidget {
   }
 }
 
-class _BranchPill extends StatelessWidget {
-  const _BranchPill({
-    required this.branches,
-    required this.currentBranch,
-    required this.busy,
-    required this.onBranchSelected,
-  });
+class _CommitterLine extends StatelessWidget {
+  const _CommitterLine({required this.name});
 
-  final List<String> branches;
-  final String? currentBranch;
-  final bool busy;
-  final ValueChanged<String> onBranchSelected;
+  final String? name;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final selected = currentBranch != null && branches.contains(currentBranch)
-        ? currentBranch
-        : null;
+    final textTheme = Theme.of(context).textTheme;
+    final displayName = name?.trim();
+    final isConfigured = displayName != null && displayName.isNotEmpty;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          isDense: true,
-          value: selected,
-          icon: Icon(Icons.expand_more_rounded, size: 18, color: scheme.primary),
-          items: [
-            for (final branch in branches)
-              DropdownMenuItem(
-                value: branch,
-                child: Text(
-                  branch,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-          ],
-          onChanged: busy || selected == null
-              ? null
-              : (branch) {
-                  if (branch == null || branch == selected) return;
-                  onBranchSelected(branch);
-                },
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.35),
         ),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundColor:
+                isConfigured
+                    ? scheme.primaryContainer
+                    : scheme.surfaceContainerHigh,
+            child: Icon(
+              Icons.person_outline_rounded,
+              size: 18,
+              color: isConfigured ? scheme.onPrimaryContainer : scheme.outline,
+            ),
+          ),
+          kHSpacer10,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  kLabelGitCommitter,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isConfigured ? displayName : kMsgGitCommitterNotConfigured,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: isConfigured ? scheme.onSurface : scheme.outline,
+                    fontStyle:
+                        isConfigured ? FontStyle.normal : FontStyle.italic,
+                    fontWeight:
+                        isConfigured ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -558,9 +658,10 @@ class _InfoBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: isError
-            ? scheme.errorContainer.withValues(alpha: 0.35)
-            : scheme.secondaryContainer.withValues(alpha: 0.35),
+        color:
+            isError
+                ? scheme.errorContainer.withValues(alpha: 0.35)
+                : scheme.secondaryContainer.withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
@@ -572,10 +673,7 @@ class _InfoBanner extends StatelessWidget {
           ),
           kHSpacer10,
           Expanded(
-            child: Text(
-              message,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            child: Text(message, style: Theme.of(context).textTheme.bodySmall),
           ),
         ],
       ),
@@ -594,9 +692,9 @@ class _EmptyChangesState extends StatelessWidget {
         child: Text(
           kMsgGitNoChanges,
           textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ),
     );

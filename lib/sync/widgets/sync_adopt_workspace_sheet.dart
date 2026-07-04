@@ -28,7 +28,8 @@ class SyncAdoptWorkspaceSheet extends ConsumerStatefulWidget {
       _SyncAdoptWorkspaceSheetState();
 }
 
-class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceSheet> {
+class _SyncAdoptWorkspaceSheetState
+    extends ConsumerState<SyncAdoptWorkspaceSheet> {
   static final _emptyPeer = SyncPeerInfo(
     workspaceId: '',
     workspaceName: '',
@@ -36,7 +37,6 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
   );
 
   SyncPeerInfo _peer = _emptyPeer;
-  SyncChangeSet _changeSet = const SyncChangeSet();
 
   SyncSessionClient? _client;
   SyncStorage? _storage;
@@ -84,12 +84,12 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
         localHasBaseline: syncState?.hasBaseline ?? false,
         sessionMode: SyncSessionMode.workspaceReplace,
       );
-      client.onPeerConnected = (peer, _) => setState(() {
-        _peer = peer;
-        _connected = true;
-      });
+      client.onPeerConnected =
+          (peer, _) => setState(() {
+            _peer = peer;
+            _connected = true;
+          });
       client.onPeerDisconnected = _handlePeerDisconnected;
-      client.onChangeSet = (changeSet) => setState(() => _changeSet = changeSet);
       client.onError = (msg) => setState(() => _error = msg);
 
       await client.connect();
@@ -161,9 +161,9 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
     } catch (e) {
       if (!mounted) return;
       setState(() => _applying = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        getSnackBar('$kErrSyncUpdateFailed: $e'),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(getSnackBar('$kErrSyncUpdateFailed: $e'));
     }
   }
 
@@ -268,20 +268,21 @@ class _SyncAdoptWorkspaceSheetState extends ConsumerState<SyncAdoptWorkspaceShee
                 foregroundColor: scheme.onPrimary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
-              child: _applying
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: scheme.onPrimary,
+              child:
+                  _applying
+                      ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.onPrimary,
+                        ),
+                      )
+                      : Text(
+                        _connecting
+                            ? kLabelSyncConnecting
+                            : kLabelSyncSwitchAndSync,
                       ),
-                    )
-                  : Text(
-                      _connecting
-                          ? kLabelSyncConnecting
-                          : kLabelSyncSwitchAndSync,
-                    ),
             ),
             kVSpacer8,
             TextButton(

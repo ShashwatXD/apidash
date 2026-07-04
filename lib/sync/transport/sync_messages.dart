@@ -31,10 +31,7 @@ class SyncMessage {
   final SyncMessageType type;
   final Map<String, Object?> payload;
 
-  String encode() => jsonEncode({
-        'type': type.wire,
-        'payload': payload,
-      });
+  String encode() => jsonEncode({'type': type.wire, 'payload': payload});
 
   static SyncMessage? tryDecode(String raw) {
     Object? decoded;
@@ -102,7 +99,7 @@ class SyncMessage {
   }) {
     return SyncMessage(SyncMessageType.fileContent, {
       'path': path,
-      'content': ?content,
+      if (content != null) 'content': content,
       'deleted': deleted,
     });
   }
@@ -124,7 +121,9 @@ class SyncMessage {
   }
 
   factory SyncMessage.bye([String? reason]) {
-    return SyncMessage(SyncMessageType.bye, {'reason': ?reason});
+    return SyncMessage(SyncMessageType.bye, {
+      if (reason != null) 'reason': reason,
+    });
   }
 
   Map<String, String> readManifest() => _readStringMap('files');
@@ -179,14 +178,14 @@ class SyncQrPayload {
   String get websocketUrl => 'ws://$host:$port$kSyncWebSocketPath';
 
   String encode() => jsonEncode({
-        'v': kSyncProtocolVersion,
-        'host': host,
-        'port': port,
-        'token': token,
-        'workspaceId': workspaceId,
-        'workspaceName': workspaceName,
-        'desktopName': desktopName,
-      });
+    'v': kSyncProtocolVersion,
+    'host': host,
+    'port': port,
+    'token': token,
+    'workspaceId': workspaceId,
+    'workspaceName': workspaceName,
+    'desktopName': desktopName,
+  });
 
   static SyncQrPayload? tryDecode(String raw) {
     Object? decoded;

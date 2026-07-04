@@ -79,12 +79,17 @@ Future<String> gitCloneRepository(
   WidgetRef ref, {
   required String remoteUrl,
   required String parentDirectory,
+  required String folderName,
 }) async {
   final git = ref.read(gitServiceProvider);
   if (!await git.isGitInstalled()) {
     throw StateError('Git is not installed. Install Git to clone repositories.');
   }
-  return git.clone(remoteUrl, parentDirectory);
+  return git.clone(
+    remoteUrl,
+    parentDirectory,
+    folderName: folderName,
+  );
 }
 
 Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {
@@ -93,6 +98,16 @@ Future<void> gitCheckoutBranch(WidgetRef ref, String branch) async {
 
   await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   await ref.read(gitServiceProvider).checkoutBranch(path, branch);
+  await reloadWorkspaceFromDisk(ref);
+  await _reloadGitStatus(ref);
+}
+
+Future<void> gitCreateBranch(WidgetRef ref, String branchName) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
+  await ref.read(gitServiceProvider).createBranch(path, branchName);
   await reloadWorkspaceFromDisk(ref);
   await _reloadGitStatus(ref);
 }

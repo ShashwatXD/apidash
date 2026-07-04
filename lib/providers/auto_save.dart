@@ -1,21 +1,26 @@
 import 'dart:async';
 
 import 'package:apidash_core/apidash_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../consts.dart';
 import '../models/models.dart';
-import 'collection_providers.dart';
-import 'collections_providers.dart';
+import 'active_collection_providers.dart';
+import 'collection_catalog_providers.dart';
 import 'environment_providers.dart';
 import 'package:apidash/git/providers/git_status_provider.dart';
 import 'ui_providers.dart';
+import 'workspace_lifecycle.dart';
+import '../services/storage/workspace_storage.dart';
 
 final autoSaveNotifierProvider =
     NotifierProvider<AutoSaveNotifier, void>(AutoSaveNotifier.new);
 
 class AutoSaveNotifier extends Notifier<void> {
   Timer? _timer;
+  bool _flushInProgress = false;
+  bool _flushAgain = false;
 
   @override
   void build() {
@@ -27,7 +32,7 @@ class AutoSaveNotifier extends Notifier<void> {
     }
 
     ref.listen<Map<String, RequestModel>?>(
-      collectionStateNotifierProvider,
+      activeCollectionProvider,
       (previous, next) {
         if (previous == null) {
           return;
@@ -47,7 +52,7 @@ class AutoSaveNotifier extends Notifier<void> {
     );
 
     ref.listen<Map<String, CollectionModel>?>(
-      collectionsStateNotifierProvider,
+      collectionCatalogProvider,
       (previous, next) {
         if (previous == null) {
           return;
@@ -87,6 +92,13 @@ class AutoSaveNotifier extends Notifier<void> {
     _timer = null;
   }
 
+  Future<void> cancelPendingAndWait() async {
+    cancelPending();
+    while (_flushInProgress) {
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+  }
+
   void _schedule() {
     _timer?.cancel();
     _timer = Timer(kAutoSaveDebounceDuration, () {
@@ -104,6 +116,11 @@ class AutoSaveNotifier extends Notifier<void> {
   Future<void> flushNow({bool force = false}) => _flush(force: force);
 
   Future<void> _flush({bool force = false}) async {
+    if (!ref.mounted) return;
+    if (_flushInProgress) {
+      _flushAgain = true;
+      return;
+    }
     cancelPending();
     if (!force && !ref.read(hasUnsavedChangesProvider)) {
       return;
@@ -111,10 +128,42 @@ class AutoSaveNotifier extends Notifier<void> {
     if (ref.read(saveDataStateProvider) || ref.read(clearDataStateProvider)) {
       return;
     }
-    await ref.read(collectionStateNotifierProvider.notifier).saveData();
-    await ref.read(collectionsStateNotifierProvider.notifier).saveCollections();
-    await ref.read(environmentsStateNotifierProvider.notifier).saveEnvironments();
-    ref.read(gitDiskRevisionProvider.notifier).bump();
-    invalidateGitStatus(ref);
+    if (!workspaceFolderExistsOnDiskSync(ref)) {
+      await closeActiveWorkspaceMissingOnDisk(ref);
+      return;
+    }
+    if (!isWorkspaceStorageInitialized()) {
+      return;
+    }
+
+    _flushInProgress = true;
+    beginWorkspaceDiskReloadSuppress(ref);
+    try {
+      if (!ref.mounted) return;
+      await ref.read(activeCollectionProvider.notifier).saveData();
+      if (!ref.mounted) return;
+      await ref.read(collectionCatalogProvider.notifier).saveCollections();
+      if (!ref.mounted) return;
+      await ref
+          .read(environmentsStateNotifierProvider.notifier)
+          .saveEnvironments();
+      if (!ref.mounted) return;
+      ref.read(gitDiskRevisionProvider.notifier).bump();
+      invalidateGitStatus(ref);
+      ref.read(hasUnsavedChangesProvider.notifier).state = false;
+    } catch (e, st) {
+      debugPrint('AutoSaveNotifier._flush failed: $e\n$st');
+    } finally {
+      endWorkspaceDiskReloadSuppress(ref);
+      _flushInProgress = false;
+      if (_flushAgain && ref.mounted) {
+        _flushAgain = false;
+        if (ref.read(hasUnsavedChangesProvider)) {
+          unawaited(_flush(force: force));
+        }
+      } else {
+        _flushAgain = false;
+      }
+    }
   }
 }

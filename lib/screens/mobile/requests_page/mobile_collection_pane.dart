@@ -21,8 +21,8 @@ class MobileCollectionPane extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(autoSaveNotifierProvider);
-    ref.watch(collectionsStateNotifierProvider);
-    final collection = ref.watch(collectionStateNotifierProvider);
+    ref.watch(collectionCatalogProvider);
+    final collection = ref.watch(activeCollectionProvider);
     final messenger = ScaffoldMessenger.of(context);
     if (collection == null) {
       return const Center(child: CircularProgressIndicator());
@@ -37,9 +37,9 @@ class MobileCollectionPane extends ConsumerWidget {
             onAddRequest: () async {
               final collectionId = ref.read(selectedCollectionIdStateProvider);
               await ref
-                  .read(collectionStateNotifierProvider.notifier)
+                  .read(activeCollectionProvider.notifier)
                   .ensureActive(collectionId);
-              ref.read(collectionStateNotifierProvider.notifier).add();
+              ref.read(activeCollectionProvider.notifier).add();
             },
             onImport: () => importToCollectionPane(context, ref, messenger),
           ),
@@ -75,7 +75,7 @@ class MobileCollectionHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mobileScaffoldKey = ref.read(mobileScaffoldKeyStateProvider);
-    final collections = ref.watch(collectionsStateNotifierProvider)!;
+    final collections = ref.watch(collectionCatalogProvider) ?? {};
     final collectionSequence = ref.watch(collectionSequenceProvider);
     final selectedId = ref.watch(selectedCollectionIdStateProvider);
     final selectedName = collections[selectedId]?.name ?? '';
@@ -101,19 +101,17 @@ class MobileCollectionHeader extends ConsumerWidget {
               ElevatedButton(
                 onPressed: onAddRequest,
                 style: kButtonSidebarStyle,
-                child: const Text(
-                  kLabelPlusNew,
-                  style: kTextStyleButton,
-                ),
+                child: const Text(kLabelPlusNew, style: kTextStyleButton),
               ),
               kHSpacer4,
               SizedBox(
                 width: 24,
                 child: SidebarTopMenu(
                   tooltip: kLabelMoreOptions,
-                  onSelected: (option) => switch (option) {
-                    SidebarMenuOption.import => onImport(),
-                  },
+                  onSelected:
+                      (option) => switch (option) {
+                        SidebarMenuOption.import => onImport(),
+                      },
                 ),
               ),
               IconButton(
@@ -142,31 +140,32 @@ class _MobileCollectionSelector extends ConsumerWidget {
 
   final List<String> collectionSequence;
   final Map<String, CollectionModel> collections;
-  final String selectedId;
+  final String? selectedId;
   final String selectedName;
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text(kLabelDeleteCollection),
-        content: Text('Delete "$selectedName" and all its requests?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text(kLabelCancel),
+      builder:
+          (context) => AlertDialog(
+            title: const Text(kLabelDeleteCollection),
+            content: Text('Delete "$selectedName" and all its requests?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text(kLabelCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: Text(ItemMenuOption.delete.label),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(ItemMenuOption.delete.label),
-          ),
-        ],
-      ),
     );
     if (confirmed == true) {
-      await ref
-          .read(collectionsStateNotifierProvider.notifier)
-          .deleteCollection(selectedId);
+      final id = selectedId;
+      if (id == null) return;
+      await ref.read(collectionCatalogProvider.notifier).deleteCollection(id);
     }
   }
 
@@ -178,24 +177,21 @@ class _MobileCollectionSelector extends ConsumerWidget {
       tooltip: kLabelCollectionName,
       onSelected: (value) async {
         if (value == _kAddCollection) {
-          await ref
-              .read(collectionsStateNotifierProvider.notifier)
-              .addCollection();
+          await ref.read(collectionCatalogProvider.notifier).addCollection();
           return;
         }
         if (value == _kRenameCollection) {
           if (!context.mounted) return;
-          showRenameDialog(
-            context,
-            kLabelRenameCollection,
-            selectedName,
-            (val) async {
-              if (val.isEmpty) return;
-              await ref
-                  .read(collectionsStateNotifierProvider.notifier)
-                  .renameCollection(selectedId, val);
-            },
-          );
+          showRenameDialog(context, kLabelRenameCollection, selectedName, (
+            val,
+          ) async {
+            if (val.isEmpty) return;
+            final id = selectedId;
+            if (id == null) return;
+            await ref
+                .read(collectionCatalogProvider.notifier)
+                .renameCollection(id, val);
+          });
           return;
         }
         if (value == _kDeleteCollection) {
@@ -203,35 +199,34 @@ class _MobileCollectionSelector extends ConsumerWidget {
           await _confirmDelete(context, ref);
           return;
         }
-        await ref
-            .read(collectionStateNotifierProvider.notifier)
-            .ensureActive(value);
+        await ref.read(activeCollectionProvider.notifier).ensureActive(value);
       },
-      itemBuilder: (context) => [
-        for (final id in collectionSequence)
-          CheckedPopupMenuItem<String>(
-            value: id,
-            checked: id == selectedId,
-            child: Text(
-              collections[id]?.name ?? id,
-              overflow: TextOverflow.ellipsis,
+      itemBuilder:
+          (context) => [
+            for (final id in collectionSequence)
+              CheckedPopupMenuItem<String>(
+                value: id,
+                checked: id == selectedId,
+                child: Text(
+                  collections[id]?.name ?? id,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: _kAddCollection,
+              child: Text('Add collection'),
             ),
-          ),
-        const PopupMenuDivider(),
-        const PopupMenuItem(
-          value: _kAddCollection,
-          child: Text('Add collection'),
-        ),
-        const PopupMenuItem(
-          value: _kRenameCollection,
-          child: Text(kLabelRenameCollection),
-        ),
-        PopupMenuItem(
-          value: _kDeleteCollection,
-          enabled: collectionSequence.length > 1,
-          child: Text(ItemMenuOption.delete.label),
-        ),
-      ],
+            const PopupMenuItem(
+              value: _kRenameCollection,
+              child: Text(kLabelRenameCollection),
+            ),
+            PopupMenuItem(
+              value: _kDeleteCollection,
+              enabled: collectionSequence.length > 1,
+              child: Text(ItemMenuOption.delete.label),
+            ),
+          ],
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
@@ -282,9 +277,9 @@ class _MobileRequestListState extends ConsumerState<MobileRequestList> {
     _controller = ScrollController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final selected = ref.read(selectedCollectionIdStateProvider);
-      ref.read(collectionsStateNotifierProvider.notifier).loadCollection(
-            selected,
-          );
+      if (selected != null) {
+        ref.read(collectionCatalogProvider.notifier).loadCollection(selected);
+      }
     });
   }
 
@@ -297,28 +292,30 @@ class _MobileRequestListState extends ConsumerState<MobileRequestList> {
   @override
   Widget build(BuildContext context) {
     final collectionId = ref.watch(selectedCollectionIdStateProvider);
-    ref.watch(collectionStateNotifierProvider);
-    final collections = ref.watch(collectionsStateNotifierProvider)!;
+    ref.watch(activeCollectionProvider);
+    final collections = ref.watch(collectionCatalogProvider) ?? {};
+    if (collectionId == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final collection = collections[collectionId];
     if (collection == null) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    ref.read(collectionsStateNotifierProvider.notifier).loadCollection(
-          collectionId,
-        );
+    ref.read(collectionCatalogProvider.notifier).loadCollection(collectionId);
 
     final sequence = ref.watch(requestSequenceProvider);
     final summaries = ref
-        .read(collectionStateNotifierProvider.notifier)
+        .read(activeCollectionProvider.notifier)
         .summariesForSequence(collectionId, sequence);
     final filterQuery = ref.watch(collectionSearchQueryProvider).trim();
-    final visibleSummaries = filterQuery.isEmpty
-        ? summaries
-        : summaries.where((summary) {
-            return summary.url.toLowerCase().contains(filterQuery) ||
-                summary.name.toLowerCase().contains(filterQuery);
-          }).toList();
+    final visibleSummaries =
+        filterQuery.isEmpty
+            ? summaries
+            : summaries.where((summary) {
+              return summary.url.toLowerCase().contains(filterQuery) ||
+                  summary.name.toLowerCase().contains(filterQuery);
+            }).toList();
 
     final alwaysShowScrollbar = ref.watch(
       settingsProvider.select(
@@ -337,10 +334,7 @@ class _MobileRequestListState extends ConsumerState<MobileRequestList> {
           for (final summary in visibleSummaries)
             Padding(
               padding: kP1,
-              child: RequestItem(
-                summary: summary,
-                collectionId: collectionId,
-              ),
+              child: RequestItem(summary: summary, collectionId: collectionId),
             ),
         ],
       ),

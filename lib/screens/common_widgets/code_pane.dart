@@ -17,7 +17,7 @@ class CodePane extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final CodegenLanguage codegenLanguage = ref.watch(
-      codegenLanguageStateProvider,
+      codegenLanguageProvider,
     );
 
     final selectedHistoryRequestModel = ref.watch(
@@ -38,7 +38,7 @@ class CodePane extends ConsumerWidget {
     );
 
     var envMap = ref.watch(availableEnvironmentVariablesStateProvider);
-    var activeEnvId = ref.watch(activeEnvironmentIdStateProvider);
+    var activeEnvId = ref.watch(activeEnvironmentIdProvider);
 
     final substitutedRequestModel = selectedRequestModel?.copyWith(
       httpRequestModel: substituteHttpRequestModel(
@@ -65,7 +65,9 @@ class CodePane extends ConsumerWidget {
       code: code,
       codegenLanguage: codegenLanguage,
       onChangedCodegenLanguage: (CodegenLanguage? value) {
-        ref.read(codegenLanguageStateProvider.notifier).state = value!;
+        ref
+            .read(settingsProvider.notifier)
+            .update(defaultCodeGenLang: value!);
       },
     );
   }

@@ -99,11 +99,12 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
         workspaceRoot: workspacePath,
         desktopName: syncLocalDisplayName(),
       );
-      server.onPeerConnected = (peer, wasPaired) => setState(() {
-        _peer = peer;
-        _connected = true;
-        _wasPairedBefore = wasPaired;
-      });
+      server.onPeerConnected =
+          (peer, wasPaired) => setState(() {
+            _peer = peer;
+            _connected = true;
+            _wasPairedBefore = wasPaired;
+          });
       server.onPeerDisconnected = () => setState(() => _connected = false);
       server.onChangeSet = _handleChangeSet;
       server.onError = (msg) => setState(() => _startError = msg);
@@ -152,7 +153,9 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   void _handleSessionExpired() {
     if (!mounted) return;
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(getSnackBar(kErrSyncSessionExpired));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(getSnackBar(kErrSyncSessionExpired));
   }
 
   Future<void> _handleRemoteApplied() async {
@@ -160,9 +163,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     await refreshGitStatus(ref);
     await invalidateSyncUnsyncedCount(ref);
     if (!mounted) return;
-    await _endSessionAfterUpdate(
-      successMessage: kMsgSyncWorkspaceUpdated,
-    );
+    await _endSessionAfterUpdate(successMessage: kMsgSyncWorkspaceUpdated);
   }
 
   Future<void> _endSessionAfterUpdate({String? successMessage}) async {
@@ -181,31 +182,35 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
   }
 
   Future<bool> _confirmReceiveIfNeeded() async {
-    final overlap = overlappingForDirection(_changeSet, SyncDirectionMode.receive);
+    final overlap = overlappingForDirection(
+      _changeSet,
+      SyncDirectionMode.receive,
+    );
     if (overlap.isEmpty) return true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(kLabelSyncReceiveConfirmTitle),
-        content: Text(
-          overlapWarningMessage(
-                mode: SyncDirectionMode.receive,
-                overlapping: overlap,
-                isHost: true,
-              ) ??
-              kLabelSyncReceiveConfirmBody,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(kLabelSyncDiscardSession),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text(kLabelSyncReceiveConfirmTitle),
+            content: Text(
+              overlapWarningMessage(
+                    mode: SyncDirectionMode.receive,
+                    overlapping: overlap,
+                    isHost: true,
+                  ) ??
+                  kLabelSyncReceiveConfirmBody,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text(kLabelSyncDiscardSession),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(kLabelSyncUpdate),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(kLabelSyncUpdate),
-          ),
-        ],
-      ),
     );
     return confirmed == true;
   }
@@ -235,9 +240,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
     try {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
 
-      final SyncApplyResult result;
       if (_directionMode == SyncDirectionMode.send) {
-        result = await applySend(
+        await applySend(
           workspaceRoot: workspacePath,
           storage: storage,
           peer: _peer,
@@ -246,7 +250,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
           peerManifest: server.peerManifest,
         );
       } else {
-        result = await applyReceive(
+        await applyReceive(
           workspaceRoot: workspacePath,
           storage: storage,
           peer: _peer,
@@ -261,11 +265,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
       await refreshGitStatus(ref);
       await invalidateSyncUnsyncedCount(ref);
       if (!mounted) return;
-      await _endSessionAfterUpdate(
-        successMessage: _directionMode == SyncDirectionMode.send
-            ? '$kMsgSyncUpdateSuccess'
-            : '$kMsgSyncUpdateSuccess',
-      );
+      await _endSessionAfterUpdate(successMessage: kMsgSyncUpdateSuccess);
     } catch (e) {
       if (!mounted) return;
       setState(() => _updating = false);
@@ -331,7 +331,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                         ),
                       ),
                     IconButton(
-                      onPressed: _updating ? null : () => Navigator.pop(context),
+                      onPressed:
+                          _updating ? null : () => Navigator.pop(context),
                       icon: const Icon(Icons.close_rounded),
                       tooltip: kLabelSyncClose,
                     ),
@@ -341,10 +342,7 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
               if (_startError != null && _qrPayload == null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: SyncInfoBanner(
-                    message: _startError!,
-                    isError: true,
-                  ),
+                  child: SyncInfoBanner(message: _startError!, isError: true),
                 ),
               Expanded(
                 child: Padding(
@@ -411,9 +409,10 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                                   Align(
                                     alignment: Alignment.centerLeft,
                                     child: IconButton(
-                                      onPressed: _updating
-                                          ? null
-                                          : () => setState(
+                                      onPressed:
+                                          _updating
+                                              ? null
+                                              : () => setState(
                                                 () => _previewChange = null,
                                               ),
                                       icon: const Icon(
@@ -454,7 +453,8 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                   children: [
                     const Spacer(),
                     TextButton(
-                      onPressed: _updating ? null : () => Navigator.pop(context),
+                      onPressed:
+                          _updating ? null : () => Navigator.pop(context),
                       child: const Text(kLabelSyncDiscardSession),
                     ),
                     kHSpacer8,
@@ -464,11 +464,11 @@ class _SyncHostDialogState extends ConsumerState<SyncHostDialog> {
                         isFirstPair
                             ? kLabelSyncFirstPairDesktopHint
                             : updateButtonLabel(
-                                mode: _directionMode,
-                                isHost: true,
-                                count: activeChanges.length,
-                                updating: _updating,
-                              ),
+                              mode: _directionMode,
+                              isHost: true,
+                              count: activeChanges.length,
+                              updating: _updating,
+                            ),
                       ),
                     ),
                   ],

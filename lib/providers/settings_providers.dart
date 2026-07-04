@@ -7,15 +7,17 @@ import '../models/models.dart';
 import '../services/services.dart';
 import '../consts.dart';
 
-final codegenLanguageStateProvider = StateProvider<CodegenLanguage>(
-  (ref) =>
-      ref.watch(settingsProvider.select((value) => value.defaultCodeGenLang)),
-);
+final codegenLanguageProvider = Provider<CodegenLanguage>((ref) {
+  return ref.watch(
+    settingsProvider.select((value) => value.defaultCodeGenLang),
+  );
+});
 
-final activeEnvironmentIdStateProvider = StateProvider<String?>(
-  (ref) =>
-      ref.watch(settingsProvider.select((value) => value.activeEnvironmentId)),
-);
+final activeEnvironmentIdProvider = Provider<String?>((ref) {
+  return ref.watch(
+    settingsProvider.select((value) => value.activeEnvironmentId),
+  );
+});
 
 final StateNotifierProvider<ThemeStateNotifier, SettingsModel>
 settingsProvider = StateNotifierProvider((ref) => ThemeStateNotifier());
@@ -45,6 +47,7 @@ class ThemeStateNotifier extends StateNotifier<SettingsModel> {
     SupportedUriSchemes? defaultUriScheme,
     CodegenLanguage? defaultCodeGenLang,
     bool? saveResponses,
+    bool? saveMediaResponsesAsFiles,
     bool? promptBeforeClosing,
     String? activeEnvironmentId,
     HistoryRetentionPeriod? historyRetentionPeriod,
@@ -62,6 +65,7 @@ class ThemeStateNotifier extends StateNotifier<SettingsModel> {
       defaultUriScheme: defaultUriScheme,
       defaultCodeGenLang: defaultCodeGenLang,
       saveResponses: saveResponses,
+      saveMediaResponsesAsFiles: saveMediaResponsesAsFiles,
       promptBeforeClosing: promptBeforeClosing,
       activeEnvironmentId: activeEnvironmentId,
       historyRetentionPeriod: historyRetentionPeriod,
@@ -70,6 +74,21 @@ class ThemeStateNotifier extends StateNotifier<SettingsModel> {
       isSSLDisabled: isSSLDisabled,
       isDashBotEnabled: isDashBotEnabled,
       defaultAIModel: defaultAIModel,
+    );
+    await setSettingsToSharedPrefs(state);
+  }
+
+  Future<void> clearActiveWorkspace({bool removeFromRecents = false}) async {
+    final path = state.workspaceFolderPath;
+    final savedWorkspaces = removeFromRecents &&
+            path != null &&
+            path.isNotEmpty
+        ? state.savedWorkspaces
+            .where((e) => p.normalize(e.path) != p.normalize(path))
+            .toList()
+        : state.savedWorkspaces;
+    state = state.copyWithPath(workspaceFolderPath: null).copyWith(
+      savedWorkspaces: savedWorkspaces,
     );
     await setSettingsToSharedPrefs(state);
   }

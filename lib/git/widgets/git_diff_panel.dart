@@ -1,7 +1,7 @@
 import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
-import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_diff_display.dart';
+import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_file_kind.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_snapshots.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_visual_diff_view.dart';
@@ -376,7 +376,6 @@ class _ChangeTypePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final label = switch (type) {
       GitChangeType.added => 'Added',
       GitChangeType.modified => 'Modified',
@@ -384,23 +383,22 @@ class _ChangeTypePill extends StatelessWidget {
       GitChangeType.untracked => 'New',
       GitChangeType.renamed => 'Renamed',
     };
-    final color = switch (type) {
-      GitChangeType.added || GitChangeType.untracked => scheme.tertiary,
-      GitChangeType.modified => scheme.secondary,
-      GitChangeType.deleted => scheme.error,
-      GitChangeType.renamed => scheme.primary,
-    };
+    final highlight = getGitDiffHighlight(
+      Theme.of(context).brightness,
+      gitDiffChangeKind(type),
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: highlight.background,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: highlight.foreground.withValues(alpha: 0.25)),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: color,
+              color: highlight.foreground,
               fontWeight: FontWeight.w600,
             ),
       ),
@@ -539,7 +537,7 @@ class _SideBySideDiff extends StatelessWidget {
                     row: item.row,
                     oldLineNum: item.oldNum,
                     newLineNum: item.newNum,
-                    scheme: scheme,
+                    scheme: Theme.of(context).colorScheme,
                   );
                 },
               ),
@@ -613,17 +611,19 @@ class _DiffCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color? bg;
-    if (isAdded) {
-      bg = scheme.tertiaryContainer.withValues(alpha: 0.45);
-    } else if (isRemoved) {
-      bg = scheme.errorContainer.withValues(alpha: 0.35);
-    }
+    final brightness = Theme.of(context).brightness;
+    final highlight = isAdded
+        ? getGitDiffHighlight(brightness, GitDiffChangeKind.added)
+        : isRemoved
+            ? getGitDiffHighlight(brightness, GitDiffChangeKind.removed)
+            : null;
 
     final displayText = text ?? '';
+    final lineColor = highlight?.foreground ??
+        getGitDiffHighlight(brightness, GitDiffChangeKind.neutral).foreground;
 
     return Container(
-      color: bg,
+      color: highlight?.background,
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -639,11 +639,7 @@ class _DiffCell extends StatelessWidget {
                       style: kCodeStyle.copyWith(
                         fontSize: 11,
                         height: 1.5,
-                        color: isAdded
-                            ? kColorStatusCode200
-                            : isRemoved
-                                ? kColorStatusCode400
-                                : kColorStatusCodeDefault,
+                        color: lineColor,
                       ),
                     ),
                   )
@@ -655,7 +651,8 @@ class _DiffCell extends StatelessWidget {
               style: kCodeStyle.copyWith(
                 fontSize: 12,
                 height: 1.5,
-                color: scheme.onSurface.withValues(alpha: 0.9),
+                color: highlight?.foreground ??
+                    scheme.onSurface.withValues(alpha: 0.9),
               ),
             ),
           ),

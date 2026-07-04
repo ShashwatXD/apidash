@@ -18,6 +18,9 @@ class Dashboard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (kIsDesktop) {
+      ref.watch(workspacePresenceWatchProvider);
+    }
     final railIdx = ref.watch(navRailIndexStateProvider);
     final isDashBotEnabled = ref.watch(
       settingsProvider.select((value) => value.isDashBotEnabled),
@@ -35,9 +38,11 @@ class Dashboard extends ConsumerWidget {
             Column(
               children: [
                 SizedBox(height: kIsMacOS ? 32.0 : 16.0, width: 64),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+                SizedBox(
+                  width: 64,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                     IconButton(
                       tooltip: kLabelRequests,
                       isSelected: railIdx == 0,
@@ -50,6 +55,9 @@ class Dashboard extends ConsumerWidget {
                     Text(
                       kLabelRequests,
                       style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                     kVSpacer10,
                     IconButton(
@@ -64,6 +72,9 @@ class Dashboard extends ConsumerWidget {
                     Text(
                       kLabelVariables,
                       style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                     kVSpacer10,
                     IconButton(
@@ -78,6 +89,9 @@ class Dashboard extends ConsumerWidget {
                     Text(
                       kLabelHistory,
                       style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                     kVSpacer10,
                     if (kIsDesktop) ...[
@@ -94,6 +108,9 @@ class Dashboard extends ConsumerWidget {
                       Text(
                         kLabelCollaboration,
                         style: Theme.of(context).textTheme.labelSmall,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                       ),
                       kVSpacer10,
                     ],
@@ -118,8 +135,12 @@ class Dashboard extends ConsumerWidget {
                     Text(
                       kLabelLogs,
                       style: Theme.of(context).textTheme.labelSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
                     ),
                   ],
+                  ),
                 ),
                 Expanded(
                   child: Column(

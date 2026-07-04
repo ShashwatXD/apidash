@@ -15,6 +15,13 @@ String formatGitCollaborationError(Object error) {
   if (lower.contains('reconcile divergent branches')) {
     return kMsgGitPullDivergent;
   }
+  if (lower.contains('would be overwritten by checkout') ||
+      lower.contains('please commit your changes or stash them before you switch branches')) {
+    return kMsgGitCheckoutLocalChanges;
+  }
+  if (lower.contains('already exists') && lower.contains('branch')) {
+    return kMsgGitBranchExists;
+  }
   if (lower.contains('merge conflict') ||
       lower.contains('automatic merge failed')) {
     return kMsgGitMergeConflict;

@@ -102,11 +102,12 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
         localHasBaseline: syncState?.hasBaseline ?? false,
         sessionMode: widget.mode,
       );
-      client.onPeerConnected = (peer, wasPaired) => setState(() {
-        _peer = peer;
-        _connected = true;
-        _wasPairedBefore = wasPaired;
-      });
+      client.onPeerConnected =
+          (peer, wasPaired) => setState(() {
+            _peer = peer;
+            _connected = true;
+            _wasPairedBefore = wasPaired;
+          });
       client.onPeerDisconnected = _handlePeerDisconnected;
       client.onChangeSet = _handleChangeSet;
       client.onError = (msg) => setState(() => _error = msg);
@@ -172,9 +173,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     await reloadWorkspaceFromDisk(ref);
     await invalidateSyncUnsyncedCount(ref);
     if (!mounted) return;
-    await _endSessionAfterUpdate(
-      successMessage: kMsgSyncWorkspaceUpdated,
-    );
+    await _endSessionAfterUpdate(successMessage: kMsgSyncWorkspaceUpdated);
   }
 
   Future<void> _endSessionAfterUpdate({String? successMessage}) async {
@@ -193,31 +192,35 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
   }
 
   Future<bool> _confirmReceiveIfNeeded() async {
-    final overlap = overlappingForDirection(_changeSet, SyncDirectionMode.receive);
+    final overlap = overlappingForDirection(
+      _changeSet,
+      SyncDirectionMode.receive,
+    );
     if (overlap.isEmpty) return true;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(kLabelSyncReceiveConfirmTitle),
-        content: Text(
-          overlapWarningMessage(
-                mode: SyncDirectionMode.receive,
-                overlapping: overlap,
-                isHost: false,
-              ) ??
-              kLabelSyncReceiveConfirmBody,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(kLabelSyncDiscardSession),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text(kLabelSyncReceiveConfirmTitle),
+            content: Text(
+              overlapWarningMessage(
+                    mode: SyncDirectionMode.receive,
+                    overlapping: overlap,
+                    isHost: false,
+                  ) ??
+                  kLabelSyncReceiveConfirmBody,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text(kLabelSyncDiscardSession),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(kLabelSyncUpdate),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(kLabelSyncUpdate),
-          ),
-        ],
-      ),
     );
     return confirmed == true;
   }
@@ -236,7 +239,6 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
 
     setState(() => _updating = true);
     final messenger = ScaffoldMessenger.of(context);
-    var updatedCount = 0;
 
     try {
       await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
@@ -263,8 +265,6 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
           setState(() => _updating = false);
           return;
         }
-        updatedCount = changes.length;
-
         if (_directionMode == SyncDirectionMode.receive) {
           final confirmed = await _confirmReceiveIfNeeded();
           if (!confirmed || !mounted) {
@@ -302,11 +302,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       if (widget.mode == SyncSessionMode.workspaceReplace) {
         await _endSessionAfterUpdate(successMessage: kMsgSyncUpdateSuccess);
       } else {
-        await _endSessionAfterUpdate(
-          successMessage: _directionMode == SyncDirectionMode.send
-              ? '$kMsgSyncUpdateSuccess'
-              : '$kMsgSyncUpdateSuccess',
-        );
+        await _endSessionAfterUpdate(successMessage: kMsgSyncUpdateSuccess);
       }
     } catch (e) {
       if (!mounted) return;
@@ -325,19 +321,20 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       isScrollControlled: true,
       useSafeArea: true,
       showDragHandle: true,
-      builder: (ctx) => SizedBox(
-        height: MediaQuery.sizeOf(ctx).height * 0.88,
-        child: SyncDiffPanel(
-          change: preview,
-          workspaceRoot: _workspacePath!,
-          storage: _storage,
-          localManifest: _client?.localManifest ?? const {},
-          peerManifest: _client?.peerManifest ?? const {},
-          transfer: _client,
-          directionMode: _directionMode,
-          isHost: false,
-        ),
-      ),
+      builder:
+          (ctx) => SizedBox(
+            height: MediaQuery.sizeOf(ctx).height * 0.88,
+            child: SyncDiffPanel(
+              change: preview,
+              workspaceRoot: _workspacePath!,
+              storage: _storage,
+              localManifest: _client?.localManifest ?? const {},
+              peerManifest: _client?.peerManifest ?? const {},
+              transfer: _client,
+              directionMode: _directionMode,
+              isHost: false,
+            ),
+          ),
     ).whenComplete(() {
       _diffSheetOpen = false;
       if (mounted) setState(() => _previewChange = null);
@@ -349,66 +346,71 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
     final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final isReplaceMode = widget.mode == SyncSessionMode.workspaceReplace;
-    final activeChanges = isReplaceMode
-        ? <SyncFileChange>[]
-        : changesForDirection(_changeSet, _directionMode);
-    final canUpdate = isReplaceMode
-        ? _connected && (_changeSet.incoming.isNotEmpty || _connected)
-        : _connected && activeChanges.isNotEmpty && !_updating && _error == null;
+    final activeChanges =
+        isReplaceMode
+            ? <SyncFileChange>[]
+            : changesForDirection(_changeSet, _directionMode);
+    final canUpdate =
+        isReplaceMode
+            ? _connected && (_changeSet.incoming.isNotEmpty || _connected)
+            : _connected &&
+                activeChanges.isNotEmpty &&
+                !_updating &&
+                _error == null;
 
     return Scaffold(
       backgroundColor: scheme.surfaceContainerLowest,
       appBar: AppBar(
         backgroundColor: scheme.surfaceContainerLowest,
-        title: Text(
-          _connected ? kLabelSyncConnectedTo : kLabelSyncConnecting,
-        ),
+        title: Text(_connected ? kLabelSyncConnectedTo : kLabelSyncConnecting),
         scrolledUnderElevation: 0,
       ),
       body: _buildBody(scheme, textTheme, isReplaceMode),
-      bottomNavigationBar: _connecting || _error != null
-          ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton(
-                        onPressed: canUpdate && !_updating ? _update : null,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: Text(
-                          isReplaceMode
-                              ? applyButtonLabel(
+      bottomNavigationBar:
+          _connecting || _error != null
+              ? null
+              : SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          onPressed: canUpdate && !_updating ? _update : null,
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          child: Text(
+                            isReplaceMode
+                                ? applyButtonLabel(
                                   mode: widget.mode,
                                   hasWork: canUpdate,
                                 )
-                              : updateButtonLabel(
+                                : updateButtonLabel(
                                   mode: _directionMode,
                                   isHost: false,
                                   count: activeChanges.length,
                                   updating: _updating,
                                 ),
+                          ),
                         ),
                       ),
-                    ),
-                    kVSpacer8,
-                    SizedBox(
-                      width: double.infinity,
-                      child: TextButton(
-                        onPressed: _updating ? null : () => Navigator.pop(context),
-                        child: const Text(kLabelSyncDiscardSession),
+                      kVSpacer8,
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton(
+                          onPressed:
+                              _updating ? null : () => Navigator.pop(context),
+                          child: const Text(kLabelSyncDiscardSession),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
     );
   }
 
@@ -461,9 +463,7 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
       return Center(
         child: Text(
           kLabelSyncConnecting,
-          style: textTheme.bodyMedium?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
+          style: textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
         ),
       );
     }
@@ -484,29 +484,30 @@ class _SyncSessionPageState extends ConsumerState<SyncSessionPage> {
           ),
         ),
         Expanded(
-          child: isReplaceMode
-              ? SyncReplaceSummaryPanel(
-                  workspaceName: widget.qrPayload.workspaceName,
-                  desktopName: widget.qrPayload.desktopName,
-                  fileCount: _changeSet.incoming.length,
-                )
-              : SyncDirectionPanel(
-                  isConnected: _connected,
-                  isHost: false,
-                  changeSet: _changeSet,
-                  directionMode: _directionMode,
-                  previewPath: _previewChange?.path,
-                  onDirectionModeChanged: (mode) {
-                    if (_diffSheetOpen) {
-                      Navigator.of(context).pop();
-                    }
-                    setState(() {
-                      _directionMode = mode;
-                      _previewChange = null;
-                    });
-                  },
-                  onFilePreview: _showDiff,
-                ),
+          child:
+              isReplaceMode
+                  ? SyncReplaceSummaryPanel(
+                    workspaceName: widget.qrPayload.workspaceName,
+                    desktopName: widget.qrPayload.desktopName,
+                    fileCount: _changeSet.incoming.length,
+                  )
+                  : SyncDirectionPanel(
+                    isConnected: _connected,
+                    isHost: false,
+                    changeSet: _changeSet,
+                    directionMode: _directionMode,
+                    previewPath: _previewChange?.path,
+                    onDirectionModeChanged: (mode) {
+                      if (_diffSheetOpen) {
+                        Navigator.of(context).pop();
+                      }
+                      setState(() {
+                        _directionMode = mode;
+                        _previewChange = null;
+                      });
+                    },
+                    onFilePreview: _showDiff,
+                  ),
         ),
       ],
     );

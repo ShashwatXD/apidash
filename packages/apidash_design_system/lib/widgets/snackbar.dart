@@ -4,11 +4,13 @@ SnackBar getSnackBar(
   String text, {
   bool small = true,
   Color? color,
+  Duration? duration,
 }) {
   return SnackBar(
     width: small ? 300 : 500,
     backgroundColor: color,
     behavior: SnackBarBehavior.floating,
+    duration: duration ?? const Duration(seconds: 2),
     content: Text(
       text,
       softWrap: true,

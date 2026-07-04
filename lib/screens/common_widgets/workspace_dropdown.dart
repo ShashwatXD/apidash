@@ -52,17 +52,34 @@ class WorkspaceDropdown extends ConsumerWidget {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (selectorContext) => WorkspaceSelector(
-          onContinue: (path) async {
+          onCreateWorkspace: (path) async {
             final ok = await activateWorkspace(ref, path);
             if (ok && selectorContext.mounted) {
               Navigator.of(selectorContext).pop();
             }
           },
-          onClone: (remoteUrl, parentDirectory) async {
+          onOpenWorkspace: (path) async {
+            final ok = await activateWorkspace(
+              ref,
+              path,
+              createIfMissing: false,
+            );
+            if (!ok && selectorContext.mounted) {
+              ScaffoldMessenger.of(selectorContext).showSnackBar(
+                SnackBar(content: Text(kMsgWorkspaceOpenFailed)),
+              );
+              return;
+            }
+            if (selectorContext.mounted) {
+              Navigator.of(selectorContext).pop();
+            }
+          },
+          onClone: (remoteUrl, parentDirectory, folderName) async {
             final path = await gitCloneRepository(
               ref,
               remoteUrl: remoteUrl,
               parentDirectory: parentDirectory,
+              folderName: folderName,
             );
             final ok = await activateClonedWorkspace(ref, path);
             if (ok && selectorContext.mounted) {

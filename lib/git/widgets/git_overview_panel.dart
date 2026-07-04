@@ -14,14 +14,12 @@ class GitOverviewPanel extends ConsumerWidget {
     required this.busy,
     required this.onFetch,
     required this.onPull,
-    required this.onPush,
   });
 
   final GitStatus status;
   final bool busy;
   final VoidCallback onFetch;
   final VoidCallback onPull;
-  final VoidCallback onPush;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -75,15 +73,6 @@ class GitOverviewPanel extends ConsumerWidget {
                     label: kLabelPull,
                     busy: busy,
                     onPressed: onPull,
-                  ),
-                  kHSpacer10,
-                  _PushActionButton(
-                    label: kLabelPush,
-                    ahead: status.ahead,
-                    busy: busy,
-                    onPressed: status.remoteUrl != null && status.ahead > 0
-                        ? onPush
-                        : null,
                   ),
                 ],
               ),
@@ -156,58 +145,6 @@ class _ActionButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       ),
       child: Text(label),
-    );
-  }
-}
-
-class _PushActionButton extends StatelessWidget {
-  const _PushActionButton({
-    required this.label,
-    required this.ahead,
-    required this.busy,
-    required this.onPressed,
-  });
-
-  final String label;
-  final int ahead;
-  final bool busy;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        OutlinedButton(
-          onPressed: busy ? null : onPressed,
-          style: OutlinedButton.styleFrom(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          ),
-          child: Text(label),
-        ),
-        if (ahead > 0)
-          Positioned(
-            top: -6,
-            right: -6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: scheme.primary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                '$ahead',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: scheme.onPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ),
-          ),
-      ],
     );
   }
 }

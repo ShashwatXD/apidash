@@ -12,6 +12,7 @@ import 'services/services.dart';
 import 'screens/screens.dart';
 import 'consts.dart';
 
+
 class App extends ConsumerStatefulWidget {
   const App({super.key});
 
@@ -81,10 +82,9 @@ class _AppState extends ConsumerState<App> with WindowListener {
               FilledButton(
                 child: const Text('Save'),
                 onPressed: () async {
-                  ref.read(autoSaveNotifierProvider.notifier).cancelPending();
                   await ref
-                      .read(collectionStateNotifierProvider.notifier)
-                      .saveData();
+                      .read(autoSaveNotifierProvider.notifier)
+                      .flushNow(force: true);
                   Navigator.of(context).pop();
                   await windowManager.setPreventClose(false);
                   await windowManager.close();
@@ -120,20 +120,29 @@ class DashApp extends ConsumerWidget {
     final userOnboarded = ref.watch(userOnboardedProvider);
     return Portal(
       child: MaterialApp(
+        scaffoldMessengerKey: kAppScaffoldMessengerKey,
         debugShowCheckedModeBanner: false,
         theme: kLightMaterialAppTheme,
         darkTheme: kDarkMaterialAppTheme,
         themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
         home: showWorkspaceSelector
             ? WorkspaceSelector(
-                onContinue: (path) async {
+                onCreateWorkspace: (path) async {
                   await activateWorkspace(ref, path);
                 },
-                onClone: (remoteUrl, parentDirectory) async {
+                onOpenWorkspace: (path) async {
+                  await activateWorkspace(
+                    ref,
+                    path,
+                    createIfMissing: false,
+                  );
+                },
+                onClone: (remoteUrl, parentDirectory, folderName) async {
                   final path = await gitCloneRepository(
                     ref,
                     remoteUrl: remoteUrl,
                     parentDirectory: parentDirectory,
+                    folderName: folderName,
                   );
                   await activateClonedWorkspace(ref, path);
                 },

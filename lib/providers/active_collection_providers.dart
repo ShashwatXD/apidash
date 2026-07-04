@@ -12,52 +12,50 @@ import '../utils/utils.dart';
 
 final selectedIdStateProvider = StateProvider<String?>((ref) => null);
 
-final selectedRequestModelProvider = StateProvider<RequestModel?>((ref) {
+final selectedRequestModelProvider = Provider<RequestModel?>((ref) {
   final selectedId = ref.watch(selectedIdStateProvider);
-  final collection = ref.watch(collectionStateNotifierProvider);
+  final collection = ref.watch(activeCollectionProvider);
   if (selectedId == null || collection == null) {
     return null;
-  } else {
-    return collection[selectedId];
   }
+  return collection[selectedId];
 });
 
 final selectedSubstitutedHttpRequestModelProvider =
-    StateProvider<HttpRequestModel?>((ref) {
+    Provider<HttpRequestModel?>((ref) {
       final selectedRequestModel = ref.watch(selectedRequestModelProvider);
-      final envMap = ref.read(availableEnvironmentVariablesStateProvider);
-      final activeEnvId = ref.read(activeEnvironmentIdStateProvider);
+      final envMap = ref.watch(availableEnvironmentVariablesStateProvider);
+      final activeEnvId = ref.watch(activeEnvironmentIdProvider);
       if (selectedRequestModel?.httpRequestModel == null) {
         return null;
-      } else {
-        return substituteHttpRequestModel(
-          selectedRequestModel!.httpRequestModel!,
-          envMap,
-          activeEnvId,
-        );
       }
+      return substituteHttpRequestModel(
+        selectedRequestModel!.httpRequestModel!,
+        envMap,
+        activeEnvId,
+      );
     });
 
-final StateNotifierProvider<CollectionStateNotifier, Map<String, RequestModel>?>
-collectionStateNotifierProvider = StateNotifierProvider(
-  (ref) => CollectionStateNotifier(ref, workspaceStorage),
+final StateNotifierProvider<ActiveCollectionNotifier, Map<String, RequestModel>?>
+activeCollectionProvider = StateNotifierProvider(
+  (ref) => ActiveCollectionNotifier(ref, workspaceStorage),
 );
 
-class CollectionStateNotifier
+class ActiveCollectionNotifier
     extends StateNotifier<Map<String, RequestModel>?> {
-  CollectionStateNotifier(this.ref, this.workspaceStorage) : super(null) {
+  ActiveCollectionNotifier(this.ref, this.workspaceStorage) : super(null) {
     Future.microtask(() {
       if (!isWorkspaceStorageInitialized()) {
         return;
       }
-      ref.read(collectionsStateNotifierProvider);
+      ref.read(collectionCatalogProvider);
       activateCollection(ref.read(selectedCollectionIdStateProvider));
     });
   }
 
   List<String> _catalogRequestIds(String collectionId) {
     return ref
-            .read(collectionsStateNotifierProvider)?[collectionId]
+            .read(collectionCatalogProvider)?[collectionId]
             ?.requestIds ??
         const [];
   }
@@ -66,7 +64,7 @@ class CollectionStateNotifier
     if (collectionId == _activeCollectionId && state?[id] != null) {
       return RequestSummary.fromRequestModel(state![id]!);
     }
-    final catalog = ref.read(collectionsStateNotifierProvider)?[collectionId];
+    final catalog = ref.read(collectionCatalogProvider)?[collectionId];
     for (final summary in catalog?.requests ?? const <RequestSummary>[]) {
       if (summary.id == id) {
         return summary;
@@ -92,10 +90,14 @@ class CollectionStateNotifier
   }
 
   void _syncActiveCollectionSummaries() {
-    ref.read(collectionsStateNotifierProvider.notifier).syncRequests(
-          _activeCollectionId,
+    final active = _activeCollectionId;
+    if (active == null) {
+      return;
+    }
+    ref.read(collectionCatalogProvider.notifier).syncRequests(
+          active,
           summariesForSequence(
-            _activeCollectionId,
+            active,
             ref.read(requestSequenceProvider),
           ),
         );
@@ -165,14 +167,26 @@ class CollectionStateNotifier
     if (state?[id] != null) {
       return;
     }
-    final model = _requestModelFromDisk(_activeCollectionId, id);
+    final active = _activeCollectionId;
+    if (active == null) {
+      return;
+    }
+    final model = _requestModelFromDisk(active, id);
     if (model == null) {
       return;
     }
     state = {...state ?? {}, id: model};
     if (model.aiRequestModel != null) {
-      unawaited(_hydrateAiApiKey(_activeCollectionId, id));
+      unawaited(_hydrateAiApiKey(active, id));
     }
+  }
+
+  String _storageLabelFor(RequestModel model) {
+    if (model.name.trim().isNotEmpty) {
+      return model.name;
+    }
+    final url = model.httpRequestModel?.url ?? model.aiRequestModel?.url;
+    return getRequestTitleFromUrl(url);
   }
 
   void _rekeyRequest(String oldId, String newId, RequestModel model) {
@@ -190,21 +204,37 @@ class CollectionStateNotifier
     if (ref.read(selectedIdStateProvider) == oldId) {
       ref.read(selectedIdStateProvider.notifier).state = newId;
     }
-    unawaited(
-      workspaceStorage.renameRequest(_activeCollectionId, oldId, newId),
-    );
+    final active = _activeCollectionId;
+    if (active == null) {
+      return;
+    }
+    workspaceStorage.renameRequestSync(active, oldId, newId);
     unawaited(
       aiRequestSecretsStorage.rekeyApiKey(
         workspaceStorage.rootPath,
-        _activeCollectionId,
+        active,
         oldId,
         newId,
       ),
     );
   }
 
+  void _rekeyUnnamedRequestsFromUrlLabel() {
+    for (final id in [...ref.read(requestSequenceProvider)]) {
+      final model = state?[id];
+      if (model == null || model.name.trim().isNotEmpty) {
+        continue;
+      }
+      final newId = renameStorageId(id, _storageLabelFor(model));
+      if (newId == id) {
+        continue;
+      }
+      _rekeyRequest(id, newId, model.copyWith(id: newId));
+    }
+  }
+
   void _seedDefaultRequest(String collectionId) {
-    final onDisk = workspaceStorage.existingRequestIds(collectionId);
+    final onDisk = workspaceStorage.getIds(collectionId);
     if (onDisk.isNotEmpty) {
       state = {};
       ref.read(requestSequenceProvider.notifier).state = [...onDisk];
@@ -220,20 +250,20 @@ class CollectionStateNotifier
     };
     ref.read(requestSequenceProvider.notifier).state = [newId];
     ref.read(selectedIdStateProvider.notifier).state = newId;
-    ref.read(collectionsStateNotifierProvider.notifier).syncRequests(
+    ref.read(collectionCatalogProvider.notifier).syncRequests(
           collectionId,
           [RequestSummary.fromRequestModel(state![newId]!)],
         );
   }
 
-  void activateCollection(String collectionId) {
-    ref.read(collectionsStateNotifierProvider.notifier).loadCollection(
-          collectionId,
-        );
-    var ids = _catalogRequestIds(collectionId);
-    if (ids.isEmpty) {
-      ids = workspaceStorage.existingRequestIds(collectionId);
+  void activateCollection(String? collectionId) {
+    if (collectionId == null) {
+      state = {};
+      ref.read(requestSequenceProvider.notifier).state = [];
+      ref.read(selectedIdStateProvider.notifier).state = null;
+      return;
     }
+    final ids = _catalogRequestIds(collectionId);
     if (ids.isEmpty) {
       _seedDefaultRequest(collectionId);
       return;
@@ -243,24 +273,24 @@ class CollectionStateNotifier
     ref.read(selectedIdStateProvider.notifier).state = null;
   }
 
-  String get _activeCollectionId => ref.read(selectedCollectionIdStateProvider);
+  String? get _activeCollectionId =>
+      ref.read(selectedCollectionIdStateProvider);
 
-  Future<void> ensureActive(String collectionId) async {
+  Future<void> ensureActive(String? collectionId) async {
     if (_activeCollectionId == collectionId && state != null) {
       return;
     }
-    final collections = ref.read(collectionsStateNotifierProvider.notifier);
+    final collections = ref.read(collectionCatalogProvider.notifier);
     final from = _activeCollectionId;
-    final fromStillExists =
-        ref.read(collectionsStateNotifierProvider)?.containsKey(from) ?? false;
-    if (state != null &&
-        from != collectionId &&
-        fromStillExists &&
-        ref.read(hasUnsavedChangesProvider)) {
+    final fromStillExists = from != null &&
+        (ref.read(collectionCatalogProvider)?.containsKey(from) ?? false);
+    if (state != null && from != collectionId && fromStillExists) {
       collections.loadCollection(from);
       await saveData(collectionId: from);
     }
-    collections.loadCollection(collectionId);
+    if (collectionId != null) {
+      collections.loadCollection(collectionId);
+    }
     state = {};
     ref.read(selectedCollectionIdStateProvider.notifier).state = collectionId;
     activateCollection(collectionId);
@@ -269,6 +299,8 @@ class CollectionStateNotifier
   final Ref ref;
   final WorkspaceStorage workspaceStorage;
   final baseHttpResponseModel = const HttpResponseModel();
+  bool _saveDataInFlight = false;
+  String? _pendingSaveCollectionId;
 
   bool hasId(String id) => state?.keys.contains(id) ?? false;
 
@@ -507,14 +539,17 @@ class CollectionStateNotifier
       );
     }
 
-    final newId = renameStorageId(rId, newModel.name);
-    if (newId != rId) {
-      _rekeyRequest(rId, newId, newModel.copyWith(id: newId));
-    } else {
-      var map = {...state!};
-      map[rId] = newModel;
-      state = map;
+    if (name != null) {
+      final storageLabel = _storageLabelFor(newModel);
+      final newId = renameStorageId(rId, storageLabel);
+      if (newId != rId) {
+        _rekeyRequest(rId, newId, newModel.copyWith(id: newId));
+        _syncActiveCollectionSummaries();
+        return;
+      }
     }
+
+    state = {...state!, rId: newModel};
     _syncActiveCollectionSummaries();
   }
 
@@ -730,10 +765,14 @@ class CollectionStateNotifier
         duration: duration,
       );
 
-      final historyName = requestModel.name.isEmpty
-          ? substitutedHttpRequestModel.method.name
-          : requestModel.name;
-      String newHistoryId = makeStorageId(historyName);
+      final historyName = requestModel.name.isNotEmpty
+          ? requestModel.name
+          : substitutedHttpRequestModel.url;
+      final historyTimeStamp = DateTime.now();
+      String newHistoryId = makeHistoryId(
+        timeStamp: historyTimeStamp,
+        name: historyName,
+      );
       historyModel = HistoryRequestModel(
         historyId: newHistoryId,
         metaData: HistoryMetaModel(
@@ -744,7 +783,7 @@ class CollectionStateNotifier
           url: substitutedHttpRequestModel.url,
           method: substitutedHttpRequestModel.method,
           responseStatus: statusCode,
-          timeStamp: DateTime.now(),
+          timeStamp: historyTimeStamp,
         ),
         httpRequestModel: substitutedHttpRequestModel,
         aiRequestModel: executionRequestModel.aiRequestModel,
@@ -803,51 +842,98 @@ class CollectionStateNotifier
   }
 
   Future<void> saveData({String? collectionId}) async {
-    ref.read(saveDataStateProvider.notifier).state = true;
-    final targetId = collectionId ?? _activeCollectionId;
-    final saveResponse = ref.read(settingsProvider).saveResponses;
-    final ids = ref.read(requestSequenceProvider);
-    final summaries = summariesForSequence(targetId, ids);
-    ref
-        .read(collectionsStateNotifierProvider.notifier)
-        .syncRequests(targetId, summaries);
-    for (final requestId in ids) {
-      final inMemory = state?[requestId];
-      Map<String, dynamic>? json;
-      if (inMemory != null) {
-        json = saveResponse
-            ? inMemory.toJson()
-            : inMemory.copyWith(httpResponseModel: null).toJson();
-        json = await _prepareRequestJsonForDisk(targetId, requestId, json);
-      } else {
-        final diskJson = workspaceStorage.getRequestModel(targetId, requestId);
-        if (diskJson == null) {
-          continue;
-        }
-        if (saveResponse) {
-          json = Map<String, dynamic>.from(diskJson);
-        } else {
-          final diskModel = RequestModel.fromJson(
-            Map<String, Object?>.from(diskJson),
-          );
-          json = diskModel.copyWith(httpResponseModel: null).toJson();
-        }
-      }
-      await workspaceStorage.setRequestModel(targetId, requestId, json);
+    if (!ref.mounted || !isWorkspaceStorageInitialized()) {
+      return;
     }
+    if (_saveDataInFlight) {
+      _pendingSaveCollectionId = collectionId ?? _activeCollectionId;
+      return;
+    }
+    _saveDataInFlight = true;
+    try {
+      await _saveDataImpl(collectionId);
+    } finally {
+      _saveDataInFlight = false;
+      final pending = _pendingSaveCollectionId;
+      _pendingSaveCollectionId = null;
+      if (pending != null && ref.mounted) {
+        await saveData(collectionId: pending);
+      }
+    }
+  }
 
-    await workspaceStorage.removeUnused(targetId);
-    await aiRequestSecretsStorage.deleteOrphansForCollection(
-      workspaceStorage.rootPath,
-      targetId,
-      ids.toSet(),
-    );
-    ref.read(saveDataStateProvider.notifier).state = false;
-    ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  Future<void> _saveDataImpl(String? collectionId) async {
+    if (!ref.mounted || !isWorkspaceStorageInitialized()) {
+      return;
+    }
+    final targetId = collectionId ?? _activeCollectionId;
+    if (targetId == null) {
+      return;
+    }
+    ref.read(saveDataStateProvider.notifier).state = true;
+    try {
+      _rekeyUnnamedRequestsFromUrlLabel();
+      if (!ref.mounted) return;
+      final settings = ref.read(settingsProvider);
+      final saveResponse = settings.saveResponses;
+      final saveMediaAsFiles = settings.saveMediaResponsesAsFiles;
+      final ids = [...ref.read(requestSequenceProvider)];
+      final summaries = summariesForSequence(targetId, ids);
+      ref
+          .read(collectionCatalogProvider.notifier)
+          .syncRequests(targetId, summaries);
+      for (final requestId in ids) {
+        if (!ref.mounted) return;
+        final inMemory = state?[requestId];
+        Map<String, dynamic>? json;
+        if (inMemory != null) {
+          json = saveResponse
+              ? inMemory.toJson()
+              : inMemory.copyWith(httpResponseModel: null).toJson();
+          json = await _prepareRequestJsonForDisk(targetId, requestId, json);
+        } else {
+          final diskJson = workspaceStorage.getRequestModel(targetId, requestId);
+          if (diskJson == null) {
+            continue;
+          }
+          if (saveResponse) {
+            json = Map<String, dynamic>.from(diskJson);
+          } else {
+            final diskModel = RequestModel.fromJson(
+              Map<String, Object?>.from(diskJson),
+            );
+            json = diskModel.copyWith(httpResponseModel: null).toJson();
+          }
+        }
+        await workspaceStorage.setRequestModel(
+          targetId,
+          requestId,
+          json,
+          saveMediaAsFiles: saveMediaAsFiles,
+        );
+      }
+
+      if (!ref.mounted) return;
+      final finalIds = ref.read(requestSequenceProvider).toSet();
+      await workspaceStorage.removeUnused(targetId, requestIds: finalIds);
+      await aiRequestSecretsStorage.deleteOrphansForCollection(
+        workspaceStorage.rootPath,
+        targetId,
+        finalIds,
+      );
+    } finally {
+      if (ref.mounted) {
+        ref.read(saveDataStateProvider.notifier).state = false;
+        ref.read(hasUnsavedChangesProvider.notifier).state = false;
+      }
+    }
   }
 
   Future<Map<String, dynamic>> exportDataToHAR() async {
     final collectionId = _activeCollectionId;
+    if (collectionId == null) {
+      return <String, dynamic>{};
+    }
     final models = <RequestModel>[];
     for (final id in ref.read(requestSequenceProvider)) {
       final model =
@@ -867,7 +953,7 @@ class CollectionStateNotifier
     HttpRequestModel httpRequestModel,
   ) {
     var envMap = ref.read(availableEnvironmentVariablesStateProvider);
-    var activeEnvId = ref.read(activeEnvironmentIdStateProvider);
+    var activeEnvId = ref.read(activeEnvironmentIdProvider);
 
     return substituteHttpRequestModel(httpRequestModel, envMap, activeEnvId);
   }

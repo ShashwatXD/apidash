@@ -20,7 +20,6 @@ final gitStatusProvider =
   return ref.read(gitServiceProvider).getStatus(path);
 });
 
-/// Watches the workspace folder and refreshes git status after external changes.
 final gitWorkspaceWatchProvider = Provider<void>((ref) {
   if (!kIsDesktop) return;
 

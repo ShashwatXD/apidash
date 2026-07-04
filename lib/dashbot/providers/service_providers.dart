@@ -16,7 +16,7 @@ final requestApplyServiceProvider = Provider<RequestApplyService>((ref) {
 });
 
 final autoFixServiceProvider = Provider<AutoFixService>((ref) {
-  final collection = ref.read(collectionStateNotifierProvider.notifier);
+  final collection = ref.read(activeCollectionProvider.notifier);
   final urlEnv = ref.read(urlEnvServiceProvider);
   return AutoFixService(
     requestApply: ref.read(requestApplyServiceProvider),
@@ -53,7 +53,7 @@ final autoFixServiceProvider = Provider<AutoFixService>((ref) {
     ensureBaseUrl: (baseUrl) => urlEnv.ensureBaseUrlEnv(
       baseUrl,
       readEnvs: () => ref.read(environmentsStateNotifierProvider),
-      readActiveEnvId: () => ref.read(activeEnvironmentIdStateProvider),
+      readActiveEnvId: () => ref.read(activeEnvironmentIdProvider),
       updateEnv: (id, {values}) => ref
           .read(environmentsStateNotifierProvider.notifier)
           .updateEnvironment(id, values: values),

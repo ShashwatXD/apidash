@@ -135,8 +135,10 @@ void main() {
               ),
             );
           }),
-          // Override the active environment ID provider
-          activeEnvironmentIdStateProvider.overrideWith((ref) => 'test-env-id'),
+          // Override the selected environment ID provider
+          selectedEnvironmentIdStateProvider.overrideWith(
+            (ref) => 'test-env-id',
+          ),
           // Override the autoFixServiceProvider to inject our test callbacks
           autoFixServiceProvider.overrideWith((ref) {
             final requestApply = ref.read(requestApplyServiceProvider);
@@ -428,10 +430,10 @@ void main() {
       late ProviderContainer realContainer;
 
       setUpAll(() async {
-        await testSetUpForHive();
+        await testSetUpWorkspaceStorage();
       });
 
-      setUp(() {
+      setUp(() async {
         realContainer = createContainer(
           overrides: [
             selectedRequestModelProvider.overrideWith((ref) {
@@ -444,11 +446,12 @@ void main() {
                 ),
               );
             }),
-            activeEnvironmentIdStateProvider.overrideWith(
+            selectedEnvironmentIdStateProvider.overrideWith(
               (ref) => 'test-env-id',
             ),
           ],
         );
+        await ensureCollectionReady(realContainer);
       });
 
       tearDown(() {

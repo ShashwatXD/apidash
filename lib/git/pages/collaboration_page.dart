@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:apidash/consts.dart';
 import 'package:apidash/git/consts.dart';
@@ -23,6 +24,7 @@ import 'package:apidash/sync/ui/sync_host_dialog.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'collaboration_setup_guide.dart';
 
@@ -154,6 +156,48 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     await _run(() => gitCreateBranch(ref, name), kMsgGitCreateBranchSuccess);
   }
 
+  Future<void> _revealWorkspace() async {
+    final path = ref.read(settingsProvider).workspaceFolderPath;
+    if (path == null || path.isEmpty) return;
+    final uri = Uri.directory(path, windows: Platform.isWindows);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw StateError('Could not open workspace folder');
+    }
+  }
+
+  Future<void> _openWorkspaceInEditor() async {
+    final path = ref.read(settingsProvider).workspaceFolderPath;
+    if (path == null || path.isEmpty) return;
+    final uri = _vsCodeFileUri(path);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      throw StateError('Could not open workspace in VS Code');
+    }
+  }
+
+  Future<void> _confirmResetWorkspace() async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text(kMsgGitResetWorkspaceConfirmTitle),
+            content: const Text(kMsgGitResetWorkspaceConfirmBody),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text(kLabelCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text(kLabelResetWorkspace),
+              ),
+            ],
+          ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _run(() => gitResetWorkspace(ref), kMsgGitResetWorkspaceSuccess);
+  }
+
   Future<void> _confirmRestoreCommit(GitLogEntry entry) async {
     if (_busy) return;
     final confirmed = await showDialog<bool>(
@@ -239,12 +283,33 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
           padding: kPh20t40,
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  kLabelCollaboration,
-                  style: Theme.of(context).textTheme.headlineLarge,
-                ),
+              Text(
+                kLabelCollaboration,
+                style: Theme.of(context).textTheme.headlineLarge,
               ),
+              _CollaborationActionsMenu(
+                enabled: !_busy,
+                revealLabel: _revealWorkspaceLabel(),
+                onSelected: (action) {
+                  switch (action) {
+                    case _CollaborationAction.reveal:
+                      unawaited(
+                        _run(_revealWorkspace, kMsgWorkspaceRevealSuccess),
+                      );
+                    case _CollaborationAction.openInEditor:
+                      unawaited(
+                        _run(
+                          _openWorkspaceInEditor,
+                          kMsgWorkspaceEditorOpenSuccess,
+                        ),
+                      );
+                    case _CollaborationAction.resetWorkspace:
+                      unawaited(_confirmResetWorkspace());
+                  }
+                },
+              ),
+              const Spacer(),
+              kHSpacer8,
               FilledButton.tonalIcon(
                 onPressed: _busy ? null : _openSyncToPhoneDialog,
                 icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
@@ -499,6 +564,64 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       names.add(current);
     }
     return names.toList()..sort();
+  }
+}
+
+enum _CollaborationAction { reveal, openInEditor, resetWorkspace }
+
+String _revealWorkspaceLabel() {
+  if (Platform.isMacOS) return kLabelRevealInFinder;
+  if (Platform.isWindows) return kLabelRevealInExplorer;
+  return kLabelRevealInFileManager;
+}
+
+Uri _vsCodeFileUri(String path) {
+  final normalized = Platform.isWindows ? path.replaceAll('\\', '/') : path;
+  final uriPath =
+      Platform.isWindows && !normalized.startsWith('/')
+          ? '/$normalized'
+          : normalized;
+  return Uri(scheme: 'vscode', host: 'file', path: uriPath);
+}
+
+class _CollaborationActionsMenu extends StatelessWidget {
+  const _CollaborationActionsMenu({
+    required this.enabled,
+    required this.revealLabel,
+    required this.onSelected,
+  });
+
+  final bool enabled;
+  final String revealLabel;
+  final ValueChanged<_CollaborationAction> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_CollaborationAction>(
+      enabled: enabled,
+      tooltip: kLabelMoreOptions,
+      icon: const Icon(Icons.more_vert_rounded),
+      onSelected: onSelected,
+      itemBuilder:
+          (context) => [
+            PopupMenuItem(
+              value: _CollaborationAction.reveal,
+              child: Text(revealLabel),
+            ),
+            const PopupMenuItem(
+              value: _CollaborationAction.openInEditor,
+              child: Text(kLabelOpenInEditor),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem(
+              value: _CollaborationAction.resetWorkspace,
+              child: Text(
+                kLabelResetWorkspace,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          ],
+    );
   }
 }
 

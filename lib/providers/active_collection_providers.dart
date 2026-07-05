@@ -234,7 +234,7 @@ class ActiveCollectionNotifier
   }
 
   void _seedDefaultRequest(String collectionId) {
-    final onDisk = workspaceStorage.getIds(collectionId);
+    final onDisk = workspaceStorage.getKnownRequestIds(collectionId);
     if (onDisk.isNotEmpty) {
       state = {};
       ref.read(requestSequenceProvider.notifier).state = [...onDisk];
@@ -263,7 +263,16 @@ class ActiveCollectionNotifier
       ref.read(selectedIdStateProvider.notifier).state = null;
       return;
     }
-    final ids = _catalogRequestIds(collectionId);
+    ref.read(collectionCatalogProvider.notifier).loadCollection(collectionId);
+    var ids = _catalogRequestIds(collectionId);
+    if (ids.isEmpty) {
+      ids = workspaceStorage.getKnownRequestIds(collectionId);
+      if (ids.isNotEmpty) {
+        ref
+            .read(collectionCatalogProvider.notifier)
+            .reloadCollectionFromDisk(collectionId);
+      }
+    }
     if (ids.isEmpty) {
       _seedDefaultRequest(collectionId);
       return;
@@ -473,6 +482,8 @@ class ActiveCollectionNotifier
     HttpResponseModel? httpResponseModel,
     String? preRequestScript,
     String? postRequestScript,
+    bool clearPreRequestScript = false,
+    bool clearPostRequestScript = false,
     AIRequestModel? aiRequestModel,
   }) {
     final rId = id ?? ref.read(selectedIdStateProvider);
@@ -533,8 +544,12 @@ class ActiveCollectionNotifier
         responseStatus: responseStatus ?? currentModel.responseStatus,
         message: message ?? currentModel.message,
         httpResponseModel: httpResponseModel ?? currentModel.httpResponseModel,
-        preRequestScript: preRequestScript ?? currentModel.preRequestScript,
-        postRequestScript: postRequestScript ?? currentModel.postRequestScript,
+        preRequestScript: clearPreRequestScript
+            ? null
+            : preRequestScript ?? currentModel.preRequestScript,
+        postRequestScript: clearPostRequestScript
+            ? null
+            : postRequestScript ?? currentModel.postRequestScript,
         aiRequestModel: aiRequestModel ?? currentModel.aiRequestModel,
       );
     }

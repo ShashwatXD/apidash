@@ -135,9 +135,7 @@ Future<void> _ensureWorkspaceStructure(Directory root) async {
 
   if (!indexExists) {
     await writeJsonAtomic(indexFile.path, {
-      kWorkspaceCollectionsIndexKey: [
-        {kWorkspaceCollectionNameKey: kDefaultCollectionName},
-      ],
+      kWorkspaceCollectionsIndexKey: [kDefaultCollectionName],
     });
 
     final defaultCollectionDir = Directory(
@@ -234,11 +232,13 @@ class WorkspaceStorage {
     }
     final result = <({String id, String name})>[];
     for (final item in entries) {
-      if (item is! Map) {
-        continue;
-      }
-      final name = item[kWorkspaceCollectionNameKey] as String?;
-      if (name == null || name.trim().isEmpty) {
+      final String? name = switch (item) {
+        final String value when value.trim().isNotEmpty => value.trim(),
+        final Map map =>
+          (map[kWorkspaceCollectionNameKey] as String?)?.trim(),
+        _ => null,
+      };
+      if (name == null || name.isEmpty) {
         continue;
       }
       result.add((id: makeCollectionId(name), name: name));
@@ -253,8 +253,7 @@ class WorkspaceStorage {
       _path(p.join(kWorkspaceCollectionsDir, kWorkspaceCollectionsIndexFile)),
       {
         kWorkspaceCollectionsIndexKey: [
-          for (final entry in collections)
-            {kWorkspaceCollectionNameKey: entry.name},
+          for (final entry in collections) entry.name,
         ],
       },
     );
@@ -321,6 +320,35 @@ class WorkspaceStorage {
       for (final item in requests)
         if (item is Map && item['id'] != null) item['id'].toString(),
     ];
+  }
+
+
+  List<String> listRequestIdsOnDisk(String collectionId) {
+    final collectionDir = Directory(_path(_collectionDir(collectionId)));
+    if (!collectionDir.existsSync()) {
+      return [];
+    }
+    final result = <String>[];
+    for (final entity in collectionDir.listSync()) {
+      if (entity is! Directory) {
+        continue;
+      }
+      final id = p.basename(entity.path);
+      if (requestExistsOnDisk(collectionId, id)) {
+        result.add(id);
+      }
+    }
+    result.sort();
+    return result;
+  }
+
+  /// Union of index entries and on-disk request folders.
+  List<String> getKnownRequestIds(String collectionId) {
+    return {
+      ...getIds(collectionId),
+      ...listRequestIdsOnDisk(collectionId),
+    }.toList()
+      ..sort();
   }
 
   bool requestExistsOnDisk(String collectionId, String id) {
@@ -729,7 +757,12 @@ class WorkspaceStorage {
     String collectionId, {
     Set<String>? requestIds,
   }) async {
-    final ids = requestIds ?? getIds(collectionId).toSet();
+    var ids = requestIds?.toSet() ?? getIds(collectionId).toSet();
+    // After sync the index can lag behind on-disk request folders (especially
+    // for the default Collection 1). Never wipe those when nothing is indexed.
+    if (ids.isEmpty && getIds(collectionId).isEmpty) {
+      ids = listRequestIdsOnDisk(collectionId).toSet();
+    }
     final collectionDir = Directory(_path(_collectionDir(collectionId)));
     if (await collectionDir.exists()) {
       await for (final entity in collectionDir.list()) {

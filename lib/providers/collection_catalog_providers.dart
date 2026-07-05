@@ -68,9 +68,12 @@ class CollectionCatalogNotifier
     final model = json != null
         ? CollectionModel.fromJson(Map<String, Object?>.from(json))
         : CollectionModel(id: collectionId, name: catalogName);
-    final requests = model.requests
+    var requests = model.requests
         .where((r) => workspaceStorage.requestExistsOnDisk(collectionId, r.id))
         .toList();
+    if (requests.isEmpty) {
+      requests = _requestsFromDisk(collectionId);
+    }
     _loadedCollectionIds.add(collectionId);
     state = {
       ...state!,
@@ -79,6 +82,29 @@ class CollectionCatalogNotifier
         requests: requests,
       ),
     };
+  }
+
+  /// Re-read a collection from disk (e.g. after LAN sync updated files).
+  void reloadCollectionFromDisk(String collectionId) {
+    _loadedCollectionIds.remove(collectionId);
+    loadCollection(collectionId);
+  }
+
+  void reloadAllCollectionsFromDisk() {
+    for (final id in collectionSequence) {
+      reloadCollectionFromDisk(id);
+    }
+  }
+
+  List<RequestSummary> _requestsFromDisk(String collectionId) {
+    return [
+      for (final id in workspaceStorage.listRequestIdsOnDisk(collectionId))
+        if (workspaceStorage.getRequestModel(collectionId, id)
+            case final json?)
+          RequestSummary.fromRequestModel(
+            RequestModel.fromJson(Map<String, Object?>.from(json)),
+          ),
+    ];
   }
 
   void syncRequests(String collectionId, List<RequestSummary> requests) {
@@ -200,7 +226,12 @@ class CollectionCatalogNotifier
   Future<void> saveCollections() async {
     await _persistIndex();
     final activeId = ref.read(selectedCollectionIdStateProvider);
-    final activeSequence = ref.read(requestSequenceProvider);
+    var activeSequence = ref.read(requestSequenceProvider);
+    if (activeId != null &&
+        activeSequence.isEmpty &&
+        workspaceStorage.listRequestIdsOnDisk(activeId).isNotEmpty) {
+      activeSequence = workspaceStorage.getKnownRequestIds(activeId);
+    }
     final collectionNotifier =
         ref.read(activeCollectionProvider.notifier);
     for (final entry in state!.entries) {
@@ -210,10 +241,12 @@ class CollectionCatalogNotifier
 
       final requests = entry.key == activeId
           ? collectionNotifier.summariesForSequence(entry.key, activeSequence)
-          : entry.value.requests
-              .where((r) =>
-                  workspaceStorage.requestExistsOnDisk(entry.key, r.id))
-              .toList();
+          : entry.value.requests.isNotEmpty
+              ? entry.value.requests
+                  .where((r) =>
+                      workspaceStorage.requestExistsOnDisk(entry.key, r.id))
+                  .toList()
+              : _requestsFromDisk(entry.key);
       if (entry.key == activeId) {
         syncRequests(entry.key, requests);
       }

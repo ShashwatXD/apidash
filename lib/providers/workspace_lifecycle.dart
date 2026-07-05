@@ -182,6 +182,14 @@ Future<void> _reloadWorkspaceFromDisk(
     _invalidateWorkspaceProviders(invalidate);
     invalidate(gitStatusProvider);
     read(gitDiskRevisionProvider.notifier).bump();
+    await SchedulerBinding.instance.endOfFrame;
+    read(collectionCatalogProvider.notifier).reloadAllCollectionsFromDisk();
+    final activeCollectionId = read(selectedCollectionIdStateProvider);
+    if (activeCollectionId != null) {
+      await read(activeCollectionProvider.notifier).ensureActive(
+        activeCollectionId,
+      );
+    }
   } finally {
     _endWorkspaceDiskReloadSuppress(read);
   }

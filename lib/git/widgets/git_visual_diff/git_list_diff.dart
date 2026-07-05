@@ -148,13 +148,10 @@ List<({String id, String name})> _parseCollectionIndex(
   if (entries is! List) return const [];
   final result = <({String id, String name})>[];
   for (final item in entries) {
-    if (item is! Map) continue;
-    final name = item[kWorkspaceCollectionNameKey]?.toString().trim() ?? '';
-    final explicitId = item[kWorkspaceCollectionIdKey]?.toString().trim();
-    if (name.isEmpty && (explicitId == null || explicitId.isEmpty)) continue;
-    final id = explicitId != null && explicitId.isNotEmpty
-        ? explicitId
-        : makeCollectionId(name);
+    if (item is! String) continue;
+    final name = item.trim();
+    if (name.isEmpty) continue;
+    final id = makeCollectionId(name);
     result.add((id: id, name: name));
   }
   return result;

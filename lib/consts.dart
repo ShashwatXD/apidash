@@ -618,6 +618,17 @@ const kLabelSelectAll = "Select all";
 const kLabelRecentCommits = "Recent commits";
 const kLabelBranch = "Branch";
 const kLabelChanges = "Changes";
+const kLabelRevealInFinder = "Reveal in Finder";
+const kLabelRevealInExplorer = "Reveal in Explorer";
+const kLabelRevealInFileManager = "Reveal in file manager";
+const kLabelOpenInEditor = "Open in VS Code";
+const kLabelResetWorkspace = "Reset Workspace";
+const kMsgWorkspaceRevealSuccess = "Workspace opened";
+const kMsgWorkspaceEditorOpenSuccess = "Workspace opened in VS Code";
+const kMsgGitResetWorkspaceSuccess = "Workspace reset to last commit";
+const kMsgGitResetWorkspaceConfirmTitle = "Reset Workspace?";
+const kMsgGitResetWorkspaceConfirmBody =
+    "All Git-tracked workspace changes will be gone and reset to the last commit. This cannot be undone.";
 const kLabelCollaborationSetupTitle = "Set up workspace sharing";
 const kMsgCollaborationSetupSubtitle =
     "Publish this workspace to Git so you and your team can collaborate.";

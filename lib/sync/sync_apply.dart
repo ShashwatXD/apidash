@@ -1,3 +1,5 @@
+import 'package:apidash/consts.dart';
+
 import 'models/sync_models.dart';
 import 'storage/sync_storage.dart';
 import 'sync_diff.dart';
@@ -17,6 +19,52 @@ class SyncApplyResult {
   final Map<String, String> newBaseline;
 }
 
+List<String> expandSyncWritePaths(Iterable<SyncFileChange> outgoing) {
+  final expanded = <String>{};
+  for (final change in outgoing) {
+    if (change.kind == SyncFileChangeKind.deleted) {
+      continue;
+    }
+    expanded.add(change.path);
+  }
+
+  var touchedCollections = false;
+  for (final path in List<String>.from(expanded)) {
+    if (!path.startsWith('$kWorkspaceCollectionsDir/')) {
+      continue;
+    }
+    final segments = path.split('/');
+    if (segments.length < 2) {
+      continue;
+    }
+    touchedCollections = true;
+    final collectionId = segments[1];
+    if (segments.length >= 3) {
+      expanded.add(
+        '$kWorkspaceCollectionsDir/$collectionId/$kWorkspaceRequestIndexFile',
+      );
+    }
+  }
+  if (touchedCollections) {
+    expanded.add(
+      '$kWorkspaceCollectionsDir/$kWorkspaceCollectionsIndexFile',
+    );
+  }
+
+  final touchesEnvironments = expanded.any(
+    (path) =>
+        path.startsWith('$kWorkspaceEnvironmentsDir/') &&
+        !path.endsWith(kWorkspaceEnvironmentIndexFile),
+  );
+  if (touchesEnvironments) {
+    expanded.add(
+      '$kWorkspaceEnvironmentsDir/$kWorkspaceEnvironmentIndexFile',
+    );
+  }
+
+  return expanded.toList()..sort();
+}
+
 /// Push local [outgoing] changes to the peer. Local disk is unchanged.
 Future<SyncApplyResult> applySend({
   required String workspaceRoot,
@@ -32,17 +80,17 @@ Future<SyncApplyResult> applySend({
   for (final change in outgoing) {
     if (change.kind == SyncFileChangeKind.deleted) {
       deletes.add(change.path);
-      continue;
     }
-    final content = await readSyncableWorkspaceFile(workspaceRoot, change.path);
-    if (content != null) writes[change.path] = content;
   }
 
-  final state = await storage.readSyncState();
-  final oldBaseline = state?.baseline ?? const <String, String>{};
-  final localManifest = await buildSyncManifest(workspaceRoot);
-  final paths = outgoing.map((c) => c.path);
-  final newBaseline = _mergeBaseline(oldBaseline, localManifest, paths);
+  for (final path in expandSyncWritePaths(outgoing)) {
+    final content = await readSyncableWorkspaceFile(workspaceRoot, path);
+    if (content != null) {
+      writes[path] = content;
+    }
+  }
+
+  final newBaseline = await buildSyncManifest(workspaceRoot);
 
   return _persistAndNotifyPeer(
     storage: storage,
@@ -81,10 +129,10 @@ Future<SyncApplyResult> applyReceive({
     appliedIncoming++;
   }
 
-  final state = await storage.readSyncState();
-  final oldBaseline = state?.baseline ?? const <String, String>{};
-  final paths = incoming.map((c) => c.path);
-  final newBaseline = _mergeBaseline(oldBaseline, peerManifest, paths);
+  // Use post-write local hashes, not the peer manifest captured at connect.
+  // Peer manifest can be stale after flush/autosave and does not reflect bytes
+  // we just persisted locally.
+  final newBaseline = await buildSyncManifest(workspaceRoot);
 
   return _persistAndNotifyPeer(
     storage: storage,
@@ -127,23 +175,6 @@ Future<SyncApplyResult> applyReplaceFromPeer({
     appliedIncoming: appliedIncoming,
     sentOutgoing: 0,
   );
-}
-
-Map<String, String> _mergeBaseline(
-  Map<String, String> oldBaseline,
-  Map<String, String> manifest,
-  Iterable<String> paths,
-) {
-  final merged = Map<String, String>.from(oldBaseline);
-  for (final path in paths) {
-    final hash = manifest[path];
-    if (hash == null) {
-      merged.remove(path);
-    } else {
-      merged[path] = hash;
-    }
-  }
-  return merged;
 }
 
 Future<SyncApplyResult> _persistAndNotifyPeer({

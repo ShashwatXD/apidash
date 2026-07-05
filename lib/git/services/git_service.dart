@@ -191,6 +191,10 @@ class GitService {
     await _git(workspacePath, ['fetch', 'origin']);
   }
 
+  Future<void> resetHard(String workspacePath) async {
+    await _git(workspacePath, ['reset', '--hard']);
+  }
+
   /// Returns the contents of a git [object] (e.g. `HEAD:path`, `:path`)
   /// in [workspacePath], or null when it cannot be read.
   Future<String?> showObject(String workspacePath, String object) async {

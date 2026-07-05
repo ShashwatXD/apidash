@@ -122,9 +122,8 @@ class SyncSessionClient implements SyncFileTransfer {
             _resolvePeerFile(message);
             break;
           case SyncMessageType.applyComplete:
-            final manifest = message.readManifest();
             await _applyRemoteResult(message);
-            if (manifest.isNotEmpty) await _persistBaseline(manifest);
+            await _persistBaseline(await buildSyncManifest(workspaceRoot));
             await refreshManifest();
             onRemoteApplied?.call();
             break;

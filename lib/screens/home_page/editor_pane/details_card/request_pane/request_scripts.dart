@@ -33,15 +33,23 @@ class _EditRequestScriptsState extends ConsumerState<EditRequestScripts> {
     );
 
     preReqCodeController.addListener(() {
-      ref
-          .read(activeCollectionProvider.notifier)
-          .update(preRequestScript: preReqCodeController.text);
+      final value = preReqCodeController.text.trim().isEmpty
+          ? null
+          : preReqCodeController.text;
+      ref.read(activeCollectionProvider.notifier).update(
+            preRequestScript: value,
+            clearPreRequestScript: value == null,
+          );
     });
 
     postResCodeController.addListener(() {
-      ref
-          .read(activeCollectionProvider.notifier)
-          .update(postRequestScript: postResCodeController.text);
+      final value = postResCodeController.text.trim().isEmpty
+          ? null
+          : postResCodeController.text;
+      ref.read(activeCollectionProvider.notifier).update(
+            postRequestScript: value,
+            clearPostRequestScript: value == null,
+          );
     });
 
     final tabs = [(0, kLabelPreRequest), (1, kLabelPostResponse)];

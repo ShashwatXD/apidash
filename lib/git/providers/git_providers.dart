@@ -1,5 +1,6 @@
 import 'package:apidash/providers/auto_save.dart';
 import 'package:apidash/providers/settings_providers.dart';
+import 'package:apidash/providers/ui_providers.dart';
 import 'package:apidash/providers/workspace_lifecycle.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -118,6 +119,17 @@ Future<void> gitRestoreToCommit(WidgetRef ref, String commitHash) async {
 
   await ref.read(autoSaveNotifierProvider.notifier).flushNow(force: true);
   await ref.read(gitServiceProvider).restoreToCommit(path, commitHash);
+  await reloadWorkspaceFromDisk(ref);
+  await _reloadGitStatus(ref);
+}
+
+Future<void> gitResetWorkspace(WidgetRef ref) async {
+  final path = ref.read(settingsProvider).workspaceFolderPath;
+  if (path == null || path.isEmpty) return;
+
+  await ref.read(autoSaveNotifierProvider.notifier).cancelPendingAndWait();
+  ref.read(hasUnsavedChangesProvider.notifier).state = false;
+  await ref.read(gitServiceProvider).resetHard(path);
   await reloadWorkspaceFromDisk(ref);
   await _reloadGitStatus(ref);
 }

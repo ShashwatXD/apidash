@@ -50,48 +50,34 @@ class GitService {
     }
 
     try {
-      final branch = await _currentBranch(workspacePath);
       final remoteUrl = await _remoteUrl(workspacePath);
       final porcelain = await _git(
         workspacePath,
-        ['status', '--porcelain=v1', '-z', '-uall'],
+        ['status', '--porcelain=v2', '--branch', '-z', '-uall'],
       );
-      final changes = _parsePorcelain(porcelain.stdout.toString());
-      final hasCommits = await _hasLocalCommits(workspacePath);
-      final (ahead, behind) = await _aheadBehind(workspacePath);
+      final parsed = _parsePorcelain(porcelain.stdout.toString());
+      final hasCommits = parsed.branch != null || await _hasLocalCommits(workspacePath);
       final syncState = _syncState(
-        changes: changes,
-        ahead: ahead,
-        behind: behind,
+        changes: parsed.changes,
+        ahead: parsed.ahead,
+        behind: parsed.behind,
         hasRemote: remoteUrl != null,
         hasCommits: hasCommits,
       );
-      final logResult = await _git(
-        workspacePath,
-        [
-          'log',
-          '-n',
-          '10',
-          r'--format=%H%x00%s%x00%an%x00%ar',
-        ],
-        allowFailure: true,
-      );
-      final recentCommits = logResult.exitCode == 0
-          ? _parseLog(logResult.stdout.toString())
-          : const <GitLogEntry>[];
+      final recentCommits = await getRecentCommits(workspacePath);
       final branches = await listBranches(workspacePath);
       final committerName = await getCommitterName(workspacePath);
       final committerEmail = await _gitConfig(workspacePath, 'user.email');
 
       return GitStatus(
-        branch: branch,
+        branch: parsed.branch,
         syncState: syncState,
         remoteUrl: remoteUrl,
         committerName: committerName,
         committerEmail: committerEmail,
-        ahead: ahead,
-        behind: behind,
-        changes: changes,
+        ahead: parsed.ahead,
+        behind: parsed.behind,
+        changes: parsed.changes,
         recentCommits: recentCommits,
         branches: branches,
         isRepository: true,
@@ -103,6 +89,23 @@ class GitService {
         errorMessage: e.toString(),
       );
     }
+  }
+
+  Future<List<GitLogEntry>> getRecentCommits(String workspacePath) async {
+    final logResult = await _git(
+      workspacePath,
+      [
+        'log',
+        '-n',
+        '10',
+        r'--format=%H%x00%s%x00%an%x00%ar',
+      ],
+      allowFailure: true,
+    );
+    if (logResult.exitCode != 0) {
+      return const <GitLogEntry>[];
+    }
+    return _parseLog(logResult.stdout.toString());
   }
 
   Future<bool> isRepository(String workspacePath) async {
@@ -401,6 +404,97 @@ class GitService {
     return sorted;
   }
 
+  GitPorcelainStatus _parsePorcelain(String output) {
+    if (output.isEmpty) {
+      return const GitPorcelainStatus(
+        branch: null,
+        ahead: 0,
+        behind: 0,
+        changes: [],
+      );
+    }
+    String? branch;
+    var ahead = 0;
+    var behind = 0;
+    final changes = <GitChange>[];
+
+    final records = output.split('\x00');
+    int i = 0;
+    while (i < records.length) {
+      final record = records[i];
+      if (record.isEmpty) {
+        i++;
+        continue;
+      }
+
+      if (record.startsWith('# ')) {
+        if (record.startsWith('# branch.head ')) {
+          final value = record.substring('# branch.head '.length).trim();
+          if (value.isNotEmpty && value != '(detached)') {
+            branch = value;
+          }
+        } else if (record.startsWith('# branch.ab ')) {
+          final match = RegExp(r'\+(-?\d+)\s+-(\d+)').firstMatch(record);
+          if (match != null) {
+            ahead = int.tryParse(match.group(1) ?? '0') ?? 0;
+            behind = int.tryParse(match.group(2) ?? '0') ?? 0;
+          }
+        }
+        i++;
+        continue;
+      }
+
+      if (record.startsWith('? ')) {
+        final path = _normalizeChangePath(record.substring(2));
+        if (path.isNotEmpty) {
+          changes.add(GitChange(path: path, type: GitChangeType.untracked));
+        }
+        i++;
+        continue;
+      }
+
+      if (record.startsWith('1 ')) {
+        final parts = record.split(' ');
+        if (parts.length >= 9) {
+          final xy = parts[1];
+          final path = _normalizeChangePath(parts.sublist(8).join(' '));
+          if (path.isNotEmpty) {
+            changes.add(
+              GitChange(path: path, type: _changeType(xy[0], xy[1])),
+            );
+          }
+        }
+        i++;
+        continue;
+      }
+
+      if (record.startsWith('2 ')) {
+        final parts = record.split(' ');
+        if (parts.length >= 10) {
+          final xy = parts[1];
+          final newPath = i + 1 < records.length ? records[i + 1] : '';
+          final path = _normalizeChangePath(newPath);
+          if (path.isNotEmpty) {
+            changes.add(
+              GitChange(path: path, type: _changeType(xy[0], xy[1])),
+            );
+          }
+          i += 2;
+          continue;
+        }
+      }
+
+      i++;
+    }
+
+    return GitPorcelainStatus(
+      branch: branch,
+      ahead: ahead,
+      behind: behind,
+      changes: changes,
+    );
+  }
+
   Future<List<String>> _branchNames(
     String workspacePath,
     List<String> args,
@@ -651,80 +745,6 @@ class GitService {
     return value.isEmpty ? null : value;
   }
 
-  Future<String?> _resolveRemoteTrackingRef(String workspacePath) async {
-    final branch = await _currentBranch(workspacePath);
-    if (branch != null && branch != 'HEAD') {
-      final ref = 'origin/$branch';
-      final exists = await _git(
-        workspacePath,
-        ['rev-parse', '--verify', ref],
-        allowFailure: true,
-      );
-      if (exists.exitCode == 0) return ref;
-    }
-
-    return null;
-  }
-
-  Future<(int ahead, int behind)> _aheadBehind(String workspacePath) async {
-    final upstream = await _git(
-      workspacePath,
-      ['rev-list', '--left-right', '--count', '@{u}...HEAD'],
-      allowFailure: true,
-    );
-    if (upstream.exitCode == 0) {
-      return _parseAheadBehind(upstream.stdout.toString());
-    }
-
-    final remoteRef = await _resolveRemoteTrackingRef(workspacePath);
-    if (remoteRef == null) {
-      return _localCommitCount(workspacePath);
-    }
-
-    if (!await _hasLocalCommits(workspacePath)) {
-      final behind = await _remoteCommitCount(workspacePath, remoteRef);
-      return (0, behind);
-    }
-
-    final vsRemote = await _git(
-      workspacePath,
-      ['rev-list', '--left-right', '--count', '$remoteRef...HEAD'],
-      allowFailure: true,
-    );
-    if (vsRemote.exitCode == 0) {
-      return _parseAheadBehind(vsRemote.stdout.toString());
-    }
-
-    return (0, 0);
-  }
-
-  (int ahead, int behind) _parseAheadBehind(String output) {
-    final parts = output.trim().split(RegExp(r'\s+'));
-    if (parts.length < 2) return (0, 0);
-    return (int.tryParse(parts[1]) ?? 0, int.tryParse(parts[0]) ?? 0);
-  }
-
-  Future<(int ahead, int behind)> _localCommitCount(String workspacePath) async {
-    final result = await _git(
-      workspacePath,
-      ['rev-list', '--count', 'HEAD'],
-      allowFailure: true,
-    );
-    if (result.exitCode != 0) return (0, 0);
-    final count = int.tryParse(result.stdout.toString().trim()) ?? 0;
-    return (count, 0);
-  }
-
-  Future<int> _remoteCommitCount(String workspacePath, String remoteRef) async {
-    final result = await _git(
-      workspacePath,
-      ['rev-list', '--count', remoteRef],
-      allowFailure: true,
-    );
-    if (result.exitCode != 0) return 0;
-    return int.tryParse(result.stdout.toString().trim()) ?? 0;
-  }
-
   GitSyncState _syncState({
     required List<GitChange> changes,
     required int ahead,
@@ -745,46 +765,6 @@ class GitService {
 
   String _normalizeChangePath(String path) {
     return path.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
-  }
-
-  List<GitChange> _parsePorcelain(String output) {
-    if (output.isEmpty) return const [];
-    final changes = <GitChange>[];
-    final records = output.split('\x00');
-    int i = 0;
-    while (i < records.length) {
-      final record = records[i];
-      if (record.length < 3) {
-        i++;
-        continue;
-      }
-      final indexStatus = record[0];
-      final workTreeStatus = record[1];
-      var path = record.substring(3);
-      final type = _changeType(indexStatus, workTreeStatus);
-
-      if (type == GitChangeType.renamed) {
-        i++;
-        if (i < records.length && records[i].isNotEmpty) {
-          path = records[i];
-        }
-      }
-
-      path = _normalizeChangePath(path);
-      if (path.isEmpty) {
-        i++;
-        continue;
-      }
-
-      changes.add(
-        GitChange(
-          path: path,
-          type: type,
-        ),
-      );
-      i++;
-    }
-    return changes;
   }
 
   GitChangeType _changeType(String index, String workTree) {

@@ -65,3 +65,17 @@ class GitStatus {
         errorMessage: 'Git is not installed or not on PATH',
       );
 }
+
+class GitPorcelainStatus {
+  const GitPorcelainStatus({
+    required this.branch,
+    required this.ahead,
+    required this.behind,
+    required this.changes,
+  });
+
+  final String? branch;
+  final int ahead;
+  final int behind;
+  final List<GitChange> changes;
+}

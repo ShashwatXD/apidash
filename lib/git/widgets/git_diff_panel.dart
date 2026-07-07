@@ -1,6 +1,7 @@
 import 'package:apidash/git/consts.dart';
 import 'package:apidash/git/models/git_models.dart';
 import 'package:apidash/git/widgets/git_diff_display.dart';
+import 'package:apidash/git/widgets/git_raw_diff_view.dart';
 import 'package:apidash/git/providers/git_status_provider.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_file_kind.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_snapshots.dart';
@@ -272,7 +273,7 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                 }
 
                 final diff = result.diff.trim();
-                final rows = parseDiffRows(diff);
+                final rows = parseGitRawDiffRows(diff);
                 if (diff.isEmpty || rows.isEmpty) {
                   return Center(
                     child: Text(
@@ -283,7 +284,11 @@ class _GitDiffPanelState extends ConsumerState<GitDiffPanel> {
                     ),
                   );
                 }
-                return _SideBySideDiff(rows: rows);
+                return GitRawDiffView(
+                  rows: rows,
+                  leftColumnLabel: kLabelGitDiffOriginal,
+                  rightColumnLabel: kLabelGitDiffCurrent,
+                );
               },
             ),
           ),
@@ -390,256 +395,6 @@ class _ChangeTypePill extends StatelessWidget {
           color: highlight.foreground,
           fontWeight: FontWeight.w600,
         ),
-      ),
-    );
-  }
-}
-
-class DiffRow {
-  const DiffRow({
-    this.oldLine,
-    this.newLine,
-    this.isDeletion = false,
-    this.isAddition = false,
-  });
-
-  final String? oldLine;
-  final String? newLine;
-  final bool isDeletion;
-  final bool isAddition;
-}
-
-List<String> visibleDiffLines(String diff) {
-  return diff
-      .split('\n')
-      .where((line) => !_isGitDiffMetadataLine(line))
-      .toList();
-}
-
-List<DiffRow> parseDiffRows(String diff) {
-  final rows = <DiffRow>[];
-  for (final line in visibleDiffLines(diff)) {
-    if (line.startsWith('-')) {
-      rows.add(DiffRow(oldLine: line.substring(1), isDeletion: true));
-    } else if (line.startsWith('+')) {
-      rows.add(DiffRow(newLine: line.substring(1), isAddition: true));
-    } else {
-      final content = line.startsWith(' ') ? line.substring(1) : line;
-      rows.add(DiffRow(oldLine: content, newLine: content));
-    }
-  }
-  return rows;
-}
-
-bool _isGitDiffMetadataLine(String line) {
-  if (line.isEmpty) return false;
-  return line.startsWith('diff --git ') ||
-      line.startsWith('index ') ||
-      line.startsWith('--- ') ||
-      line.startsWith('+++ ') ||
-      line.startsWith('new file mode ') ||
-      line.startsWith('deleted file mode ') ||
-      line.startsWith('similarity index ') ||
-      line.startsWith('rename from ') ||
-      line.startsWith('rename to ') ||
-      line.startsWith('Binary files ') ||
-      line.startsWith('@@') ||
-      line.startsWith(r'\ No newline at end of file');
-}
-
-class _SideBySideDiff extends StatelessWidget {
-  const _SideBySideDiff({required this.rows});
-
-  final List<DiffRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    var oldLineNum = 0;
-    var newLineNum = 0;
-    final numbered = <({DiffRow row, int? oldNum, int? newNum})>[];
-
-    for (final row in rows) {
-      int? oldNum;
-      int? newNum;
-      if (row.oldLine != null) {
-        oldLineNum++;
-        oldNum = oldLineNum;
-      }
-      if (row.newLine != null) {
-        newLineNum++;
-        newNum = newLineNum;
-      }
-      numbered.add((row: row, oldNum: oldNum, newNum: newNum));
-    }
-
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.3)),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: scheme.surfaceContainerHigh.withValues(alpha: 0.5),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      kLabelGitDiffOriginal,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      kLabelGitDiffCurrent,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: numbered.length,
-                itemBuilder: (context, index) {
-                  final item = numbered[index];
-                  return _DiffRowView(
-                    row: item.row,
-                    oldLineNum: item.oldNum,
-                    newLineNum: item.newNum,
-                    scheme: Theme.of(context).colorScheme,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DiffRowView extends StatelessWidget {
-  const _DiffRowView({
-    required this.row,
-    required this.oldLineNum,
-    required this.newLineNum,
-    required this.scheme,
-  });
-
-  final DiffRow row;
-  final int? oldLineNum;
-  final int? newLineNum;
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: _DiffCell(
-              lineNumber: oldLineNum,
-              text: row.oldLine,
-              isRemoved: row.isDeletion,
-              scheme: scheme,
-            ),
-          ),
-          Container(
-            width: 1,
-            color: scheme.outlineVariant.withValues(alpha: 0.25),
-          ),
-          Expanded(
-            child: _DiffCell(
-              lineNumber: newLineNum,
-              text: row.newLine,
-              isAdded: row.isAddition,
-              scheme: scheme,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DiffCell extends StatelessWidget {
-  const _DiffCell({
-    required this.lineNumber,
-    required this.text,
-    required this.scheme,
-    this.isAdded = false,
-    this.isRemoved = false,
-  });
-
-  final int? lineNumber;
-  final String? text;
-  final ColorScheme scheme;
-  final bool isAdded;
-  final bool isRemoved;
-
-  @override
-  Widget build(BuildContext context) {
-    final brightness = Theme.of(context).brightness;
-    final highlight = isAdded
-        ? getGitDiffHighlight(brightness, GitDiffChangeKind.added)
-        : isRemoved
-        ? getGitDiffHighlight(brightness, GitDiffChangeKind.removed)
-        : null;
-
-    final displayText = text ?? '';
-    final lineColor =
-        highlight?.foreground ??
-        getGitDiffHighlight(brightness, GitDiffChangeKind.neutral).foreground;
-
-    return Container(
-      color: highlight?.background,
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 36,
-            child: lineNumber != null
-                ? Padding(
-                    padding: const EdgeInsets.only(right: 6, top: 2),
-                    child: Text(
-                      '$lineNumber',
-                      textAlign: TextAlign.right,
-                      style: kCodeStyle.copyWith(
-                        fontSize: 11,
-                        height: 1.5,
-                        color: lineColor,
-                      ),
-                    ),
-                  )
-                : null,
-          ),
-          Expanded(
-            child: SelectableText(
-              displayText,
-              style: kCodeStyle.copyWith(
-                fontSize: 12,
-                height: 1.5,
-                color:
-                    highlight?.foreground ??
-                    scheme.onSurface.withValues(alpha: 0.9),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

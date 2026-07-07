@@ -1,5 +1,5 @@
 import 'package:apidash/git/consts.dart';
-import 'package:apidash/git/widgets/git_diff_panel.dart';
+import 'package:apidash/git/widgets/git_raw_diff_view.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_file_kind.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_diff_snapshots.dart';
 import 'package:apidash/git/widgets/git_visual_diff/git_json_fallback_column.dart';
@@ -348,12 +348,12 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
 
     final rawDiff = _buildRawDiff(baselineContent, currentContent);
     if (rawDiff.trim().isNotEmpty) {
-      final rows = parseDiffRows(rawDiff);
+      final rows = parseGitRawDiffRows(rawDiff);
       if (rows.isNotEmpty) {
-        return _SyncRawDiffView(
+        return GitRawDiffView(
           rows: rows,
-          baselineColumnLabel: kLabelSyncDiffBaseline,
-          currentColumnLabel: _currentColumnLabel,
+          leftColumnLabel: kLabelSyncDiffBaseline,
+          rightColumnLabel: _currentColumnLabel,
         );
       }
     }
@@ -413,199 +413,5 @@ class _SyncDiffPanelState extends ConsumerState<SyncDiffPanel> {
   List<String> _lines(String? raw) {
     if (raw == null || raw.trim().isEmpty) return const [];
     return prettyJson(raw).split('\n');
-  }
-}
-
-class _SyncRawDiffView extends StatelessWidget {
-  const _SyncRawDiffView({
-    required this.rows,
-    required this.baselineColumnLabel,
-    required this.currentColumnLabel,
-  });
-
-  final List<DiffRow> rows;
-  final String baselineColumnLabel;
-  final String currentColumnLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    var oldLineNum = 0;
-    var newLineNum = 0;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: scheme.surfaceContainerHigh.withValues(alpha: 0.5),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      baselineColumnLabel,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      currentColumnLabel,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: rows.length,
-                itemBuilder: (context, index) {
-                  final row = rows[index];
-                  int? oldNum;
-                  int? newNum;
-                  if (row.oldLine != null) {
-                    oldLineNum++;
-                    oldNum = oldLineNum;
-                  }
-                  if (row.newLine != null) {
-                    newLineNum++;
-                    newNum = newLineNum;
-                  }
-                  return _SyncDiffRow(
-                    row: row,
-                    oldLineNum: oldNum,
-                    newLineNum: newNum,
-                    scheme: scheme,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncDiffRow extends StatelessWidget {
-  const _SyncDiffRow({
-    required this.row,
-    required this.oldLineNum,
-    required this.newLineNum,
-    required this.scheme,
-  });
-
-  final DiffRow row;
-  final int? oldLineNum;
-  final int? newLineNum;
-  final ColorScheme scheme;
-
-  @override
-  Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: _SyncDiffCell(
-              lineNumber: oldLineNum,
-              text: row.oldLine,
-              isRemoved: row.isDeletion,
-              scheme: scheme,
-            ),
-          ),
-          Container(
-            width: 1,
-            color: scheme.outlineVariant.withValues(alpha: 0.25),
-          ),
-          Expanded(
-            child: _SyncDiffCell(
-              lineNumber: newLineNum,
-              text: row.newLine,
-              isAdded: row.isAddition,
-              scheme: scheme,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SyncDiffCell extends StatelessWidget {
-  const _SyncDiffCell({
-    required this.lineNumber,
-    required this.text,
-    required this.scheme,
-    this.isAdded = false,
-    this.isRemoved = false,
-  });
-
-  final int? lineNumber;
-  final String? text;
-  final ColorScheme scheme;
-  final bool isAdded;
-  final bool isRemoved;
-
-  @override
-  Widget build(BuildContext context) {
-    Color? bg;
-    if (isAdded) {
-      bg = scheme.tertiaryContainer.withValues(alpha: 0.45);
-    } else if (isRemoved) {
-      bg = scheme.errorContainer.withValues(alpha: 0.35);
-    }
-
-    return Container(
-      color: bg,
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 36,
-            child: lineNumber != null
-                ? Padding(
-                    padding: const EdgeInsets.only(right: 6, top: 2),
-                    child: Text(
-                      '$lineNumber',
-                      textAlign: TextAlign.right,
-                      style: kCodeStyle.copyWith(
-                        fontSize: 11,
-                        height: 1.5,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  )
-                : null,
-          ),
-          Expanded(
-            child: SelectableText(
-              text ?? '',
-              style: kCodeStyle.copyWith(
-                fontSize: 12,
-                height: 1.5,
-                color: scheme.onSurface.withValues(alpha: 0.9),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }

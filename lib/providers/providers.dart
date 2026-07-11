@@ -9,3 +9,5 @@ export 'settings_providers.dart';
 export 'ui_providers.dart';
 export 'workspace_lifecycle.dart';
 export 'js_runtime_notifier.dart';
+export '../workflow/providers/workflow_providers.dart';
+export '../workflow/providers/workflow_ui_providers.dart';

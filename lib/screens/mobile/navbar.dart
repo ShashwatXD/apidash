@@ -1,3 +1,4 @@
+import 'package:apidash/consts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:apidash/providers/providers.dart';
@@ -27,64 +28,75 @@ class BottomNavBar extends ConsumerWidget {
           ),
           child: Material(
             type: MaterialType.transparency,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Expanded(
-                  child: NavbarButton(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 0,
+                    buttonIdx: kNavRailRequestsIndex,
                     selectedIcon: Icons.auto_awesome_mosaic_rounded,
                     icon: Icons.auto_awesome_mosaic_outlined,
                     label: 'Requests',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-                Expanded(
-                  child: NavbarButton(
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 1,
+                    buttonIdx: kNavRailWorkflowsIndex,
+                    selectedIcon: Icons.account_tree_rounded,
+                    icon: Icons.account_tree_outlined,
+                    label: 'Workflows',
+                    showLabel: false,
+                    isCompact: true,
+                  ),
+                  NavbarButton(
+                    railIdx: railIdx,
+                    buttonIdx: kNavRailVariablesIndex,
                     selectedIcon: Icons.laptop_windows,
                     icon: Icons.laptop_windows_outlined,
                     label: 'Variables',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-                Expanded(
-                  child: NavbarButton(
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 2,
+                    buttonIdx: kNavRailHistoryIndex,
                     selectedIcon: Icons.history_rounded,
                     icon: Icons.history_outlined,
                     label: 'History',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-                Expanded(
-                  child: NavbarButton(
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 3,
+                    buttonIdx: kNavRailCollaborationIndex,
                     selectedIcon: Icons.cloud_sync,
                     icon: Icons.cloud_sync,
                     label: 'Collab',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-                Expanded(
-                  child: NavbarButton(
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 4,
+                    buttonIdx: kNavRailLogsIndex,
                     selectedIcon: Icons.terminal,
                     icon: Icons.terminal,
                     label: 'Logs',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-                Expanded(
-                  child: NavbarButton(
+                  NavbarButton(
                     railIdx: railIdx,
-                    buttonIdx: 5,
+                    buttonIdx: kNavRailSettingsIndex,
                     selectedIcon: Icons.settings,
                     icon: Icons.settings_outlined,
                     label: 'Settings',
+                    showLabel: false,
+                    isCompact: true,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

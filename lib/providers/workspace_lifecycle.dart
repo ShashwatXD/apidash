@@ -20,6 +20,8 @@ import 'environment_providers.dart';
 import 'history_providers.dart';
 import 'settings_providers.dart';
 import 'ui_providers.dart';
+import '../workflow/providers/workflow_providers.dart';
+import '../workflow/providers/workflow_ui_providers.dart';
 
 final workspaceDiskReloadSuppressCountProvider = StateProvider<int>((ref) => 0);
 
@@ -190,6 +192,13 @@ Future<void> _reloadWorkspaceFromDisk(
         activeCollectionId,
       );
     }
+    await read(workflowCatalogProvider.notifier).reloadFromDisk();
+    final activeWorkflowId = read(selectedWorkflowIdStateProvider);
+    if (activeWorkflowId != null) {
+      await read(activeWorkflowProvider.notifier).load(activeWorkflowId);
+    } else {
+      read(activeWorkflowProvider.notifier).clear();
+    }
   } finally {
     _endWorkspaceDiskReloadSuppress(read);
   }
@@ -214,6 +223,10 @@ void _resetWorkspaceSelectionState(_WorkspaceReader read) {
   read(requestSequenceProvider.notifier).state = [];
   read(expandedCollectionIdsProvider.notifier).state =
       firstCollectionId != null ? {firstCollectionId} : {};
+  final workflowIds = workspaceStorage.getKnownWorkflowIds();
+  read(selectedWorkflowIdStateProvider.notifier).state =
+      workflowIds.isNotEmpty ? workflowIds.first : null;
+  read(selectedWorkflowNodeIdProvider.notifier).state = null;
   final settings = read(settingsProvider);
   if (settings.activeEnvironmentId != kGlobalEnvironmentId) {
     unawaited(
@@ -233,6 +246,8 @@ void _invalidateWorkspaceProviders(_WorkspaceInvalidator invalidate) {
   invalidate(environmentsStateNotifierProvider);
   invalidate(historyMetaStateNotifier);
   invalidate(syncUnsyncedCountProvider);
+  invalidate(workflowCatalogProvider);
+  invalidate(activeWorkflowProvider);
 }
 
 Future<void> clearAllWorkspaceData(WidgetRef ref) async {

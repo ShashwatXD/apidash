@@ -1,0 +1,645 @@
+import 'package:apidash/consts.dart';
+import 'package:apidash/models/models.dart';
+import 'package:apidash/providers/providers.dart';
+import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/request_pane_rest.dart';
+import 'package:apidash/screens/home_page/editor_pane/details_card/response_pane.dart';
+import 'package:apidash/screens/common_widgets/envfield_url.dart';
+import 'package:apidash/services/storage/workspace_storage.dart';
+import 'package:apidash/workflow/engine/workflow_request_executor.dart';
+import 'package:apidash/workflow/engine/workflow_runner.dart';
+import 'package:apidash/workflow/models/workflow_models.dart';
+import 'package:apidash/workflow/providers/workflow_providers.dart';
+import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
+import 'package:apidash/workflow/widgets/workflow_variable_browser.dart';
+import 'package:apidash_core/apidash_core.dart';
+import 'package:apidash_design_system/apidash_design_system.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:multi_split_view/multi_split_view.dart';
+
+Future<void> showWorkflowRequestStepEditor(
+  BuildContext context,
+  WidgetRef ref, {
+  required WorkflowGraphNode node,
+}) {
+  final workflow = ref.read(activeWorkflowProvider);
+  final stepKey = node.stepKey;
+  if (workflow == null || stepKey == null) {
+    return Future.value();
+  }
+  final step = workflow.steps[stepKey];
+  if (step == null) {
+    return Future.value();
+  }
+
+  final resolved = resolveWorkflowStepRequest(
+    step: step,
+    storage: workspaceStorage,
+  );
+  final request = resolved.copyWith(
+    httpRequestModel: resolved.httpRequestModel ?? const HttpRequestModel(),
+  );
+
+  if (context.isMediumWindow) {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (dialogContext) => ProviderScope(
+          overrides: [
+            ..._editorOverrides(
+              ref: ref,
+              node: node,
+              stepKey: stepKey,
+              request: request,
+            ),
+          ],
+          child: WorkflowRequestStepEditorPage(node: node),
+        ),
+      ),
+    );
+  }
+
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => ProviderScope(
+      overrides: [
+        ..._editorOverrides(
+          ref: ref,
+          node: node,
+          stepKey: stepKey,
+          request: request,
+        ),
+      ],
+      child: Dialog(
+        insetPadding: const EdgeInsets.all(20),
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: 1280,
+          height: 820,
+          child: WorkflowRequestStepEditorPage(node: node),
+        ),
+      ),
+    ),
+  );
+}
+
+List _editorOverrides({
+  required WidgetRef ref,
+  required WorkflowGraphNode node,
+  required String stepKey,
+  required RequestModel request,
+}) {
+  return [
+    selectedIdStateProvider.overrideWith((ref) => request.id),
+    activeCollectionProvider.overrideWith(
+      (scopeRef) => ActiveCollectionNotifier.ephemeral(
+        scopeRef,
+        workspaceStorage,
+        request,
+      ),
+    ),
+    selectedRequestModelProvider.overrideWith((scopeRef) {
+      final collection = scopeRef.watch(activeCollectionProvider);
+      return collection?[request.id];
+    }),
+    codePaneVisibleStateProvider.overrideWith((ref) => false),
+    requestPersistHookProvider.overrideWith((scopeRef) {
+      return (requestId, model) async {
+        await scopeRef
+            .read(activeWorkflowProvider.notifier)
+            .updateStepRequest(stepKey, model);
+        final workflow = scopeRef.read(activeWorkflowProvider);
+        if (workflow == null) {
+          return;
+        }
+        WorkflowGraphNode? currentNode;
+        for (final candidate in workflow.graph.nodes) {
+          if (candidate.id == node.id) {
+            currentNode = candidate;
+            break;
+          }
+        }
+        if (currentNode == null) {
+          return;
+        }
+        final label =
+            model.name.trim().isNotEmpty ? model.name.trim() : currentNode.label;
+        if (label != currentNode.label) {
+          await scopeRef.read(activeWorkflowProvider.notifier).updateSelectedNode(
+                currentNode.copyWith(label: label),
+              );
+        }
+      };
+    }),
+  ];
+}
+
+class WorkflowRequestStepEditorPage extends ConsumerStatefulWidget {
+  const WorkflowRequestStepEditorPage({
+    super.key,
+    required this.node,
+  });
+
+  final WorkflowGraphNode node;
+
+  @override
+  ConsumerState<WorkflowRequestStepEditorPage> createState() =>
+      _WorkflowRequestStepEditorPageState();
+}
+
+class _WorkflowRequestStepEditorPageState
+    extends ConsumerState<WorkflowRequestStepEditorPage> {
+  final _extractionVarController = TextEditingController();
+  final _extractionPathController = TextEditingController();
+  final MultiSplitViewController _splitController = MultiSplitViewController(
+    areas: [
+      Area(id: 'variables', size: 260, min: 200, max: 360),
+      Area(id: 'request', min: 420),
+      Area(id: 'response', size: 360, min: 280, max: 520),
+    ],
+  );
+  bool _testing = false;
+
+  @override
+  void dispose() {
+    _extractionVarController.dispose();
+    _extractionPathController.dispose();
+    _splitController.dispose();
+    super.dispose();
+  }
+
+  Map<String, String> _flowVariablesFor(WorkflowDocument workflow) {
+    return {
+      for (final variable in workflow.flowVariables)
+        if (variable.enabled && variable.key.isNotEmpty)
+          variable.key: variable.value,
+    };
+  }
+
+  Future<void> _confirmDeleteStep() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete step'),
+        content: const Text(
+          'Remove this request step from the workflow? Connected edges will also be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(kLabelCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(kTooltipDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await ref.read(activeWorkflowProvider.notifier).deleteNode(widget.node.id);
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _testStep() async {
+    final workflow = ref.read(activeWorkflowProvider);
+    final stepKey = widget.node.stepKey;
+    final requestId = ref.read(selectedIdStateProvider);
+    final current = ref.read(selectedRequestModelProvider);
+    if (workflow == null ||
+        stepKey == null ||
+        requestId == null ||
+        current == null) {
+      return;
+    }
+    final step = workflow.steps[stepKey];
+    if (step == null) {
+      return;
+    }
+
+    setState(() => _testing = true);
+    final notifier = ref.read(activeCollectionProvider.notifier);
+    notifier.replaceSelectedRequest(
+      current.copyWith(
+        isWorking: true,
+        sendingTime: DateTime.now(),
+        responseStatus: null,
+        message: null,
+        httpResponseModel: null,
+      ),
+    );
+
+    final request = resolveWorkflowStepRequest(
+      step: step.copyWith(request: current.toJson()),
+      storage: workspaceStorage,
+    );
+
+    final result = await executeWorkflowRequest(
+      ref: ref,
+      requestModel: request,
+      scopedVariables: _flowVariablesFor(workflow),
+      logLabel: '${workflow.id}/${stepKey}',
+    );
+
+    final latest = ref.read(selectedRequestModelProvider) ?? current;
+    notifier.replaceSelectedRequest(
+      latest.copyWith(
+        isWorking: false,
+        responseStatus: result.statusCode ?? (result.ok ? 200 : -1),
+        message: result.message,
+        httpResponseModel: result.httpResponseModel,
+      ),
+    );
+
+    if (mounted) {
+      setState(() => _testing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final workflow = ref.watch(activeWorkflowProvider);
+    final node = workflow?.graph.nodes
+        .where((candidate) => candidate.id == widget.node.id)
+        .cast<WorkflowGraphNode?>()
+        .firstWhere((candidate) => candidate != null, orElse: () => null);
+    if (workflow == null || node == null) {
+      return const Scaffold(
+        body: Center(child: Text(kMsgWorkflowNotFound)),
+      );
+    }
+
+    final method = ref.watch(
+      selectedRequestModelProvider.select(
+        (value) => value?.httpRequestModel?.method ?? HTTPVerb.get,
+      ),
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(node.label.isNotEmpty ? node.label : kLabelWorkflowStep),
+            Text(
+              '${method.name.toUpperCase()} request',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: kTooltipDelete,
+            onPressed: _confirmDeleteStep,
+          ),
+          FilledButton.tonalIcon(
+            onPressed: _testing ? null : _testStep,
+            icon: _testing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.play_arrow_rounded),
+            label: const Text('Test step'),
+          ),
+          kHSpacer8,
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(kLabelDone),
+          ),
+          kHSpacer12,
+        ],
+      ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: kP12,
+            child: WorkflowStepUrlBar(),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: context.isMediumWindow
+                ? DefaultTabController(
+                    length: 3,
+                    child: Column(
+                      children: [
+                        const TabBar(
+                          tabs: [
+                            Tab(text: kLabelRequest),
+                            Tab(text: kLabelWorkflowVariables),
+                            Tab(text: kLabelWorkflowStepOutput),
+                          ],
+                        ),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              _requestColumn(node),
+                              WorkflowVariableBrowser(nodeId: node.id),
+                              const ResponsePane(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : MultiSplitViewTheme(
+                    data: MultiSplitViewThemeData(
+                      dividerThickness: 3,
+                      dividerPainter: DividerPainters.background(
+                        color: Theme.of(context).colorScheme.surfaceContainer,
+                        highlightedColor: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
+                        animationEnabled: false,
+                      ),
+                    ),
+                    child: MultiSplitView(
+                      controller: _splitController,
+                      builder: (context, area) {
+                        return switch (area.id) {
+                          'variables' => WorkflowVariableBrowser(nodeId: node.id),
+                          'response' => Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Padding(
+                                  padding: kP12,
+                                  child: Text(
+                                    kLabelWorkflowStepOutput,
+                                    style:
+                                        Theme.of(context).textTheme.titleSmall,
+                                  ),
+                                ),
+                                const Divider(height: 1),
+                                const Expanded(child: ResponsePane()),
+                              ],
+                            ),
+                          _ => _requestColumn(node),
+                        };
+                      },
+                    ),
+                  ),
+          ),
+          const Divider(height: 1),
+          SizedBox(
+            height: 148,
+            child: SingleChildScrollView(
+              child: _ExtractionsPanel(
+                node: node,
+                varController: _extractionVarController,
+                pathController: _extractionPathController,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _requestColumn(WorkflowGraphNode node) {
+    return const EditRestRequestPane(showViewCodeButton: false);
+  }
+}
+
+class _ExtractionsPanel extends ConsumerWidget {
+  const _ExtractionsPanel({
+    required this.node,
+    required this.varController,
+    required this.pathController,
+  });
+
+  final WorkflowGraphNode node;
+  final TextEditingController varController;
+  final TextEditingController pathController;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final workflow = ref.watch(activeWorkflowProvider);
+    final currentNode = workflow?.graph.nodes
+        .where((candidate) => candidate.id == node.id)
+        .cast<WorkflowGraphNode?>()
+        .firstWhere((candidate) => candidate != null, orElse: () => null);
+    if (currentNode == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLowest,
+      child: Padding(
+        padding: kP12,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              kLabelWorkflowExtractions,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Extract values from this step\'s response for downstream steps.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            kVSpacer8,
+            if (currentNode.extractions.isNotEmpty)
+              ...currentNode.extractions.map(
+                (extraction) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text('{{${extraction.varName}}}'),
+                  subtitle: Text('${extraction.source} ${extraction.jsonPath}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 18),
+                    onPressed: () async {
+                      await ref
+                          .read(activeWorkflowProvider.notifier)
+                          .updateSelectedNode(
+                            currentNode.copyWith(
+                              extractions: currentNode.extractions
+                                  .where((item) => item != extraction)
+                                  .toList(),
+                            ),
+                          );
+                    },
+                  ),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: varController,
+                    decoration: const InputDecoration(
+                      labelText: 'Variable',
+                      isDense: true,
+                      hintText: 'token',
+                    ),
+                  ),
+                ),
+                kHSpacer8,
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: pathController,
+                    decoration: const InputDecoration(
+                      labelText: 'JSONPath',
+                      isDense: true,
+                      hintText: r'$.id',
+                    ),
+                  ),
+                ),
+                kHSpacer8,
+                FilledButton(
+                  onPressed: () async {
+                    final varName = varController.text.trim();
+                    final jsonPath = pathController.text.trim();
+                    if (varName.isEmpty || jsonPath.isEmpty) {
+                      return;
+                    }
+                    await ref
+                        .read(activeWorkflowProvider.notifier)
+                        .updateSelectedNode(
+                          currentNode.copyWith(
+                            extractions: [
+                              ...currentNode.extractions,
+                              WorkflowExtraction(
+                                varName: varName,
+                                jsonPath: jsonPath,
+                              ),
+                            ],
+                          ),
+                        );
+                    varController.clear();
+                    pathController.clear();
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class WorkflowStepUrlBar extends ConsumerWidget {
+  const WorkflowStepUrlBar({
+    super.key,
+    this.compact = false,
+  });
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final selectedId = ref.watch(selectedIdStateProvider);
+    final requestModel = ref.watch(selectedRequestModelProvider);
+    final url = requestModel?.httpRequestModel?.url ?? '';
+
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: theme.colorScheme.surfaceContainerHighest),
+        borderRadius: kBorderRadius12,
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 8 : 12,
+          vertical: compact ? 8 : 10,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (!compact)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  kLabelURL,
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const _WorkflowStepMethodDropdown(),
+                kHSpacer8,
+                Expanded(
+                  child: selectedId == null
+                      ? TextField(
+                          enabled: false,
+                          decoration: InputDecoration(
+                            labelText: kLabelURL,
+                            hintText: kHintTextUrlCard,
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        )
+                      : EnvURLField(
+                          selectedId: selectedId,
+                          initialValue: url,
+                          onChanged: (value) {
+                            ref
+                                .read(activeCollectionProvider.notifier)
+                                .update(url: value);
+                          },
+                          decoration: InputDecoration(
+                            labelText: compact ? null : kLabelURL,
+                            hintText: kHintTextUrlCard,
+                            border: const OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WorkflowStepMethodDropdown extends ConsumerWidget {
+  const _WorkflowStepMethodDropdown();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final requestModel = ref.watch(selectedRequestModelProvider);
+    if (requestModel?.httpRequestModel == null) {
+      return const SizedBox.shrink();
+    }
+    final method = requestModel!.httpRequestModel!.method;
+    return DropdownButton<HTTPVerb>(
+      value: method,
+      underline: kSizedBoxEmpty,
+      items: HTTPVerb.values
+          .map(
+            (verb) => DropdownMenuItem(
+              value: verb,
+              child: Text(verb.name.toUpperCase()),
+            ),
+          )
+          .toList(),
+      onChanged: (value) {
+        if (value == null) {
+          return;
+        }
+        ref.read(activeCollectionProvider.notifier).update(method: value);
+      },
+    );
+  }
+}

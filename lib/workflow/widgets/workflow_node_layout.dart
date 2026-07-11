@@ -1,0 +1,90 @@
+import 'package:apidash/workflow/models/workflow_models.dart';
+import 'package:apidash/workflow/widgets/workflow_canvas_constants.dart';
+import 'package:flutter/material.dart';
+
+class WorkflowNodeLayout {
+  const WorkflowNodeLayout._();
+
+  static Size sizeFor(WorkflowGraphNode node) {
+    return switch (node.type) {
+      WorkflowNodeType.manualStart => const Size(
+          kWorkflowStartNodeWidth,
+          kWorkflowStartNodeHeight,
+        ),
+      WorkflowNodeType.request => const Size(
+          kWorkflowRequestNodeWidth,
+          kWorkflowRequestNodeHeight,
+        ),
+      WorkflowNodeType.condition => const Size(
+          kWorkflowConditionNodeWidth,
+          kWorkflowConditionNodeHeight,
+        ),
+    };
+  }
+
+  static Offset portOffset(WorkflowGraphNode node, WorkflowEdgeHandle handle) {
+    final size = sizeFor(node);
+    return switch (node.type) {
+      WorkflowNodeType.manualStart => switch (handle) {
+          WorkflowEdgeHandle.next => Offset(size.width, kStartPortNextY),
+          _ => Offset(0, kStartPortNextY),
+        },
+      WorkflowNodeType.request => switch (handle) {
+          WorkflowEdgeHandle.inPort => Offset(0, kRequestPortSendY),
+          WorkflowEdgeHandle.success =>
+            Offset(size.width, kRequestPortSuccessY),
+          WorkflowEdgeHandle.failure => Offset(size.width, kRequestPortFailY),
+          _ => Offset(size.width, kRequestPortSuccessY),
+        },
+      WorkflowNodeType.condition => switch (handle) {
+          WorkflowEdgeHandle.inPort => Offset(0, size.height / 2),
+          WorkflowEdgeHandle.then => Offset(size.width, kConditionPortThenY),
+          WorkflowEdgeHandle.elseBranch =>
+            Offset(size.width, kConditionPortElseY),
+          _ => Offset(size.width, kConditionPortThenY),
+        },
+    };
+  }
+
+  static Color edgeColor(WorkflowEdgeHandle handle, ColorScheme scheme) {
+    return switch (handle) {
+      WorkflowEdgeHandle.success || WorkflowEdgeHandle.then => Colors.green,
+      WorkflowEdgeHandle.failure || WorkflowEdgeHandle.elseBranch =>
+        scheme.error,
+      WorkflowEdgeHandle.next => scheme.primary,
+      _ => scheme.outline,
+    };
+  }
+
+  static Path edgePath(Offset start, Offset end) {
+    return Path()
+      ..moveTo(start.dx, start.dy)
+      ..cubicTo(
+        start.dx + 80,
+        start.dy,
+        end.dx - 80,
+        end.dy,
+        end.dx,
+        end.dy,
+      );
+  }
+
+  static Offset edgeMidpoint(Offset start, Offset end) {
+    const t = 0.5;
+    final p0 = start;
+    final p1 = Offset(start.dx + 80, start.dy);
+    final p2 = Offset(end.dx - 80, end.dy);
+    final p3 = end;
+    final mt = 1 - t;
+    return Offset(
+      mt * mt * mt * p0.dx +
+          3 * mt * mt * t * p1.dx +
+          3 * mt * t * t * p2.dx +
+          t * t * t * p3.dx,
+      mt * mt * mt * p0.dy +
+          3 * mt * mt * t * p1.dy +
+          3 * mt * t * t * p2.dy +
+          t * t * t * p3.dy,
+    );
+  }
+}

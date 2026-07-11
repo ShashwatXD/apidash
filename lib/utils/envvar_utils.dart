@@ -59,6 +59,7 @@ HttpRequestModel substituteHttpRequestModel(
   Map<String?, List<EnvironmentVariableModel>> envMap,
   String? activeEnvironmentId, {
   String globalEnvironmentId = kGlobalEnvironmentId,
+  Map<String, String> additionalVariables = const {},
 }) {
   final Map<String, String> combinedEnvVarMap = {};
   final activeEnv = envMap[activeEnvironmentId] ?? [];
@@ -70,6 +71,7 @@ HttpRequestModel substituteHttpRequestModel(
   for (var variable in activeEnv) {
     combinedEnvVarMap[variable.key] = variable.value;
   }
+  combinedEnvVarMap.addAll(additionalVariables);
 
   var newRequestModel = httpRequestModel.copyWith(
     url: substituteVariables(httpRequestModel.url, combinedEnvVarMap)!,

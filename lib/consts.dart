@@ -94,6 +94,11 @@ const kWorkspaceEnvironmentsDir = 'environments';
 const kWorkspaceEnvironmentIndexFile = 'environment_index.json';
 const kWorkspaceHistoryDir = 'history';
 const kWorkspaceHistoryIndexFile = 'history_index.json';
+const kWorkspaceWorkflowsDir = 'workflows';
+const kWorkspaceWorkflowsIndexFile = 'workflow_index.json';
+const kWorkspaceWorkflowFile = 'workflow.json';
+const kWorkspaceWorkflowsIndexKey = 'workflows';
+const kWorkspaceWorkflowSchemaVersion = 1;
 const kJsonFileExtension = '.json';
 
 const kWorkspaceRequestsKey = 'requests';
@@ -498,6 +503,7 @@ const kLabelClose = "Close";
 const kLabelRequest = "Request";
 const kLabelHideCode = "Hide Code";
 const kLabelViewCode = "View Code";
+const kLabelURL = "URL";
 const kLabelURLParams = "Params";
 const kLabelHeaders = "Headers";
 const kLabelBody = "Body";
@@ -593,6 +599,7 @@ const kMsgSendToView = 'Send a request to view its details in the console.';
 
 // Dashboard Navigation
 const kLabelRequests = "Requests";
+const kLabelWorkflows = "Workflows";
 const kLabelVariables = "Variables";
 const kLabelHistory = "History";
 const kLabelCollaboration = "Collaboration";
@@ -600,12 +607,36 @@ const kLabelLogs = "Logs";
 const kLabelAbout = "About";
 const kLabelSettings = "Settings";
 
-const kMobileNavCollaborationIndex = 3;
-const kMobileNavLogsIndex = 4;
-const kMobileNavSettingsIndex = 5;
-const kNavRailCollaborationIndex = 3;
-const kNavRailLogsIndex = 4;
-const kNavRailSettingsIndex = 5;
+const kNavRailRequestsIndex = 0;
+const kNavRailWorkflowsIndex = 1;
+const kNavRailVariablesIndex = 2;
+const kNavRailHistoryIndex = 3;
+const kNavRailCollaborationIndex = 4;
+const kNavRailLogsIndex = 5;
+const kNavRailSettingsIndex = 6;
+
+const kMobileNavCollaborationIndex = 4;
+const kMobileNavLogsIndex = 5;
+const kMobileNavSettingsIndex = 6;
+
+const kLabelNewWorkflow = "New workflow";
+const kLabelRunWorkflow = "Run workflow";
+const kLabelStopWorkflow = "Stop";
+const kLabelAddWorkflowStep = "Add request";
+const kLabelWorkflowStep = "Request step";
+const kLabelWorkflowCondition = "Condition";
+const kLabelImportFromCollection = "Import from collection";
+const kHintFilterWorkflows = "Filter workflows";
+const kMsgWorkflowNotFound = "Workflow not found";
+const kMsgWorkflowRunFailed = "Workflow run failed";
+const kMsgWorkflowRunSuccess = "Workflow completed";
+const kLabelEditWorkflowStep = "Edit request";
+const kLabelDone = "Done";
+const kLabelWorkflowVariables = "Variables";
+const kLabelWorkflowExtractions = "Response extractions";
+const kLabelWorkflowStepOutput = "Output";
+const kHintWorkflowVariableInsert = "Tap to copy {{variable}}";
+const kMsgWorkflowDoubleClickEdit = "Double-click a request node to configure it";
 
 const kLabelFetch = "Fetch";
 const kLabelPull = "Pull";

@@ -1,10 +1,25 @@
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
 
-enum WorkflowNodeType { request, condition, manualStart }
+enum WorkflowNodeType { request, condition, manualStart, loop }
+
+enum WorkflowLoopMode {
+  forEach,
+  repeat;
+
+  static WorkflowLoopMode fromJson(String? value) {
+    if (value == 'repeat') {
+      return WorkflowLoopMode.repeat;
+    }
+    return WorkflowLoopMode.forEach;
+  }
+
+  String toJson() => this == WorkflowLoopMode.repeat ? 'repeat' : 'forEach';
+}
 
 enum WorkflowEdgeHandle {
   next,
+  loopDone,
   success,
   failure,
   then,
@@ -195,6 +210,9 @@ class WorkflowGraphNode {
     this.stepKey,
     this.label = '',
     this.conditionExpression,
+    this.loopExpression,
+    this.loopMaxIterations,
+    this.loopMode = WorkflowLoopMode.forEach,
     this.extractions = const [],
     this.onFailure = 'abort',
   });
@@ -205,6 +223,9 @@ class WorkflowGraphNode {
   final String? stepKey;
   final String label;
   final String? conditionExpression;
+  final String? loopExpression;
+  final int? loopMaxIterations;
+  final WorkflowLoopMode loopMode;
   final List<WorkflowExtraction> extractions;
   final String onFailure;
 
@@ -216,6 +237,10 @@ class WorkflowGraphNode {
         if (label.isNotEmpty) 'label': label,
         if (conditionExpression != null)
           'conditionExpression': conditionExpression,
+        if (loopExpression != null) 'loopExpression': loopExpression,
+        if (loopMaxIterations != null && loopMaxIterations! > 0)
+          'loopMaxIterations': loopMaxIterations,
+        if (loopMode != WorkflowLoopMode.forEach) 'loopMode': loopMode.toJson(),
         if (extractions.isNotEmpty)
           'extractions': extractions.map((e) => e.toJson()).toList(),
         if (onFailure != 'abort') 'onFailure': onFailure,
@@ -239,6 +264,9 @@ class WorkflowGraphNode {
       stepKey: json['stepKey']?.toString(),
       label: json['label']?.toString() ?? '',
       conditionExpression: json['conditionExpression']?.toString(),
+      loopExpression: json['loopExpression']?.toString(),
+      loopMaxIterations: (json['loopMaxIterations'] as num?)?.toInt(),
+      loopMode: WorkflowLoopMode.fromJson(json['loopMode']?.toString()),
       extractions: extractionsRaw is List
           ? [
               for (final item in extractionsRaw)
@@ -259,6 +287,11 @@ class WorkflowGraphNode {
     String? stepKey,
     String? label,
     String? conditionExpression,
+    String? loopExpression,
+    int? loopMaxIterations,
+    bool clearLoopMaxIterations = false,
+    bool clearLoopExpression = false,
+    WorkflowLoopMode? loopMode,
     List<WorkflowExtraction>? extractions,
     String? onFailure,
   }) =>
@@ -269,6 +302,13 @@ class WorkflowGraphNode {
         stepKey: stepKey ?? this.stepKey,
         label: label ?? this.label,
         conditionExpression: conditionExpression ?? this.conditionExpression,
+        loopExpression: clearLoopExpression
+            ? null
+            : (loopExpression ?? this.loopExpression),
+        loopMaxIterations: clearLoopMaxIterations
+            ? null
+            : (loopMaxIterations ?? this.loopMaxIterations),
+        loopMode: loopMode ?? this.loopMode,
         extractions: extractions ?? this.extractions,
         onFailure: onFailure ?? this.onFailure,
       );
@@ -338,6 +378,7 @@ String _handleToJson(WorkflowEdgeHandle handle) {
   return switch (handle) {
     WorkflowEdgeHandle.elseBranch => 'else',
     WorkflowEdgeHandle.inPort => 'in',
+    WorkflowEdgeHandle.loopDone => 'done',
     _ => handle.name,
   };
 }
@@ -351,6 +392,9 @@ WorkflowEdgeHandle _parseHandle(String? raw, WorkflowEdgeHandle fallback) {
   }
   if (raw == 'in') {
     return WorkflowEdgeHandle.inPort;
+  }
+  if (raw == 'done') {
+    return WorkflowEdgeHandle.loopDone;
   }
   return WorkflowEdgeHandle.values.firstWhere(
     (value) => value.name == raw,

@@ -46,11 +46,25 @@ class WorkflowRequestNodeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final request = step?.request ?? const <String, dynamic>{};
+    final apiType = _readApiType(request);
+    final isAi = apiType == APIType.ai;
     final http = request['httpRequestModel'];
     final method = http is Map
         ? (http['method'] as String? ?? HTTPVerb.get.name).toUpperCase()
         : 'GET';
     final url = http is Map ? (http['url'] as String? ?? '') : '';
+    final aiModel = _readAiField(request, 'model');
+    final aiPrompt = _readAiField(request, 'user_prompt');
+    final badgeLabel = isAi
+        ? (aiModel?.trim().isNotEmpty == true ? aiModel!.trim() : 'AI')
+        : method;
+    final detailText = isAi
+        ? (aiPrompt?.trim().isNotEmpty == true
+            ? aiPrompt!.trim()
+            : 'No prompt configured')
+        : (url.isEmpty ? 'No URL configured' : url);
+    final defaultLabel =
+        isAi ? kLabelAiRequest : kLabelWorkflowStep;
     final borderColor = switch (runResult?.status) {
       WorkflowNodeRunStatus.running => theme.colorScheme.primary,
       WorkflowNodeRunStatus.success => Colors.green,
@@ -90,7 +104,7 @@ class WorkflowRequestNodeCard extends StatelessWidget {
                         Row(
                           children: [
                             Icon(
-                              Icons.http,
+                              isAi ? Icons.auto_awesome_rounded : Icons.http,
                               size: 20,
                               color: theme.colorScheme.onSurface,
                             ),
@@ -101,11 +115,15 @@ class WorkflowRequestNodeCard extends StatelessWidget {
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.primaryContainer,
+                                color: isAi
+                                    ? theme.colorScheme.tertiaryContainer
+                                    : theme.colorScheme.primaryContainer,
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                method,
+                                badgeLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.labelSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -114,7 +132,7 @@ class WorkflowRequestNodeCard extends StatelessWidget {
                             kHSpacer8,
                             Expanded(
                               child: Text(
-                                node.label.isNotEmpty ? node.label : 'HTTP Request',
+                                node.label.isNotEmpty ? node.label : defaultLabel,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleSmall,
@@ -154,7 +172,7 @@ class WorkflowRequestNodeCard extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              url.isEmpty ? 'No URL configured' : url,
+                              detailText,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall,
@@ -225,6 +243,26 @@ class WorkflowRequestNodeCard extends StatelessWidget {
       ),
     );
   }
+}
+
+APIType _readApiType(Map<String, dynamic> request) {
+  final raw = request['apiType']?.toString();
+  if (raw == null || raw.isEmpty) {
+    return APIType.rest;
+  }
+  return APIType.values.firstWhere(
+    (type) => type.name == raw,
+    orElse: () => APIType.rest,
+  );
+}
+
+String? _readAiField(Map<String, dynamic> request, String key) {
+  final ai = request['aiRequestModel'];
+  if (ai is! Map) {
+    return null;
+  }
+  final value = ai[key];
+  return value?.toString();
 }
 
 class _NodeActionButton extends StatelessWidget {
@@ -348,6 +386,9 @@ class WorkflowConditionNodeCard extends StatelessWidget {
     this.highlightThen = false,
     this.highlightElse = false,
     this.onTap,
+    this.onDoubleTap,
+    this.onDuplicate,
+    this.onDelete,
     this.onDragPanUpdate,
     this.onDragPanEnd,
     this.onWirePointerDown,
@@ -359,6 +400,9 @@ class WorkflowConditionNodeCard extends StatelessWidget {
   final bool highlightThen;
   final bool highlightElse;
   final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDelete;
   final GestureDragUpdateCallback? onDragPanUpdate;
   final GestureDragEndCallback? onDragPanEnd;
   final void Function(PointerDownEvent event, WorkflowEdgeHandle handle)?
@@ -382,6 +426,7 @@ class WorkflowConditionNodeCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   onTap: onTap,
+                  onDoubleTap: onDoubleTap,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.all(12),
@@ -404,17 +449,33 @@ class WorkflowConditionNodeCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 node.label.isEmpty ? 'Condition' : node.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleSmall,
                               ),
                             ),
+                            if (selected) ...[
+                              _NodeActionButton(
+                                icon: Icons.copy_outlined,
+                                tooltip: kTooltipDuplicate,
+                                onPressed: onDuplicate,
+                              ),
+                              _NodeActionButton(
+                                icon: Icons.delete_outline,
+                                tooltip: kTooltipDelete,
+                                onPressed: onDelete,
+                              ),
+                            ],
                           ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          node.conditionExpression ?? 'true',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall,
+                        const SizedBox(height: 6),
+                        Expanded(
+                          child: Text(
+                            node.conditionExpression ?? 'true',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
+                          ),
                         ),
                       ],
                     ),
@@ -458,6 +519,182 @@ class WorkflowConditionNodeCard extends StatelessWidget {
               onPointerDown: (event) => onWirePointerDown?.call(
                 event,
                 WorkflowEdgeHandle.elseBranch,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class WorkflowLoopNodeCard extends StatelessWidget {
+  const WorkflowLoopNodeCard({
+    super.key,
+    required this.node,
+    required this.selected,
+    this.highlightInput = false,
+    this.highlightBody = false,
+    this.highlightDone = false,
+    this.onTap,
+    this.onDoubleTap,
+    this.onDuplicate,
+    this.onDelete,
+    this.onDragPanUpdate,
+    this.onDragPanEnd,
+    this.onWirePointerDown,
+  });
+
+  final WorkflowGraphNode node;
+  final bool selected;
+  final bool highlightInput;
+  final bool highlightBody;
+  final bool highlightDone;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDelete;
+  final GestureDragUpdateCallback? onDragPanUpdate;
+  final GestureDragEndCallback? onDragPanEnd;
+  final void Function(PointerDownEvent event, WorkflowEdgeHandle handle)?
+      onWirePointerDown;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final loopExpr = node.loopExpression ?? 'var:items';
+    final maxIterations = node.loopMaxIterations;
+    final loopDetail = node.loopMode == WorkflowLoopMode.repeat
+        ? maxIterations != null && maxIterations > 0
+            ? 'Repeat ${maxIterations}×'
+            : 'Repeat'
+        : maxIterations != null && maxIterations > 0
+            ? '$loopExpr · max $maxIterations'
+            : loopExpr;
+    return SizedBox(
+      width: kWorkflowLoopNodeWidth,
+      height: kWorkflowLoopNodeHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              onDoubleTap: onDoubleTap,
+              onPanUpdate: onDragPanUpdate,
+              onPanEnd: onDragPanEnd,
+              child: Material(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : theme.dividerColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.loop_rounded, size: 20),
+                          kHSpacer8,
+                          Expanded(
+                            child: Text(
+                              node.label.isNotEmpty
+                                  ? node.label
+                                  : kLabelWorkflowLoop,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
+                            ),
+                          ),
+                          if (selected) ...[
+                            _NodeActionButton(
+                              icon: Icons.copy_outlined,
+                              tooltip: kTooltipDuplicate,
+                              onPressed: onDuplicate,
+                            ),
+                            _NodeActionButton(
+                              icon: Icons.delete_outline,
+                              tooltip: kTooltipDelete,
+                              onPressed: onDelete,
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              loopDetail,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              node.loopMode == WorkflowLoopMode.repeat
+                                  ? 'Runs the Each branch repeatedly'
+                                  : 'Use {{loop.item}} in downstream requests',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: -6,
+            top: kLoopPortInY - 10,
+            child: WorkflowPort(
+              label: 'In',
+              side: WorkflowPortSide.left,
+              color: theme.colorScheme.primary,
+              highlighted: highlightInput,
+            ),
+          ),
+          Positioned(
+            right: -6,
+            top: kLoopPortEachY - 10,
+            child: WorkflowPort(
+              label: 'Each',
+              side: WorkflowPortSide.right,
+              color: theme.colorScheme.primary,
+              highlighted: highlightBody,
+              onPointerDown: (event) => onWirePointerDown?.call(
+                event,
+                WorkflowEdgeHandle.next,
+              ),
+            ),
+          ),
+          Positioned(
+            right: -6,
+            top: kLoopPortDoneY - 10,
+            child: WorkflowPort(
+              label: 'Done',
+              side: WorkflowPortSide.right,
+              color: Colors.green,
+              highlighted: highlightDone,
+              onPointerDown: (event) => onWirePointerDown?.call(
+                event,
+                WorkflowEdgeHandle.loopDone,
               ),
             ),
           ),

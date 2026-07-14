@@ -2,7 +2,8 @@ import 'package:apidash/consts.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
-import 'package:apidash/workflow/widgets/workflow_request_step_editor.dart';
+import 'package:apidash/workflow/widgets/workflow_help_sheet.dart';
+import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash/workflow/widgets/workflow_run_bar.dart';
 import 'package:apidash/workflow/widgets/workflow_canvas_constants.dart';
 import 'package:apidash/workflow/widgets/workflow_node_layout.dart';
@@ -197,17 +198,12 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
     ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
   }
 
-  void _openRequestStepEditor(WorkflowGraphNode node) {
-    _selectNode(node.id);
-    showWorkflowRequestStepEditor(context, ref, node: node);
-  }
-
-  Future<void> _confirmDeleteRequestNode(WorkflowGraphNode node) async {
+  Future<void> _confirmDeleteNode(WorkflowGraphNode node) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete step'),
-        content: const Text('Remove this request step from the workflow?'),
+        title: const Text('Delete node'),
+        content: Text('Remove "${node.label}" from this workflow?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -227,11 +223,9 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
     ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
   }
 
-  Future<void> _duplicateRequestNode(WorkflowGraphNode node) async {
+  Future<void> _duplicateNode(WorkflowGraphNode node) async {
     final newId =
-        await ref.read(activeWorkflowProvider.notifier).duplicateRequestStep(
-              node.id,
-            );
+        await ref.read(activeWorkflowProvider.notifier).duplicateNode(node.id);
     if (newId != null) {
       ref.read(selectedWorkflowNodeIdProvider.notifier).state = newId;
     }
@@ -420,8 +414,41 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
           alignment: Alignment.bottomCenter,
           child: WorkflowRunBar(),
         ),
+        if (_showGettingStartedHint(workflow))
+          Positioned(
+            left: 16,
+            bottom: 72,
+            right: 200,
+            child: _WorkflowGettingStartedHint(
+              onShowHelp: () => showWorkflowHelpSheet(context),
+              onShowTemplates: () async {
+                final template = await showWorkflowTemplatePicker(context);
+                if (!context.mounted || template == null) {
+                  return;
+                }
+                await ref
+                    .read(workflowCatalogProvider.notifier)
+                    .createWorkflow(template: template);
+              },
+            ),
+          ),
       ],
     );
+  }
+
+  bool _showGettingStartedHint(WorkflowDocument workflow) {
+    if (workflow.description.isNotEmpty) {
+      return false;
+    }
+    final nonStartNodes = workflow.graph.nodes
+        .where((node) => node.type != WorkflowNodeType.manualStart)
+        .length;
+    return nonStartNodes <= 1;
+  }
+
+  Future<void> _openNodeEditor(WorkflowGraphNode node) async {
+    _selectNode(node.id);
+    await openWorkflowNodeEditor(context, ref, node: node);
   }
 
   Widget _buildNode({
@@ -449,9 +476,22 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
           runResult: runResult,
           highlightInput: hoverInput,
           onTap: () => _selectNode(node.id),
-          onDoubleTap: () => _openRequestStepEditor(node),
-          onDuplicate: () => _duplicateRequestNode(node),
-          onDelete: () => _confirmDeleteRequestNode(node),
+          onDoubleTap: () => _openNodeEditor(node),
+          onDuplicate: () => _duplicateNode(node),
+          onDelete: () => _confirmDeleteNode(node),
+          onDragPanUpdate: _nodeDragHandler(node.id),
+          onDragPanEnd: _nodeDragEndHandler(node),
+          onWirePointerDown: _onOutputPortPointerDownHandler(node.id),
+        );
+      case WorkflowNodeType.loop:
+        return WorkflowLoopNodeCard(
+          node: node,
+          selected: selected,
+          highlightInput: hoverInput,
+          onTap: () => _selectNode(node.id),
+          onDoubleTap: () => _openNodeEditor(node),
+          onDuplicate: () => _duplicateNode(node),
+          onDelete: () => _confirmDeleteNode(node),
           onDragPanUpdate: _nodeDragHandler(node.id),
           onDragPanEnd: _nodeDragEndHandler(node),
           onWirePointerDown: _onOutputPortPointerDownHandler(node.id),
@@ -462,6 +502,9 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
           selected: selected,
           highlightInput: hoverInput,
           onTap: () => _selectNode(node.id),
+          onDoubleTap: () => _openNodeEditor(node),
+          onDuplicate: () => _duplicateNode(node),
+          onDelete: () => _confirmDeleteNode(node),
           onDragPanUpdate: _nodeDragHandler(node.id),
           onDragPanEnd: _nodeDragEndHandler(node),
           onWirePointerDown: _onOutputPortPointerDownHandler(node.id),
@@ -625,5 +668,58 @@ extension _FirstOrNull<T> on Iterable<T> {
       return null;
     }
     return iterator.current;
+  }
+}
+
+class _WorkflowGettingStartedHint extends StatelessWidget {
+  const _WorkflowGettingStartedHint({
+    required this.onShowHelp,
+    required this.onShowTemplates,
+  });
+
+  final VoidCallback onShowHelp;
+  final VoidCallback onShowTemplates;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      elevation: 1,
+      color: theme.colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('New to workflows?', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 6),
+            Text(
+              'Chain requests, branch on results, or repeat steps. Start from a template or read the short guide.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: onShowTemplates,
+                  child: const Text(kLabelWorkflowTemplates),
+                ),
+                OutlinedButton(
+                  onPressed: onShowHelp,
+                  child: const Text(kLabelWorkflowHelp),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

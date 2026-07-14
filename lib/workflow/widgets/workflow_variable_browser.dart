@@ -71,7 +71,7 @@ class WorkflowVariableBrowser extends ConsumerWidget {
           Padding(
             padding: kP12,
             child: Text(
-              'Add flow variables in workflow settings, or connect upstream steps with extractions.',
+              'Add variables with the Variables button in the toolbar, or connect upstream steps with extractions.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

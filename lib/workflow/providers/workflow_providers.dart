@@ -1,7 +1,11 @@
+import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
+import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/utils/utils.dart';
+import 'package:apidash/workflow/engine/workflow_auto_arrange.dart';
 import 'package:apidash/workflow/engine/workflow_runner.dart';
+import 'package:apidash/workflow/engine/workflow_templates.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
 import 'package:apidash_core/apidash_core.dart';
@@ -17,6 +21,8 @@ final workflowRunInProgressProvider = StateProvider<bool>((ref) => false);
 
 final workflowNodeRunResultsProvider =
     StateProvider<Map<String, WorkflowNodeRunResult>>((ref) => {});
+
+final workflowRunStepOrderProvider = StateProvider<List<String>>((ref) => []);
 
 final workflowCatalogProvider =
     AsyncNotifierProvider<WorkflowCatalogNotifier, List<WorkflowSummary>>(
@@ -84,13 +90,26 @@ class WorkflowCatalogNotifier extends AsyncNotifier<List<WorkflowSummary>> {
     state = AsyncData(_loadSummaries());
   }
 
-  Future<WorkflowDocument> createWorkflow({String? name}) async {
+  Future<WorkflowDocument> createWorkflow({
+    String? name,
+    WorkflowTemplate? template,
+  }) async {
     final now = DateTime.now();
     final baseName = name?.trim().isNotEmpty == true
         ? name!.trim()
-        : 'Workflow ${(state.value?.length ?? 0) + 1}';
+        : template != null
+            ? WorkflowTemplates.templates
+                .firstWhere((info) => info.template == template)
+                .title
+            : 'Workflow ${(state.value?.length ?? 0) + 1}';
     final workflowName = _uniqueWorkflowName(baseName);
-    final workflow = _defaultWorkflow(name: workflowName, now: now);
+    final workflow = template != null
+        ? WorkflowTemplates.build(
+            template: template,
+            name: workflowName,
+            now: now,
+          )
+        : _defaultWorkflow(name: workflowName, now: now);
     await _persistWorkflow(workflow);
     await reloadFromDisk();
     ref.read(selectedWorkflowIdStateProvider.notifier).state = workflowName;
@@ -198,27 +217,45 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
     await save(transform(current));
   }
 
-  Future<void> addRequestStep({
+  Future<String?> addRequestStep({
     Offset position = const Offset(280, 180),
     String? afterNodeId,
+    APIType apiType = APIType.rest,
   }) async {
     final current = state;
     if (current == null) {
-      return;
+      return null;
     }
     final stepKey = 'step_${getNewUuid().substring(0, 8)}';
     final requestId = getNewUuid();
-    final label = 'Request ${current.steps.length + 1}';
-    final step = WorkflowStep(
-      label: label,
-      request: RequestModel(
+    final label = apiType == APIType.ai
+        ? 'AI Request ${current.steps.length + 1}'
+        : 'Request ${current.steps.length + 1}';
+    final RequestModel requestModel;
+    if (apiType == APIType.ai) {
+      final defaultModel = ref.read(settingsProvider).defaultAIModel;
+      requestModel = RequestModel(
         id: requestId,
         name: label,
+        apiType: APIType.ai,
+        aiRequestModel: defaultModel == null
+            ? const AIRequestModel()
+            : AIRequestModel.fromJson(defaultModel),
+      );
+    } else {
+      requestModel = RequestModel(
+        id: requestId,
+        name: label,
+        apiType: APIType.rest,
         httpRequestModel: const HttpRequestModel(
           method: HTTPVerb.get,
           url: 'https://',
         ),
-      ).toJson(),
+      );
+    }
+    final step = WorkflowStep(
+      label: label,
+      request: requestModel.toJson(),
     );
     final nodeId = 'node_${getNewUuid().substring(0, 8)}';
     final nodes = [...current.graph.nodes];
@@ -236,7 +273,7 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         WorkflowGraphEdge(
           id: 'edge_${getNewUuid().substring(0, 8)}',
           source: afterNodeId,
-          sourceHandle: WorkflowEdgeHandle.success,
+          sourceHandle: _sourceHandleForNode(current, afterNodeId),
           target: nodeId,
         ),
       );
@@ -247,6 +284,88 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         graph: current.graph.copyWith(nodes: nodes, edges: edges),
       ),
     );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
+    return nodeId;
+  }
+
+  Future<String?> addLoopNode({
+    Offset position = const Offset(320, 240),
+    String? afterNodeId,
+  }) async {
+    final current = state;
+    if (current == null) {
+      return null;
+    }
+    final nodeId = 'node_${getNewUuid().substring(0, 8)}';
+    const label = 'For each';
+    final nodes = [...current.graph.nodes];
+    final edges = [...current.graph.edges];
+    nodes.add(
+      WorkflowGraphNode(
+        id: nodeId,
+        type: WorkflowNodeType.loop,
+        label: label,
+        position: WorkflowPosition(x: position.dx, y: position.dy),
+        loopExpression: 'var:items',
+      ),
+    );
+    if (afterNodeId != null) {
+      edges.add(
+        WorkflowGraphEdge(
+          id: 'edge_${getNewUuid().substring(0, 8)}',
+          source: afterNodeId,
+          sourceHandle: _sourceHandleForNode(current, afterNodeId),
+          target: nodeId,
+        ),
+      );
+    }
+    await save(
+      current.copyWith(
+        graph: current.graph.copyWith(nodes: nodes, edges: edges),
+      ),
+    );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
+    return nodeId;
+  }
+
+  Future<String?> addConditionNode({
+    Offset position = const Offset(320, 240),
+    String? afterNodeId,
+  }) async {
+    final current = state;
+    if (current == null) {
+      return null;
+    }
+    final nodeId = 'node_${getNewUuid().substring(0, 8)}';
+    const label = 'Condition';
+    final nodes = [...current.graph.nodes];
+    final edges = [...current.graph.edges];
+    nodes.add(
+      WorkflowGraphNode(
+        id: nodeId,
+        type: WorkflowNodeType.condition,
+        label: label,
+        position: WorkflowPosition(x: position.dx, y: position.dy),
+        conditionExpression: 'status>=200',
+      ),
+    );
+    if (afterNodeId != null) {
+      edges.add(
+        WorkflowGraphEdge(
+          id: 'edge_${getNewUuid().substring(0, 8)}',
+          source: afterNodeId,
+          sourceHandle: _sourceHandleForNode(current, afterNodeId),
+          target: nodeId,
+        ),
+      );
+    }
+    await save(
+      current.copyWith(
+        graph: current.graph.copyWith(nodes: nodes, edges: edges),
+      ),
+    );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
+    return nodeId;
   }
 
   Future<String?> duplicateRequestStep(String nodeId) async {
@@ -312,7 +431,51 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
     return newNodeId;
   }
 
-  Future<void> importRequestFromCollection({
+  Future<String?> duplicateNode(String nodeId) async {
+    final current = state;
+    if (current == null) {
+      return null;
+    }
+    final node = current.graph.nodes
+        .where((candidate) => candidate.id == nodeId)
+        .cast<WorkflowGraphNode?>()
+        .firstWhere((candidate) => candidate != null, orElse: () => null);
+    if (node == null || node.type == WorkflowNodeType.manualStart) {
+      return null;
+    }
+    if (node.type == WorkflowNodeType.request) {
+      return duplicateRequestStep(nodeId);
+    }
+
+    final newNodeId = 'node_${getNewUuid().substring(0, 8)}';
+    final baseLabel = node.label.isNotEmpty
+        ? node.label
+        : switch (node.type) {
+            WorkflowNodeType.loop => kLabelWorkflowLoop,
+            WorkflowNodeType.condition => kLabelWorkflowCondition,
+            _ => 'Node',
+          };
+    final newNode = node.copyWith(
+      id: newNodeId,
+      label: '$baseLabel copy',
+      position: WorkflowPosition(
+        x: node.position.x + 36,
+        y: node.position.y + 36,
+      ),
+    );
+
+    await save(
+      current.copyWith(
+        graph: current.graph.copyWith(
+          nodes: [...current.graph.nodes, newNode],
+        ),
+      ),
+    );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = newNodeId;
+    return newNodeId;
+  }
+
+  Future<String?> importRequestFromCollection({
     required String collectionId,
     required String requestId,
     Offset position = const Offset(280, 180),
@@ -320,12 +483,12 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
   }) async {
     final json = workspaceStorage.getRequestModel(collectionId, requestId);
     if (json == null) {
-      return;
+      return null;
     }
     final request = RequestModel.fromJson(Map<String, Object?>.from(json));
     final current = state;
     if (current == null) {
-      return;
+      return null;
     }
     final stepKey = 'step_${getNewUuid().substring(0, 8)}';
     final nodeId = 'node_${getNewUuid().substring(0, 8)}';
@@ -363,7 +526,7 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         WorkflowGraphEdge(
           id: 'edge_${getNewUuid().substring(0, 8)}',
           source: afterNodeId,
-          sourceHandle: WorkflowEdgeHandle.success,
+          sourceHandle: _sourceHandleForNode(current, afterNodeId),
           target: nodeId,
         ),
       );
@@ -374,6 +537,8 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         graph: current.graph.copyWith(nodes: nodes, edges: edges),
       ),
     );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
+    return nodeId;
   }
 
   Future<void> updateNodePosition(String nodeId, Offset position) async {
@@ -386,6 +551,30 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         if (node.id == nodeId)
           node.copyWith(
             position: WorkflowPosition(x: position.dx, y: position.dy),
+          )
+        else
+          node,
+    ];
+    await save(current.copyWith(graph: current.graph.copyWith(nodes: nodes)));
+  }
+
+  Future<void> autoArrangeGraph() async {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final positions = computeWorkflowAutoArrangePositions(current.graph);
+    if (positions.isEmpty) {
+      return;
+    }
+    final nodes = [
+      for (final node in current.graph.nodes)
+        if (positions.containsKey(node.id))
+          node.copyWith(
+            position: WorkflowPosition(
+              x: positions[node.id]!.dx,
+              y: positions[node.id]!.dy,
+            ),
           )
         else
           node,
@@ -569,21 +758,35 @@ WorkflowDocument _defaultWorkflow({
   );
 }
 
+WorkflowEdgeHandle _sourceHandleForNode(
+  WorkflowDocument workflow,
+  String sourceNodeId,
+) {
+  for (final node in workflow.graph.nodes) {
+    if (node.id == sourceNodeId) {
+      return switch (node.type) {
+        WorkflowNodeType.manualStart => WorkflowEdgeHandle.next,
+        WorkflowNodeType.loop => WorkflowEdgeHandle.next,
+        WorkflowNodeType.condition => WorkflowEdgeHandle.then,
+        _ => WorkflowEdgeHandle.success,
+      };
+    }
+  }
+  return WorkflowEdgeHandle.success;
+}
+
 final workflowRunnerProvider = Provider<WorkflowRunner>((ref) {
   return const WorkflowRunner();
 });
 
 Future<WorkflowRunResult?> runActiveWorkflow(WidgetRef ref) async {
-  final flush = ref.read(workflowInspectorFlushProvider);
-  if (flush != null) {
-    await flush();
-  }
   final workflow = ref.read(activeWorkflowProvider);
   if (workflow == null) {
     return null;
   }
   ref.read(workflowRunInProgressProvider.notifier).state = true;
   ref.read(workflowNodeRunResultsProvider.notifier).state = {};
+  ref.read(workflowRunStepOrderProvider.notifier).state = [];
   final runner = ref.read(workflowRunnerProvider);
   try {
     final result = await runner.run(
@@ -595,6 +798,13 @@ Future<WorkflowRunResult?> runActiveWorkflow(WidgetRef ref) async {
           ...ref.read(workflowNodeRunResultsProvider),
           nodeResult.nodeId: nodeResult,
         };
+        final order = ref.read(workflowRunStepOrderProvider);
+        if (!order.contains(nodeResult.nodeId)) {
+          ref.read(workflowRunStepOrderProvider.notifier).state = [
+            ...order,
+            nodeResult.nodeId,
+          ];
+        }
       },
       shouldStop: () => !ref.read(workflowRunInProgressProvider),
     );

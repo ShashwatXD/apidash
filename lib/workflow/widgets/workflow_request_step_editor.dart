@@ -1,6 +1,8 @@
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
+import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/ai_request/request_pane_ai.dart';
+import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/request_pane_graphql.dart';
 import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/request_pane_rest.dart';
 import 'package:apidash/screens/home_page/editor_pane/details_card/response_pane.dart';
 import 'package:apidash/screens/common_widgets/envfield_url.dart';
@@ -275,11 +277,19 @@ class _WorkflowRequestStepEditorPageState
       );
     }
 
+    final apiType = ref.watch(
+      selectedRequestModelProvider.select((value) => value?.apiType),
+    );
     final method = ref.watch(
       selectedRequestModelProvider.select(
         (value) => value?.httpRequestModel?.method ?? HTTPVerb.get,
       ),
     );
+    final subtitle = switch (apiType) {
+      APIType.ai => kLabelAiRequest,
+      APIType.graphql => 'GraphQL request',
+      _ => '${method.name.toUpperCase()} request',
+    };
 
     return Scaffold(
       appBar: AppBar(
@@ -292,7 +302,7 @@ class _WorkflowRequestStepEditorPageState
           children: [
             Text(node.label.isNotEmpty ? node.label : kLabelWorkflowStep),
             Text(
-              '${method.name.toUpperCase()} request',
+              subtitle,
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -324,11 +334,12 @@ class _WorkflowRequestStepEditorPageState
       ),
       body: Column(
         children: [
-          const Padding(
-            padding: kP12,
-            child: WorkflowStepUrlBar(),
-          ),
-          const Divider(height: 1),
+          if (apiType != APIType.ai)
+            const Padding(
+              padding: kP12,
+              child: WorkflowStepUrlBar(),
+            ),
+          if (apiType != APIType.ai) const Divider(height: 1),
           Expanded(
             child: context.isMediumWindow
                 ? DefaultTabController(
@@ -408,7 +419,20 @@ class _WorkflowRequestStepEditorPageState
   }
 
   Widget _requestColumn(WorkflowGraphNode node) {
-    return const EditRestRequestPane(showViewCodeButton: false);
+    return Consumer(
+      builder: (context, ref, _) {
+        final apiType = ref.watch(
+          selectedRequestModelProvider.select((value) => value?.apiType),
+        );
+        return switch (apiType) {
+          APIType.ai =>
+            const EditAIRequestPane(showViewCodeButton: false),
+          APIType.graphql =>
+            const EditGraphQLRequestPane(showViewCodeButton: false),
+          _ => const EditRestRequestPane(showViewCodeButton: false),
+        };
+      },
+    );
   }
 }
 

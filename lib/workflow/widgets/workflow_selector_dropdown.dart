@@ -1,9 +1,20 @@
 import 'package:apidash/workflow/providers/workflow_providers.dart';
+import 'package:apidash/workflow/widgets/workflow_help_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class WorkflowSelectorDropdown extends ConsumerWidget {
   const WorkflowSelectorDropdown({super.key});
+
+  Future<void> _createWorkflow(BuildContext context, WidgetRef ref) async {
+    final template = await showWorkflowTemplatePicker(context);
+    if (!context.mounted) {
+      return;
+    }
+    await ref
+        .read(workflowCatalogProvider.notifier)
+        .createWorkflow(template: template);
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -26,9 +37,7 @@ class WorkflowSelectorDropdown extends ConsumerWidget {
       data: (workflows) {
         if (workflows.isEmpty) {
           return OutlinedButton.icon(
-            onPressed: () async {
-              await ref.read(workflowCatalogProvider.notifier).createWorkflow();
-            },
+            onPressed: () => _createWorkflow(context, ref),
             icon: const Icon(Icons.add, size: 18),
             label: const Text('New workflow'),
           );
@@ -76,7 +85,7 @@ class WorkflowSelectorDropdown extends ConsumerWidget {
               return;
             }
             if (value == '__new__') {
-              await ref.read(workflowCatalogProvider.notifier).createWorkflow();
+              await _createWorkflow(context, ref);
               return;
             }
             ref.read(selectedWorkflowIdStateProvider.notifier).state = value;

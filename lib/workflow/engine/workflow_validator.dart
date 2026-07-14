@@ -53,6 +53,16 @@ class WorkflowValidator {
           if ((node.conditionExpression ?? '').trim().isEmpty) {
             warnings.add('Condition node "${node.label}" has no expression.');
           }
+        case WorkflowNodeType.loop:
+          if (node.loopMode == WorkflowLoopMode.repeat) {
+            if (node.loopMaxIterations == null || node.loopMaxIterations! <= 0) {
+              warnings.add(
+                'Loop node "${node.label}" needs a repeat count greater than 0.',
+              );
+            }
+          } else if ((node.loopExpression ?? '').trim().isEmpty) {
+            warnings.add('Loop node "${node.label}" has no list variable.');
+          }
         case WorkflowNodeType.manualStart:
           break;
       }
@@ -77,6 +87,26 @@ class WorkflowValidator {
     }
 
     for (final node in workflow.graph.nodes) {
+      if (node.type == WorkflowNodeType.loop) {
+        final outgoing = workflow.graph.edges.where((e) => e.source == node.id);
+        final hasBody = outgoing.any(
+          (e) => e.sourceHandle == WorkflowEdgeHandle.next,
+        );
+        if (!hasBody) {
+          warnings.add(
+            'Loop node "${node.label}" should connect a body via the Each port.',
+          );
+        }
+        final hasDone = outgoing.any(
+          (e) => e.sourceHandle == WorkflowEdgeHandle.loopDone,
+        );
+        if (!hasDone) {
+          warnings.add(
+            'Loop node "${node.label}" should connect a Done port for post-loop steps.',
+          );
+        }
+        continue;
+      }
       if (node.type != WorkflowNodeType.condition) {
         continue;
       }

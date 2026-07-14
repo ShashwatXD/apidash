@@ -19,6 +19,10 @@ class WorkflowNodeLayout {
           kWorkflowConditionNodeWidth,
           kWorkflowConditionNodeHeight,
         ),
+      WorkflowNodeType.loop => const Size(
+          kWorkflowLoopNodeWidth,
+          kWorkflowLoopNodeHeight,
+        ),
     };
   }
 
@@ -43,12 +47,21 @@ class WorkflowNodeLayout {
             Offset(size.width, kConditionPortElseY),
           _ => Offset(size.width, kConditionPortThenY),
         },
+      WorkflowNodeType.loop => switch (handle) {
+          WorkflowEdgeHandle.inPort => Offset(0, kLoopPortInY),
+          WorkflowEdgeHandle.next => Offset(size.width, kLoopPortEachY),
+          WorkflowEdgeHandle.loopDone => Offset(size.width, kLoopPortDoneY),
+          _ => Offset(size.width, kLoopPortEachY),
+        },
     };
   }
 
   static Color edgeColor(WorkflowEdgeHandle handle, ColorScheme scheme) {
     return switch (handle) {
-      WorkflowEdgeHandle.success || WorkflowEdgeHandle.then => Colors.green,
+      WorkflowEdgeHandle.success ||
+      WorkflowEdgeHandle.then ||
+      WorkflowEdgeHandle.loopDone =>
+        Colors.green,
       WorkflowEdgeHandle.failure || WorkflowEdgeHandle.elseBranch =>
         scheme.error,
       WorkflowEdgeHandle.next => scheme.primary,

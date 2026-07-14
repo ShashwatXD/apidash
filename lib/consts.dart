@@ -606,7 +606,6 @@ const kLabelSSLEnabled = "SSL Verification Enabled";
 const kHintSearchLogs = "Search logs";
 const kTooltipShowTimestamps = "Show timestamps";
 const kTooltipClearLogs = "Clear logs";
-const kLabelUntitled = "Untitled";
 
 // History Page Labels
 const kTooltipClearHistory = "Clear History";

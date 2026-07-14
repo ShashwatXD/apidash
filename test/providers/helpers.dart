@@ -25,20 +25,6 @@ ProviderContainer createContainer({
   return container;
 }
 
-Future<void> _mockPathProvider(
-  Future<Directory> Function() createTempDir,
-) async {
-  const channel = MethodChannel('plugins.flutter.io/path_provider');
-  TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-      .setMockMethodCallHandler(channel, (MethodCall methodCall) async {
-    if (methodCall.method == 'getApplicationDocumentsDirectory') {
-      final tempDir = await createTempDir();
-      return tempDir.path;
-    }
-    return null;
-  });
-}
-
 Future<void> _mockSecureStorage() async {
   const channel = MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
   final store = <String, String>{};
@@ -66,12 +52,26 @@ Future<void> _mockSecureStorage() async {
 }
 
 /// Initializes an isolated filesystem workspace for unit/widget tests.
+///
+/// Uses an explicit temp path so storage does not depend on path_provider
+/// returning a desktop workspace root.
 Future<void> testSetUpWorkspaceStorage() async {
   await _mockSecureStorage();
-  await _mockPathProvider(
-    () => Directory.systemTemp.createTemp('apidash_test_workspace_'),
+  final tempDir =
+      await Directory.systemTemp.createTemp('apidash_test_workspace_');
+  addTearDown(() async {
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
+  final opened = await initWorkspaceStorage(
+    true,
+    tempDir.path,
+    createIfMissing: true,
   );
-  await initWorkspaceStorage(false, null);
+  if (!opened) {
+    throw StateError('Failed to init workspace at ${tempDir.path}');
+  }
 }
 
 /// Waits until collection providers finish their async bootstrap microtask.

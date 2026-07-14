@@ -41,7 +41,7 @@ void main() {
       "savedWorkspaces": [],
       "isSSLDisabled": true,
       "isDashBotEnabled": true,
-      "defaultAIModel": {"model": "llama"}
+      "defaultAIModel": {"model": "llama"},
     };
     expect(sm.toJson(), expectedResult);
   });
@@ -63,7 +63,7 @@ void main() {
       "workspaceFolderPath": null,
       "isSSLDisabled": true,
       "isDashBotEnabled": true,
-      "defaultAIModel": {"model": "llama"}
+      "defaultAIModel": {"model": "llama"},
     };
     expect(SettingsModel.fromJson(input), sm);
   });
@@ -85,13 +85,14 @@ void main() {
       defaultAIModel: {"model": "llama"},
     );
     expect(
-        sm.copyWith(
-          isDark: true,
-          saveResponses: false,
-          isSSLDisabled: false,
-          isDashBotEnabled: false,
-        ),
-        expectedResult);
+      sm.copyWith(
+        isDark: true,
+        saveResponses: false,
+        isSSLDisabled: false,
+        isDashBotEnabled: false,
+      ),
+      expectedResult,
+    );
   });
 
   test('Testing toString()', () {

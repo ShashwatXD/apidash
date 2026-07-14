@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/services.dart';
 import 'package:flutter/services.dart';
@@ -7,6 +8,42 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// Seeds [activeCollectionProvider] without loading from disk.
+class MockActiveCollectionNotifier extends ActiveCollectionNotifier {
+  MockActiveCollectionNotifier(
+    Ref ref, [
+    Map<String, RequestModel>? initial,
+  ])  : _initial = Map<String, RequestModel>.from(initial ?? const {}),
+        super(ref, workspaceStorage) {
+    state = Map<String, RequestModel>.from(_initial);
+  }
+
+  final Map<String, RequestModel> _initial;
+
+  @override
+  void activateCollection(String? collectionId) {
+    state = Map<String, RequestModel>.from(_initial);
+  }
+
+  @override
+  RequestModel? getRequestModel(String id) => state?[id];
+
+  @override
+  void duplicateFromHistory(HistoryRequestModel historyModel) {}
+}
+
+/// Overrides needed so widget tests never touch on-disk workspace storage.
+List<Override> mockActiveCollectionOverrides([
+  Map<String, RequestModel>? initial,
+]) {
+  return [
+    // Avoid selectedCollectionIdStateProvider reading workspaceStorage.
+    selectedCollectionIdStateProvider.overrideWith((ref) => null),
+    activeCollectionProvider.overrideWith(
+      (ref) => MockActiveCollectionNotifier(ref, initial),
+    ),
+  ];
+}
 /// A testing utility which creates a [ProviderContainer] and automatically
 /// disposes it at the end of the test.
 ProviderContainer createContainer({

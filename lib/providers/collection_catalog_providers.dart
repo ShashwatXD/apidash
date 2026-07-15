@@ -1,10 +1,17 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/utils/utils.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:path/path.dart' as p;
 
 import '../services/services.dart';
 import 'active_collection_providers.dart';
+import 'settings_providers.dart';
 
 final selectedCollectionIdStateProvider = StateProvider<String?>((ref) {
   final index = workspaceStorage.getCollectionsIndex();
@@ -32,10 +39,11 @@ class CollectionCatalogNotifier
     extends StateNotifier<Map<String, CollectionModel>?> {
   CollectionCatalogNotifier(this.ref, this.workspaceStorage) : super(null) {
     final index = _readCollectionsIndex();
+
     collectionSequence = index.map((e) => e.id).toList();
     state = {
       for (final entry in index)
-        entry.id: CollectionModel(id: entry.id, name: entry.name),
+        entry.id: CollectionModel(id: entry.id, name: entry.id),
     };
     final active = ref.read(selectedCollectionIdStateProvider);
     if (active != null) {
@@ -64,16 +72,22 @@ class CollectionCatalogNotifier
       return;
     }
     final json = workspaceStorage.getCollection(collectionId);
-    final catalogName = state![collectionId]!.name;
+    final catalogName = collectionId;
     final model = json != null
         ? CollectionModel.fromJson(Map<String, Object?>.from(json))
         : CollectionModel(id: collectionId, name: catalogName);
-    var requests = model.requests
+    final fromIndex = model.requests
         .where((r) => workspaceStorage.requestExistsOnDisk(collectionId, r.id))
         .toList();
-    if (requests.isEmpty) {
-      requests = _requestsFromDisk(collectionId);
-    }
+    final fromDisk = _requestsFromDisk(collectionId);
+    final byId = <String, RequestSummary>{
+      for (final r in fromDisk) r.id: r,
+    };
+    final requests = <RequestSummary>[
+      for (final r in fromIndex)
+        if (byId.remove(r.id) case final summary?) summary,
+      ...byId.values,
+    ];
     _loadedCollectionIds.add(collectionId);
     state = {
       ...state!,
@@ -97,14 +111,21 @@ class CollectionCatalogNotifier
   }
 
   List<RequestSummary> _requestsFromDisk(String collectionId) {
-    return [
-      for (final id in workspaceStorage.listRequestIdsOnDisk(collectionId))
-        if (workspaceStorage.getRequestModel(collectionId, id)
-            case final json?)
-          RequestSummary.fromRequestModel(
-            RequestModel.fromJson(Map<String, Object?>.from(json)),
-          ),
-    ];
+    final takenNames = <String>{};
+    final result = <RequestSummary>[];
+    for (final folderId
+        in workspaceStorage.listRequestIdsOnDisk(collectionId)) {
+      final model = requestModelFromDiskFolder(
+        storage: workspaceStorage,
+        collectionId: collectionId,
+        folderId: folderId,
+        takenDisplayNamesLowercase: takenNames,
+      );
+      if (model == null) continue;
+      takenNames.add(model.name.toLowerCase());
+      result.add(RequestSummary.fromRequestModel(model));
+    }
+    return result;
   }
 
   void syncRequests(String collectionId, List<RequestSummary> requests) {
@@ -202,25 +223,247 @@ class CollectionCatalogNotifier
     return true;
   }
 
-  Future<void> deleteCollection(String id) async {
-    if (state == null || !state!.containsKey(id)) {
-      return;
-    }
+  Future<void> _detachCollectionFromMemory(String id) async {
     final wasActive = ref.read(selectedCollectionIdStateProvider) == id;
     collectionSequence = [...collectionSequence]..remove(id);
     _loadedCollectionIds.remove(id);
     state = {...state!}..remove(id);
-    ref.read(expandedCollectionIdsProvider.notifier).update((s) => {...s}..remove(id));
-    await workspaceStorage.deleteCollection(id);
+    ref
+        .read(expandedCollectionIdsProvider.notifier)
+        .update((s) => {...s}..remove(id));
     await _persistIndex();
-
     if (wasActive) {
       final nextId =
           collectionSequence.isNotEmpty ? collectionSequence.first : null;
-      await ref
-          .read(activeCollectionProvider.notifier)
-          .ensureActive(nextId);
+      await ref.read(activeCollectionProvider.notifier).ensureActive(nextId);
     }
+  }
+
+  Future<void> deleteCollection(String id) async {
+    if (state == null || !state!.containsKey(id)) {
+      return;
+    }
+    await workspaceStorage.deleteCollection(id);
+    await _detachCollectionFromMemory(id);
+  }
+
+  Future<bool> applyExternalCollectionRemoved(String id) async {
+    if (state == null || !state!.containsKey(id)) {
+      return false;
+    }
+    await _detachCollectionFromMemory(id);
+    return true;
+  }
+
+  Future<bool> applyExternalRequestRemoved(
+    String collectionId,
+    String requestId,
+  ) async {
+    if (state == null || !state!.containsKey(collectionId)) {
+      return false;
+    }
+    final activeId = ref.read(selectedCollectionIdStateProvider);
+    if (activeId == collectionId) {
+      return ref
+          .read(activeCollectionProvider.notifier)
+          .applyExternalRequestRemoved(requestId);
+    }
+
+    final collection = state![collectionId]!;
+    if (!collection.requests.any((r) => r.id == requestId)) {
+      return false;
+    }
+    final nextRequests =
+        collection.requests.where((r) => r.id != requestId).toList();
+    syncRequests(collectionId, nextRequests);
+    await _persistRequestIndex(collectionId);
+    return true;
+  }
+
+  bool applyExternalRequestContentChanged(
+    String collectionId,
+    String requestId,
+  ) {
+    if (!workspaceStorage.requestExistsOnDisk(collectionId, requestId)) {
+      return false;
+    }
+    final activeId = ref.read(selectedCollectionIdStateProvider);
+    if (activeId == collectionId) {
+      return ref
+          .read(activeCollectionProvider.notifier)
+          .applyExternalRequestContentChanged(requestId);
+    }
+
+    if (state == null || !state!.containsKey(collectionId)) {
+      return false;
+    }
+    final model = requestModelFromDiskFolder(
+      storage: workspaceStorage,
+      collectionId: collectionId,
+      folderId: requestId,
+    );
+    if (model == null) return false;
+    final summary = RequestSummary.fromRequestModel(model);
+    final collection = state![collectionId]!;
+    if (!collection.requests.any((r) => r.id == requestId)) {
+      return applyExternalRequestAdded(collectionId, requestId);
+    }
+    syncRequests(collectionId, [
+      for (final r in collection.requests)
+        if (r.id == requestId) summary else r,
+    ]);
+    return true;
+  }
+
+  Future<bool> applyExternalCollectionAdded(String collectionId) async {
+    if (state == null || state!.containsKey(collectionId)) {
+      return false;
+    }
+    final collectionDir = Directory(
+      p.join(
+        workspaceStorage.rootPath,
+        kWorkspaceCollectionsDir,
+        collectionId,
+      ),
+    );
+    if (!await collectionDir.exists()) {
+      return false;
+    }
+
+    final model = CollectionModel(id: collectionId, name: collectionId);
+    collectionSequence = [...collectionSequence, collectionId];
+    state = {...state!, collectionId: model};
+    loadCollection(collectionId);
+    await _persistIndex();
+    final loaded = state![collectionId]!;
+    await workspaceStorage.setCollection(collectionId, loaded.toJson());
+    return true;
+  }
+
+  bool applyExternalRequestAdded(String collectionId, String requestId) {
+    if (!workspaceStorage.requestExistsOnDisk(collectionId, requestId)) {
+      return false;
+    }
+    final activeId = ref.read(selectedCollectionIdStateProvider);
+    if (activeId == collectionId) {
+      return ref
+          .read(activeCollectionProvider.notifier)
+          .applyExternalRequestAdded(requestId);
+    }
+
+    if (state == null || !state!.containsKey(collectionId)) {
+      return false;
+    }
+
+    loadCollection(collectionId);
+    final loaded = state![collectionId]!;
+    if (loaded.requests.any((r) => r.id == requestId)) {
+      return false;
+    }
+
+    final takenNames = <String>{
+      for (final r in loaded.requests) r.name.toLowerCase(),
+    };
+    final takenIds = loaded.requests.map((r) => r.id).toSet();
+    final adopted = adoptRequestFolderFromDisk(
+      storage: workspaceStorage,
+      collectionId: collectionId,
+      folderId: requestId,
+      takenNamesLower: takenNames,
+      takenIds: takenIds,
+    );
+    if (adopted == null ||
+        loaded.requests.any((r) => r.id == adopted.id)) {
+      return false;
+    }
+
+    final summary = RequestSummary.fromRequestModel(adopted.model);
+    syncRequests(collectionId, [...loaded.requests, summary]);
+    unawaited(() async {
+      final settings = ref.read(settingsProvider);
+      var payload = settings.saveResponses
+          ? adopted.model.toJson()
+          : adopted.model.copyWith(httpResponseModel: null).toJson();
+      payload = AiRequestSecretsStorage.stripApiKeyFromJson(
+        Map<String, dynamic>.from(payload),
+      );
+      await workspaceStorage.setRequestModel(
+        collectionId,
+        adopted.id,
+        payload,
+        saveMediaAsFiles: settings.saveMediaResponsesAsFiles,
+      );
+      await _persistRequestIndex(collectionId);
+    }());
+    return true;
+  }
+
+  Future<bool> applyExternalCollectionIndexChanged() async {
+    if (state == null) return false;
+    final index = workspaceStorage.getCollectionsIndex();
+    final diskIds = <String>{
+      for (final entry in index) entry.id,
+    };
+
+    final collectionsDir = Directory(
+      p.join(workspaceStorage.rootPath, kWorkspaceCollectionsDir),
+    );
+    if (await collectionsDir.exists()) {
+      await for (final entity in collectionsDir.list()) {
+        if (entity is! Directory) continue;
+        final id = p.basename(entity.path);
+        if (id.startsWith('.') || id == kWorkspaceCollectionsIndexFile) {
+          continue;
+        }
+        diskIds.add(id);
+      }
+    }
+
+    var changed = false;
+    final ordered = <String>[
+      for (final entry in index) entry.id,
+      for (final id in diskIds)
+        if (!index.any((e) => e.id == id)) id,
+    ];
+
+    for (final id in ordered) {
+      if (!state!.containsKey(id)) {
+        final added = await applyExternalCollectionAdded(id);
+        changed = changed || added;
+      }
+    }
+
+    if (!listEquals(collectionSequence, ordered)) {
+      collectionSequence = ordered;
+      state = {...state!};
+      changed = true;
+    }
+
+    if (changed) {
+      await _persistIndex();
+    }
+    return changed;
+  }
+
+  bool applyExternalRequestIndexChanged(String collectionId) {
+    final activeId = ref.read(selectedCollectionIdStateProvider);
+    if (activeId == collectionId) {
+      return ref
+          .read(activeCollectionProvider.notifier)
+          .applyExternalRequestIndexChanged();
+    }
+    if (state == null || !state!.containsKey(collectionId)) {
+      return false;
+    }
+    _loadedCollectionIds.remove(collectionId);
+    loadCollection(collectionId);
+    return true;
+  }
+
+  Future<void> _persistRequestIndex(String collectionId) async {
+    final model = state?[collectionId];
+    if (model == null) return;
+    await workspaceStorage.setCollection(collectionId, model.toJson());
   }
 
   Future<void> saveCollections() async {

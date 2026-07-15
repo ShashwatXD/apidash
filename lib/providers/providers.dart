@@ -8,4 +8,5 @@ export 'terminal_providers.dart';
 export 'settings_providers.dart';
 export 'ui_providers.dart';
 export 'workspace_lifecycle.dart';
+export 'workspace_disk_sync.dart';
 export 'js_runtime_notifier.dart';

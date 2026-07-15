@@ -19,7 +19,7 @@ class Dashboard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (kIsDesktop) {
-      ref.watch(workspacePresenceWatchProvider);
+      ref.watch(workspaceDiskSyncProvider);
     }
     final railIdx = ref.watch(navRailIndexStateProvider);
     final isDashBotEnabled = ref.watch(

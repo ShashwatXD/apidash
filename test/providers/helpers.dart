@@ -1,11 +1,47 @@
 import 'dart:io';
 
+import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/services.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+/// Seeds [activeCollectionProvider] without loading from disk.
+class MockActiveCollectionNotifier extends ActiveCollectionNotifier {
+  MockActiveCollectionNotifier(
+    Ref ref, [
+    Map<String, RequestModel>? initial,
+  ])  : _initial = Map<String, RequestModel>.from(initial ?? const {}),
+        super(ref, workspaceStorage) {
+    state = Map<String, RequestModel>.from(_initial);
+  }
+
+  final Map<String, RequestModel> _initial;
+
+  @override
+  void activateCollection(String? collectionId) {
+    state = Map<String, RequestModel>.from(_initial);
+  }
+
+  @override
+  RequestModel? getRequestModel(String id) => state?[id];
+
+  @override
+  void duplicateFromHistory(HistoryRequestModel historyModel) {}
+}
+
+List<Override> mockActiveCollectionOverrides([
+  Map<String, RequestModel>? initial,
+]) {
+  return [
+    selectedCollectionIdStateProvider.overrideWith((ref) => null),
+    activeCollectionProvider.overrideWith(
+      (ref) => MockActiveCollectionNotifier(ref, initial),
+    ),
+  ];
+}
 
 /// A testing utility which creates a [ProviderContainer] and automatically
 /// disposes it at the end of the test.
@@ -68,10 +104,24 @@ Future<void> _mockSecureStorage() async {
 /// Initializes an isolated filesystem workspace for unit/widget tests.
 Future<void> testSetUpWorkspaceStorage() async {
   await _mockSecureStorage();
-  await _mockPathProvider(
-    () => Directory.systemTemp.createTemp('apidash_test_workspace_'),
+  final tempDir =
+      await Directory.systemTemp.createTemp('apidash_test_workspace_');
+  addTearDown(() async {
+    resetWorkspaceStorage();
+    workspaceWriteJournal.clear();
+    if (await tempDir.exists()) {
+      await tempDir.delete(recursive: true);
+    }
+  });
+  await _mockPathProvider(() async => tempDir);
+  final ok = await initWorkspaceStorage(
+    true,
+    tempDir.path,
+    createIfMissing: true,
   );
-  await initWorkspaceStorage(false, null);
+  if (!ok) {
+    throw StateError('Failed to init test workspace at ${tempDir.path}');
+  }
 }
 
 /// Waits until collection providers finish their async bootstrap microtask.

@@ -79,6 +79,17 @@ String renameStorageId(String oldId, String newName) {
   return makeStorageId(newName, suffix: suffix);
 }
 
+String allocateUniqueStorageId(
+  String name,
+  bool Function(String id) isTaken,
+) {
+  String id;
+  do {
+    id = makeStorageId(name);
+  } while (isTaken(id));
+  return id;
+}
+
 String renameEnvironmentStorageId(String currentId, String name) {
   final renamed = renameStorageId(currentId, name);
   if (renamed != currentId) {

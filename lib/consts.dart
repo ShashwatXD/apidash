@@ -578,6 +578,10 @@ const kLabelOpenWorkspaceMenu = "Open workspace…";
 const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
 const kMsgWorkspaceRecentMissing =
     'Workspace folder no longer exists on disk.';
+const kMsgRequestRemovedFromDisk =
+    'This request was deleted from disk.';
+const kMsgCollectionRemovedFromDisk =
+    'This collection was deleted from disk.';
 const kWorkspaceMissingSnackDuration = Duration(seconds: 4);
 // History Page
 const kTitleClearHistory = 'Clear History';

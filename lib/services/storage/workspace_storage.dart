@@ -3,11 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:apidash/consts.dart';
+import 'package:apidash/models/models.dart';
 import 'package:apidash/utils/file_utils.dart';
+import 'package:apidash_core/apidash_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import 'atomic_file_io.dart';
+import 'disk_sync.dart';
 import 'workspace_paths.dart';
 
 Directory? _workspaceRoot;
@@ -286,6 +289,7 @@ class WorkspaceStorage {
   Future<void> deleteCollection(String collectionId) async {
     final dir = Directory(_path(_collectionDir(collectionId)));
     if (await dir.exists()) {
+      workspaceWriteJournal.record(dir.path);
       await dir.delete(recursive: true);
     }
   }
@@ -304,6 +308,8 @@ class WorkspaceStorage {
     if (!isCaseOnlyRename && await Directory(newDirPath).exists()) {
       return;
     }
+    workspaceWriteJournal.record(oldDir.path);
+    workspaceWriteJournal.record(newDirPath);
     oldDir.renameSync(newDirPath);
   }
 
@@ -489,6 +495,7 @@ class WorkspaceStorage {
   Future<void> _deleteRequestStorage(String collectionId, String id) async {
     final requestDir = Directory(_path(_requestDirRelative(collectionId, id)));
     if (await requestDir.exists()) {
+      workspaceWriteJournal.record(requestDir.path);
       await requestDir.delete(recursive: true);
     }
   }
@@ -512,8 +519,11 @@ class WorkspaceStorage {
       if (newDir.existsSync()) {
         return;
       }
+      workspaceWriteJournal.record(oldDir.path);
+      workspaceWriteJournal.record(newDirPath);
       oldDir.renameSync(newDirPath);
     } else if (!newDir.existsSync()) {
+      workspaceWriteJournal.record(newDirPath);
       newDir.createSync(recursive: true);
     }
     // Request JSON (incl. id) is written by the next saveData/setRequestModel call.
@@ -731,6 +741,7 @@ class WorkspaceStorage {
       if (await collectionDir.exists()) {
         await for (final entity in collectionDir.list()) {
           if (entity is Directory) {
+            workspaceWriteJournal.record(entity.path);
             await entity.delete(recursive: true);
           }
         }
@@ -769,6 +780,7 @@ class WorkspaceStorage {
         if (entity is Directory) {
           final dirName = p.basename(entity.path);
           if (!ids.contains(dirName)) {
+            workspaceWriteJournal.record(entity.path);
             await entity.delete(recursive: true);
           }
         }
@@ -789,6 +801,7 @@ class WorkspaceStorage {
             continue;
           }
           if (!environmentIds.contains(fileName)) {
+            workspaceWriteJournal.record(entity.path);
             await entity.delete();
           }
         }
@@ -837,4 +850,65 @@ class WorkspaceStorage {
       return null;
     }
   }
+}
+
+/// Loads a request from its folder. Folder basename is the id; JSON id is ignored.
+RequestModel? requestModelFromDiskFolder({
+  required WorkspaceStorage storage,
+  required String collectionId,
+  required String folderId,
+  Set<String> takenDisplayNamesLowercase = const {},
+}) {
+  final jsonModel = storage.getRequestModel(collectionId, folderId);
+  if (jsonModel == null) return null;
+
+  var model = RequestModel.fromJson(Map<String, Object?>.from(jsonModel));
+  if (model.httpRequestModel == null && model.aiRequestModel == null) {
+    model = model.copyWith(httpRequestModel: const HttpRequestModel());
+  }
+
+  final name = displayNameForRequestFolder(
+    folderId: folderId,
+    jsonName: model.name,
+    takenDisplayNamesLowercase: takenDisplayNamesLowercase,
+  );
+  return model.copyWith(id: folderId, name: name);
+}
+
+/// Heals OS-copied folders to a unique display name and normal `slug_xxxxxxxx` id.
+({String id, RequestModel model})? adoptRequestFolderFromDisk({
+  required WorkspaceStorage storage,
+  required String collectionId,
+  required String folderId,
+  required Set<String> takenNamesLower,
+  required Set<String> takenIds,
+}) {
+  final model = requestModelFromDiskFolder(
+    storage: storage,
+    collectionId: collectionId,
+    folderId: folderId,
+    takenDisplayNamesLowercase: takenNamesLower,
+  );
+  if (model == null) return null;
+
+  takenNamesLower.add(model.name.toLowerCase());
+
+  var id = folderId;
+  var next = model;
+  if (requestFolderNeedsNormalize(folderId)) {
+    final newId = allocateUniqueStorageId(
+      model.name,
+      (candidate) =>
+          takenIds.contains(candidate) ||
+          (candidate != folderId &&
+              storage.requestExistsOnDisk(collectionId, candidate)),
+    );
+    if (newId != folderId) {
+      storage.renameRequestSync(collectionId, folderId, newId);
+      id = newId;
+      next = model.copyWith(id: newId);
+    }
+  }
+  takenIds.add(id);
+  return (id: id, model: next);
 }

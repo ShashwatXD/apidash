@@ -6,6 +6,7 @@ import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 
+import 'git_diff_chrome.dart';
 import 'git_diff_file_kind.dart';
 import 'git_diff_side_by_side_shell.dart';
 import 'git_diff_snapshots.dart';
@@ -77,6 +78,7 @@ List<GitListDiffRow> diffCollectionRows({
       labelOf: _requestSummaryLabel,
       equals: _requestSummaryEquals,
       modifiedDetail: _requestSummaryModifiedDetail,
+      detailOf: _requestSummaryPresenceDetail,
       methodOf: (e) => e.method,
       apiTypeOf: (e) => e.apiType,
     ),
@@ -129,6 +131,7 @@ List<GitListDiffRow> diffEnvironmentRows({
       labelOf: (e) => e.key,
       equals: _envVarEquals,
       modifiedDetail: _envVarModifiedDetail,
+      detailOf: _envVarPresenceDetail,
     ),
   );
   return rows;
@@ -186,13 +189,19 @@ bool _requestSummaryEquals(RequestSummary a, RequestSummary b) {
 String? _requestSummaryModifiedDetail(RequestSummary a, RequestSummary b) {
   final parts = <String>[];
   if (a.name != b.name) {
-    parts.add('${a.name} → ${b.name}');
+    parts.add('name: ${a.name} → ${b.name}');
+  }
+  if (a.apiType != b.apiType) {
+    parts.add('type: ${a.apiType.label} → ${b.apiType.label}');
   }
   if (a.method != b.method) {
-    parts.add('${a.method?.name ?? '—'} → ${b.method?.name ?? '—'}');
+    parts.add(
+      'method: ${a.method?.name.toUpperCase() ?? '—'} → '
+      '${b.method?.name.toUpperCase() ?? '—'}',
+    );
   }
   if (a.url != b.url) {
-    parts.add('${a.url} → ${b.url}');
+    parts.add('url: ${a.url} → ${b.url}');
   }
   if (parts.isEmpty) return null;
   return parts.join(' · ');
@@ -216,10 +225,10 @@ String? _envVarModifiedDetail(
     parts.add(a.enabled ? 'enabled → disabled' : 'disabled → enabled');
   }
   if (a.type != b.type) {
-    parts.add('${a.type.name} → ${b.type.name}');
+    parts.add('type: ${a.type.name} → ${b.type.name}');
   }
   if (a.type != EnvironmentVariableType.secret && a.value != b.value) {
-    parts.add('${a.value} → ${b.value}');
+    parts.add('value: ${a.value} → ${b.value}');
   } else if (a.type == EnvironmentVariableType.secret &&
       a.type == b.type &&
       a.key == b.key) {
@@ -229,6 +238,46 @@ String? _envVarModifiedDetail(
   return parts.join(' · ');
 }
 
+String? _requestSummaryPresenceDetail(RequestSummary summary) {
+  final parts = <String>[];
+  if (summary.apiType == APIType.rest && summary.method != null) {
+    parts.add(summary.method!.name.toUpperCase());
+  } else {
+    parts.add(summary.apiType.label);
+  }
+  final url = summary.url.trim();
+  if (url.isNotEmpty) parts.add(url);
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
+String? _envVarPresenceDetail(EnvironmentVariableModel variable) {
+  final parts = <String>[
+    variable.enabled ? 'enabled' : 'disabled',
+    'type: ${variable.type.name}',
+  ];
+  if (variable.type == EnvironmentVariableType.secret) {
+    parts.add('••••');
+  } else if (variable.value.trim().isNotEmpty) {
+    parts.add(variable.value);
+  }
+  return parts.join(' · ');
+}
+
+List<GitDiffChangedField> collectListDiffChanges(List<GitListDiffRow> rows) {
+  return [
+    for (final row in rows)
+      GitDiffChangedField(
+        label: row.label,
+        kind: switch (row.kind) {
+          GitListDiffRowKind.added => GitDiffChangeKind.added,
+          GitListDiffRowKind.removed => GitDiffChangeKind.removed,
+          GitListDiffRowKind.modified => GitDiffChangeKind.modified,
+        },
+        detail: row.detail,
+      ),
+  ];
+}
+
 List<GitListDiffRow> _diffById<T>({
   required List<T> original,
   required List<T> updated,
@@ -236,6 +285,7 @@ List<GitListDiffRow> _diffById<T>({
   required String Function(T) labelOf,
   required bool Function(T, T) equals,
   String? Function(T, T)? modifiedDetail,
+  String? Function(T)? detailOf,
   HTTPVerb? Function(T)? methodOf,
   APIType? Function(T)? apiTypeOf,
 }) {
@@ -252,6 +302,7 @@ List<GitListDiffRow> _diffById<T>({
         GitListDiffRow(
           kind: GitListDiffRowKind.added,
           label: labelOf(curr),
+          detail: detailOf?.call(curr),
           method: methodOf?.call(curr),
           apiType: apiTypeOf?.call(curr),
         ),
@@ -261,6 +312,7 @@ List<GitListDiffRow> _diffById<T>({
         GitListDiffRow(
           kind: GitListDiffRowKind.removed,
           label: labelOf(orig),
+          detail: detailOf?.call(orig),
           method: methodOf?.call(orig),
           apiType: apiTypeOf?.call(orig),
         ),
@@ -294,92 +346,106 @@ class GitListDiffView extends StatelessWidget {
       return const GitDiffEmptyState();
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.3),
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: ListView.separated(
-          padding: kP8,
-          itemCount: rows.length,
-          separatorBuilder: (_, _) => kVSpacer5,
-          itemBuilder: (context, index) {
-            final row = rows[index];
-            final highlight = getGitDiffHighlight(
-              Theme.of(context).brightness,
-              switch (row.kind) {
-                GitListDiffRowKind.added => GitDiffChangeKind.added,
-                GitListDiffRowKind.removed => GitDiffChangeKind.removed,
-                GitListDiffRowKind.modified => GitDiffChangeKind.modified,
-              },
-            );
-            final marker = switch (row.kind) {
-              GitListDiffRowKind.added => '+',
-              GitListDiffRowKind.removed => '−',
-              GitListDiffRowKind.modified => '~',
-            };
-
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: highlight.background,
-                borderRadius: BorderRadius.circular(8),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        GitDiffChangeSummaryBar(changes: collectListDiffChanges(rows)),
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: scheme.outlineVariant.withValues(alpha: 0.3),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    marker,
-                    style: textTheme.titleMedium?.copyWith(
-                      color: highlight.foreground,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: ListView.separated(
+                padding: kP8,
+                itemCount: rows.length,
+                separatorBuilder: (_, _) => kVSpacer5,
+                itemBuilder: (context, index) {
+                  final row = rows[index];
+                  final kind = switch (row.kind) {
+                    GitListDiffRowKind.added => GitDiffChangeKind.added,
+                    GitListDiffRowKind.removed => GitDiffChangeKind.removed,
+                    GitListDiffRowKind.modified => GitDiffChangeKind.modified,
+                  };
+                  final highlight = getGitDiffHighlight(
+                    Theme.of(context).brightness,
+                    kind,
+                  );
+
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
                     ),
-                  ),
-                  kHSpacer10,
-                  Expanded(
-                    child: Column(
+                    decoration: BoxDecoration(
+                      color: highlight.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: highlight.foreground.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (row.method != null && row.apiType == APIType.rest)
-                          Text(
-                            row.method!.name.toUpperCase(),
-                            style: kCodeStyle.copyWith(
-                              fontSize: 11,
-                              color: highlight.foreground,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        Text(
-                          row.label,
-                          style: textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: highlight.foreground,
+                        GitDiffChangeBadge(kind: kind),
+                        kHSpacer10,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (row.method != null &&
+                                  row.apiType == APIType.rest)
+                                Text(
+                                  row.method!.name.toUpperCase(),
+                                  style: kCodeStyle.copyWith(
+                                    fontSize: 11,
+                                    color: highlight.foreground,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              if (row.apiType != null &&
+                                  row.apiType != APIType.rest)
+                                Text(
+                                  row.apiType!.label,
+                                  style: textTheme.labelSmall?.copyWith(
+                                    color: highlight.foreground,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              Text(
+                                row.label,
+                                style: textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: highlight.foreground,
+                                ),
+                              ),
+                              if (row.detail != null &&
+                                  row.detail!.isNotEmpty) ...[
+                                kVSpacer5,
+                                Text(
+                                  row.detail!,
+                                  style: textTheme.bodySmall?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                        if (row.detail != null && row.detail!.isNotEmpty) ...[
-                          kVSpacer5,
-                          Text(
-                            row.detail!,
-                            style: textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }

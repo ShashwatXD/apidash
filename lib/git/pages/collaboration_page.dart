@@ -38,6 +38,8 @@ class CollaborationPage extends ConsumerStatefulWidget {
 class _CollaborationPageState extends ConsumerState<CollaborationPage> {
   final _messageController = TextEditingController();
   final Set<String> _selectedPaths = {};
+  /// Paths the user explicitly unchecked; auto-select must not revive them.
+  final Set<String> _userDeselectedPaths = {};
   GitChange? _previewChange;
   bool _busy = false;
   int _diffRevision = 0;
@@ -94,6 +96,7 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
 
   void _clearGitUiState() {
     _selectedPaths.clear();
+    _userDeselectedPaths.clear();
     _previewChange = null;
     _messageController.clear();
     _diffRevision++;
@@ -119,9 +122,12 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
       }
     }
 
+    _userDeselectedPaths.removeWhere((path) => !paths.contains(path));
+
     for (final change in changes) {
-      if (isApidashWorkspaceGitPath(change.path) &&
-          _selectedPaths.add(change.path)) {
+      if (!isApidashWorkspaceGitPath(change.path)) continue;
+      if (_userDeselectedPaths.contains(change.path)) continue;
+      if (_selectedPaths.add(change.path)) {
         changed = true;
       }
     }
@@ -132,6 +138,19 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
     }
 
     return changed;
+  }
+
+  void _applySelection(Set<String> paths, List<GitChange> changes) {
+    final workspacePaths = {
+      for (final change in changes)
+        if (isApidashWorkspaceGitPath(change.path)) change.path,
+    };
+    _selectedPaths
+      ..clear()
+      ..addAll(paths);
+    _userDeselectedPaths
+      ..removeWhere((path) => paths.contains(path))
+      ..addAll(workspacePaths.difference(paths));
   }
 
   void _scheduleAutoSelect(List<GitChange> changes) {
@@ -407,10 +426,10 @@ class _CollaborationPageState extends ConsumerState<CollaborationPage> {
                                               busy: _busy,
                                               onSelectionChanged: (paths) {
                                                 setState(
-                                                  () =>
-                                                      _selectedPaths
-                                                        ..clear()
-                                                        ..addAll(paths),
+                                                  () => _applySelection(
+                                                    paths,
+                                                    status.changes,
+                                                  ),
                                                 );
                                               },
                                               onFilePreview: (change) async {

@@ -79,6 +79,23 @@ String _responseBodyFileName(String? contentType) {
   return '$kWorkspaceResponseBodyFilePrefix.$ext';
 }
 
+File? _resolveSafeResponseBodyFile(String requestDirPath, String fileName) {
+  final trimmed = fileName.trim();
+  if (trimmed.isEmpty || trimmed == '.' || trimmed == '..') {
+    return null;
+  }
+  if (trimmed != p.basename(trimmed)) {
+    return null;
+  }
+
+  final requestDir = p.normalize(requestDirPath);
+  final resolved = p.normalize(p.join(requestDir, trimmed));
+  if (resolved == requestDir || !p.isWithin(requestDir, resolved)) {
+    return null;
+  }
+  return File(resolved);
+}
+
 Uint8List? _bytesFromJsonList(Object? value) {
   if (value is! List) {
     return null;
@@ -431,11 +448,18 @@ class WorkspaceStorage {
   ) async {
     final existing = _readJsonFileSync(responsePath);
     final fileName = existing?[kWorkspaceResponseBodyFileKey];
-    if (fileName is String && fileName.isNotEmpty) {
-      final bodyFile = File(p.join(requestDirPath, fileName));
-      if (await bodyFile.exists()) {
-        await bodyFile.delete();
-      }
+    if (fileName is! String || fileName.isEmpty) {
+      return;
+    }
+    final bodyFile = _resolveSafeResponseBodyFile(requestDirPath, fileName);
+    if (bodyFile == null) {
+      debugPrint(
+        'Ignoring unsafe response bodyFile path for delete: $fileName',
+      );
+      return;
+    }
+    if (await bodyFile.exists()) {
+      await bodyFile.delete();
     }
   }
 
@@ -451,8 +475,14 @@ class WorkspaceStorage {
     }
     final result = Map<String, Object?>.from(responseJson);
     result.remove(kWorkspaceResponseBodyFileKey);
+    final bodyFile = _resolveSafeResponseBodyFile(requestDirPath, fileName);
+    if (bodyFile == null) {
+      debugPrint(
+        'Ignoring unsafe response bodyFile path for read: $fileName',
+      );
+      return result;
+    }
     try {
-      final bodyFile = File(p.join(requestDirPath, fileName));
       if (bodyFile.existsSync()) {
         result['bodyBytes'] = bodyFile.readAsBytesSync();
       }

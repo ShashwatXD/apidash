@@ -12,10 +12,6 @@ import 'environment_editor.dart';
 class EnvironmentPage extends ConsumerWidget {
   const EnvironmentPage({super.key});
 
-  static bool _shouldShowEnvironmentMenu(String environmentId) {
-    return environmentId != kGlobalEnvironmentId;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final id = ref.watch(selectedEnvironmentIdStateProvider);
@@ -30,7 +26,7 @@ class EnvironmentPage extends ConsumerWidget {
         mainContent: const EnvironmentEditor(),
         title: EditorTitle(
           title: name,
-          showMenu: _shouldShowEnvironmentMenu(id ?? ''),
+          showMenu: (id ?? '') != kGlobalEnvironmentId,
           onSelected: (ItemMenuOption item) {
             if (item == ItemMenuOption.edit &&
                 (id ?? '') != kGlobalEnvironmentId) {

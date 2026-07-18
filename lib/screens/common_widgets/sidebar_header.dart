@@ -23,11 +23,12 @@ class SidebarHeader extends ConsumerWidget {
       padding: kPe8,
       child: Row(
         children: [
-          if (kIsDesktop)
+          if (kIsDesktop) ...[
             const Expanded(
               child: WorkspaceDropdown(),
             ),
-          if (kIsDesktop) kHSpacer4,
+            kHSpacer4,
+          ],
           ElevatedButton(
             onPressed: onAddNew,
             style: kButtonSidebarStyle,

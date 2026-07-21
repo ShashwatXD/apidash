@@ -13,6 +13,7 @@ import 'package:path/path.dart' as p;
 import 'collection_catalog_providers.dart';
 import 'settings_providers.dart';
 import 'workspace_lifecycle.dart';
+import '../workflow/providers/workflow_providers.dart';
 
 const _kDiskSyncDebounce = Duration(milliseconds: 180);
 const _kDiskSyncSuppressRetry = Duration(milliseconds: 200);
@@ -110,18 +111,24 @@ Future<void> _applyDiskSyncBatch(
   }
 
   final catalog = ref.read(collectionCatalogProvider.notifier);
+  final workflows = ref.read(workflowCatalogProvider.notifier);
   var removedRequest = false;
   var removedCollection = false;
+  var removedWorkflow = false;
 
   // Structural changes before index/content so order heals last.
   final ordered = [
     ...batch.whereType<CollectionRemovedFromDisk>(),
     ...batch.whereType<RequestRemovedFromDisk>(),
+    ...batch.whereType<WorkflowRemovedFromDisk>(),
     ...batch.whereType<CollectionAddedFromDisk>(),
     ...batch.whereType<RequestAddedFromDisk>(),
+    ...batch.whereType<WorkflowAddedFromDisk>(),
     ...batch.whereType<RequestContentChangedOnDisk>(),
+    ...batch.whereType<WorkflowContentChangedOnDisk>(),
     ...batch.whereType<CollectionIndexChangedOnDisk>(),
     ...batch.whereType<RequestIndexChangedOnDisk>(),
+    ...batch.whereType<WorkflowIndexChangedOnDisk>(),
   ];
 
   await runWithDiskSyncMuteAutosave(ref, () async {
@@ -170,6 +177,35 @@ Future<void> _applyDiskSyncBatch(
           await catalog.applyExternalCollectionIndexChanged();
         case RequestIndexChangedOnDisk(:final collectionId):
           catalog.applyExternalRequestIndexChanged(collectionId);
+        case WorkflowRemovedFromDisk(:final workflowId):
+          if (workspaceStorage.workflowExistsOnDisk(workflowId)) {
+            continue;
+          }
+          final workflowDir = Directory(
+            p.join(
+              workspaceStorage.rootPath,
+              kWorkspaceWorkflowsDir,
+              workflowId,
+            ),
+          );
+          if (await workflowDir.exists()) {
+            continue;
+          }
+          if (await workflows.applyExternalWorkflowRemoved(workflowId)) {
+            removedWorkflow = true;
+          }
+        case WorkflowAddedFromDisk(:final workflowId):
+          if (!workspaceStorage.workflowExistsOnDisk(workflowId)) {
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+          }
+          if (!workspaceStorage.workflowExistsOnDisk(workflowId)) {
+            continue;
+          }
+          await workflows.applyExternalWorkflowAdded(workflowId);
+        case WorkflowContentChangedOnDisk(:final workflowId):
+          await workflows.applyExternalWorkflowContentChanged(workflowId);
+        case WorkflowIndexChangedOnDisk():
+          await workflows.applyExternalWorkflowIndexChanged();
         case WorkspaceRootRemoved():
           break;
       }
@@ -180,6 +216,8 @@ Future<void> _applyDiskSyncBatch(
     _showDiskRemovalSnackBar(kMsgCollectionRemovedFromDisk);
   } else if (removedRequest) {
     _showDiskRemovalSnackBar(kMsgRequestRemovedFromDisk);
+  } else if (removedWorkflow) {
+    _showDiskRemovalSnackBar(kMsgWorkflowRemovedFromDisk);
   }
 }
 

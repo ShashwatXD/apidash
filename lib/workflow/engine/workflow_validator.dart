@@ -63,6 +63,12 @@ class WorkflowValidator {
           } else if ((node.loopExpression ?? '').trim().isEmpty) {
             warnings.add('Loop node "${node.label}" has no list variable.');
           }
+        case WorkflowNodeType.delay:
+          if (node.delayMs == null || node.delayMs! <= 0) {
+            warnings.add(
+              'Delay node "${node.label}" needs a wait time greater than 0ms.',
+            );
+          }
         case WorkflowNodeType.manualStart:
           break;
       }

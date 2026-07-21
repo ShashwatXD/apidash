@@ -8,6 +8,8 @@ const kDiscordUrl = "https://bit.ly/heyfoss";
 const kGitUrl = "https://github.com/foss42/apidash";
 const kLearnScriptingUrl =
     "$kGitUrl/blob/main/doc/user_guide/scripting_user_guide.md";
+const kLearnWorkflowsUrl =
+    "$kGitUrl/blob/main/doc/user_guide/workflows_guide.md";
 const kIssueUrl = "$kGitUrl/issues";
 const kDefaultUri = "api.apidash.dev";
 
@@ -585,9 +587,11 @@ const kMsgWorkspaceOpenFailed = 'Could not open that workspace folder.';
 const kMsgWorkspaceRecentMissing =
     'Workspace folder no longer exists on disk.';
 const kMsgRequestRemovedFromDisk =
-    'This request was deleted from disk.';
+    'A request was deleted from disk.';
 const kMsgCollectionRemovedFromDisk =
-    'This collection was deleted from disk.';
+    'A collection was deleted from disk.';
+const kMsgWorkflowRemovedFromDisk =
+    'A workflow was deleted from disk.';
 const kWorkspaceMissingSnackDuration = Duration(seconds: 4);
 // History Page
 const kTitleClearHistory = 'Clear History';
@@ -637,6 +641,8 @@ const kLabelHttpRequest = "HTTP request";
 const kLabelWorkflowStep = "Request step";
 const kLabelWorkflowCondition = "Condition";
 const kLabelWorkflowLoop = "For each";
+const kLabelWorkflowDelay = "Delay";
+const kLabelWorkflowDelayMs = "Wait (ms)";
 const kLabelWorkflowLoopRepeat = "Repeat";
 const kLabelWorkflowLoopForEach = "For each item";
 const kLabelWorkflowLoopList = "List";

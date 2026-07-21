@@ -173,6 +173,89 @@ class WorkflowCatalogNotifier extends AsyncNotifier<List<WorkflowSummary>> {
     }
     await workspaceStorage.setWorkflowsIndex(index);
   }
+
+  Future<bool> applyExternalWorkflowRemoved(String workflowId) async {
+    final catalog = state.value ?? const <WorkflowSummary>[];
+    final index = workspaceStorage.getWorkflowsIndex();
+    final wasKnown =
+        catalog.any((summary) => summary.id == workflowId) ||
+            index.contains(workflowId);
+    final wasSelected =
+        ref.read(selectedWorkflowIdStateProvider) == workflowId;
+    if (!wasKnown && !wasSelected) {
+      return false;
+    }
+
+    if (index.contains(workflowId)) {
+      await workspaceStorage.setWorkflowsIndex([
+        for (final name in index)
+          if (name != workflowId) name,
+      ]);
+    }
+
+    await reloadFromDisk();
+    if (wasSelected) {
+      final remaining = state.value ?? const <WorkflowSummary>[];
+      final nextId = remaining.isNotEmpty ? remaining.first.id : null;
+      ref.read(selectedWorkflowIdStateProvider.notifier).state = nextId;
+      ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
+      if (nextId != null) {
+        await ref.read(activeWorkflowProvider.notifier).load(nextId);
+      } else {
+        ref.read(activeWorkflowProvider.notifier).clear();
+      }
+    }
+    return true;
+  }
+
+  Future<bool> applyExternalWorkflowAdded(String workflowId) async {
+    if (!workspaceStorage.workflowExistsOnDisk(workflowId)) {
+      return false;
+    }
+    final catalog = state.value ?? const <WorkflowSummary>[];
+    final alreadyListed = catalog.any((summary) => summary.id == workflowId);
+    final index = workspaceStorage.getWorkflowsIndex().toList();
+    if (!index.contains(workflowId)) {
+      index.add(workflowId);
+      await workspaceStorage.setWorkflowsIndex(index);
+    }
+    await reloadFromDisk();
+    return !alreadyListed;
+  }
+
+  Future<bool> applyExternalWorkflowContentChanged(String workflowId) async {
+    if (!workspaceStorage.workflowExistsOnDisk(workflowId)) {
+      return false;
+    }
+    final index = workspaceStorage.getWorkflowsIndex().toList();
+    if (!index.contains(workflowId)) {
+      index.add(workflowId);
+      await workspaceStorage.setWorkflowsIndex(index);
+    }
+    await reloadFromDisk();
+    if (ref.read(selectedWorkflowIdStateProvider) == workflowId) {
+      await ref.read(activeWorkflowProvider.notifier).load(workflowId);
+    }
+    return true;
+  }
+
+  Future<bool> applyExternalWorkflowIndexChanged() async {
+    await reloadFromDisk();
+    final selected = ref.read(selectedWorkflowIdStateProvider);
+    final remaining = state.value ?? const <WorkflowSummary>[];
+    final ids = {for (final summary in remaining) summary.id};
+    if (selected != null && !ids.contains(selected)) {
+      final nextId = remaining.isNotEmpty ? remaining.first.id : null;
+      ref.read(selectedWorkflowIdStateProvider.notifier).state = nextId;
+      ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
+      if (nextId != null) {
+        await ref.read(activeWorkflowProvider.notifier).load(nextId);
+      } else {
+        ref.read(activeWorkflowProvider.notifier).clear();
+      }
+    }
+    return true;
+  }
 }
 
 class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
@@ -368,6 +451,47 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
     return nodeId;
   }
 
+  Future<String?> addDelayNode({
+    Offset position = const Offset(320, 240),
+    String? afterNodeId,
+    int delayMs = 1000,
+  }) async {
+    final current = state;
+    if (current == null) {
+      return null;
+    }
+    final nodeId = 'node_${getNewUuid().substring(0, 8)}';
+    const label = kLabelWorkflowDelay;
+    final nodes = [...current.graph.nodes];
+    final edges = [...current.graph.edges];
+    nodes.add(
+      WorkflowGraphNode(
+        id: nodeId,
+        type: WorkflowNodeType.delay,
+        label: label,
+        position: WorkflowPosition(x: position.dx, y: position.dy),
+        delayMs: delayMs,
+      ),
+    );
+    if (afterNodeId != null) {
+      edges.add(
+        WorkflowGraphEdge(
+          id: 'edge_${getNewUuid().substring(0, 8)}',
+          source: afterNodeId,
+          sourceHandle: _sourceHandleForNode(current, afterNodeId),
+          target: nodeId,
+        ),
+      );
+    }
+    await save(
+      current.copyWith(
+        graph: current.graph.copyWith(nodes: nodes, edges: edges),
+      ),
+    );
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = nodeId;
+    return nodeId;
+  }
+
   Future<String?> duplicateRequestStep(String nodeId) async {
     final current = state;
     if (current == null) {
@@ -453,6 +577,7 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
         : switch (node.type) {
             WorkflowNodeType.loop => kLabelWorkflowLoop,
             WorkflowNodeType.condition => kLabelWorkflowCondition,
+            WorkflowNodeType.delay => kLabelWorkflowDelay,
             _ => 'Node',
           };
     final newNode = node.copyWith(
@@ -767,6 +892,7 @@ WorkflowEdgeHandle _sourceHandleForNode(
       return switch (node.type) {
         WorkflowNodeType.manualStart => WorkflowEdgeHandle.next,
         WorkflowNodeType.loop => WorkflowEdgeHandle.next,
+        WorkflowNodeType.delay => WorkflowEdgeHandle.next,
         WorkflowNodeType.condition => WorkflowEdgeHandle.then,
         _ => WorkflowEdgeHandle.success,
       };

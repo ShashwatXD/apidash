@@ -23,6 +23,10 @@ class WorkflowNodeLayout {
           kWorkflowLoopNodeWidth,
           kWorkflowLoopNodeHeight,
         ),
+      WorkflowNodeType.delay => const Size(
+          kWorkflowDelayNodeWidth,
+          kWorkflowDelayNodeHeight,
+        ),
     };
   }
 
@@ -52,6 +56,11 @@ class WorkflowNodeLayout {
           WorkflowEdgeHandle.next => Offset(size.width, kLoopPortEachY),
           WorkflowEdgeHandle.loopDone => Offset(size.width, kLoopPortDoneY),
           _ => Offset(size.width, kLoopPortEachY),
+        },
+      WorkflowNodeType.delay => switch (handle) {
+          WorkflowEdgeHandle.inPort => Offset(0, kDelayPortInY),
+          WorkflowEdgeHandle.next => Offset(size.width, kDelayPortNextY),
+          _ => Offset(size.width, kDelayPortNextY),
         },
     };
   }

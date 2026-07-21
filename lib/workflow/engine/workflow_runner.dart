@@ -135,6 +135,41 @@ class WorkflowRunner {
             durationMs: 0,
           );
           branchHandle = WorkflowEdgeHandle.next;
+        case WorkflowNodeType.delay:
+          final delayMs = node.delayMs ?? 0;
+          final clampedDelay = delayMs < 0 ? 0 : delayMs;
+          if (clampedDelay > 0) {
+            const slice = Duration(milliseconds: 100);
+            var remaining = clampedDelay;
+            while (remaining > 0) {
+              if (shouldStop?.call() ?? false) {
+                return WorkflowRunResult(
+                  workflowId: workflow.id,
+                  success: false,
+                  startedAt: startedAt,
+                  endedAt: DateTime.now(),
+                  nodeResults: nodeResults,
+                  error: 'Workflow stopped',
+                  scopedVariables: scopedVariables,
+                );
+              }
+              final waitMs = remaining < slice.inMilliseconds
+                  ? remaining
+                  : slice.inMilliseconds;
+              await Future<void>.delayed(Duration(milliseconds: waitMs));
+              remaining -= waitMs;
+            }
+          }
+          result = WorkflowNodeRunResult(
+            nodeId: node.id,
+            label: node.label,
+            status: WorkflowNodeRunStatus.success,
+            message: clampedDelay <= 0
+                ? 'No delay configured'
+                : 'Waited ${clampedDelay}ms',
+            durationMs: DateTime.now().difference(nodeStartedAt).inMilliseconds,
+          );
+          branchHandle = WorkflowEdgeHandle.next;
         case WorkflowNodeType.condition:
           final passed = _evaluateCondition(
             node.conditionExpression,

@@ -703,3 +703,142 @@ class WorkflowLoopNodeCard extends StatelessWidget {
     );
   }
 }
+
+class WorkflowDelayNodeCard extends StatelessWidget {
+  const WorkflowDelayNodeCard({
+    super.key,
+    required this.node,
+    required this.selected,
+    this.highlightInput = false,
+    this.highlightNext = false,
+    this.onTap,
+    this.onDoubleTap,
+    this.onDuplicate,
+    this.onDelete,
+    this.onDragPanUpdate,
+    this.onDragPanEnd,
+    this.onWirePointerDown,
+  });
+
+  final WorkflowGraphNode node;
+  final bool selected;
+  final bool highlightInput;
+  final bool highlightNext;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDelete;
+  final GestureDragUpdateCallback? onDragPanUpdate;
+  final GestureDragEndCallback? onDragPanEnd;
+  final void Function(PointerDownEvent event, WorkflowEdgeHandle handle)?
+      onWirePointerDown;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final delayMs = node.delayMs;
+    final detail = delayMs != null && delayMs > 0
+        ? '${delayMs}ms'
+        : 'Set wait time';
+    return SizedBox(
+      width: kWorkflowDelayNodeWidth,
+      height: kWorkflowDelayNodeHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              onDoubleTap: onDoubleTap,
+              onPanUpdate: onDragPanUpdate,
+              onPanEnd: onDragPanEnd,
+              child: Material(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: selected
+                          ? theme.colorScheme.primary
+                          : theme.dividerColor,
+                      width: selected ? 2 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.timer_outlined, size: 20),
+                          kHSpacer8,
+                          Expanded(
+                            child: Text(
+                              node.label.isNotEmpty
+                                  ? node.label
+                                  : kLabelWorkflowDelay,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
+                            ),
+                          ),
+                          if (selected) ...[
+                            _NodeActionButton(
+                              icon: Icons.copy_outlined,
+                              tooltip: kTooltipDuplicate,
+                              onPressed: onDuplicate,
+                            ),
+                            _NodeActionButton(
+                              icon: Icons.delete_outline,
+                              tooltip: kTooltipDelete,
+                              onPressed: onDelete,
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Expanded(
+                        child: Text(
+                          detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: -6,
+            top: kDelayPortInY - 10,
+            child: WorkflowPort(
+              label: 'In',
+              side: WorkflowPortSide.left,
+              color: theme.colorScheme.primary,
+              highlighted: highlightInput,
+            ),
+          ),
+          Positioned(
+            right: -6,
+            top: kDelayPortNextY - 10,
+            child: WorkflowPort(
+              label: 'Next',
+              side: WorkflowPortSide.right,
+              color: theme.colorScheme.primary,
+              highlighted: highlightNext,
+              onPointerDown: (event) => onWirePointerDown?.call(
+                event,
+                WorkflowEdgeHandle.next,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

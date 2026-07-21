@@ -21,6 +21,8 @@ Future<void> openWorkflowNodeEditor(
       showWorkflowLoopStepEditor(context, ref, node: node),
     WorkflowNodeType.condition =>
       showWorkflowConditionStepEditor(context, ref, node: node),
+    WorkflowNodeType.delay =>
+      showWorkflowDelayStepEditor(context, ref, node: node),
     _ => Future.value(),
   };
 }
@@ -46,6 +48,18 @@ Future<void> showWorkflowConditionStepEditor(
     context,
     node: node,
     editor: _WorkflowConditionStepEditorPage(node: node),
+  );
+}
+
+Future<void> showWorkflowDelayStepEditor(
+  BuildContext context,
+  WidgetRef ref, {
+  required WorkflowGraphNode node,
+}) {
+  return _showLogicNodeEditor(
+    context,
+    node: node,
+    editor: _WorkflowDelayStepEditorPage(node: node),
   );
 }
 
@@ -440,6 +454,167 @@ class _WorkflowConditionStepEditorPageState
   }
 }
 
+class _WorkflowDelayStepEditorPage extends ConsumerStatefulWidget {
+  const _WorkflowDelayStepEditorPage({required this.node});
+
+  final WorkflowGraphNode node;
+
+  @override
+  ConsumerState<_WorkflowDelayStepEditorPage> createState() =>
+      _WorkflowDelayStepEditorPageState();
+}
+
+class _WorkflowDelayStepEditorPageState
+    extends ConsumerState<_WorkflowDelayStepEditorPage> {
+  late final TextEditingController _labelController;
+  late final TextEditingController _delayController;
+  final MultiSplitViewController _splitController = MultiSplitViewController(
+    areas: [
+      Area(id: 'variables', size: 260, min: 200, max: 360),
+      Area(id: 'config', min: 420),
+      Area(id: 'guide', size: 360, min: 280, max: 520),
+    ],
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _labelController = TextEditingController(
+      text: widget.node.label.isNotEmpty
+          ? widget.node.label
+          : kLabelWorkflowDelay,
+    );
+    final delayMs = widget.node.delayMs;
+    _delayController = TextEditingController(
+      text: delayMs != null && delayMs > 0 ? '$delayMs' : '1000',
+    );
+  }
+
+  @override
+  void dispose() {
+    _labelController.dispose();
+    _delayController.dispose();
+    _splitController.dispose();
+    super.dispose();
+  }
+
+  WorkflowGraphNode? _currentNode(WorkflowDocument? workflow) {
+    if (workflow == null) {
+      return null;
+    }
+    for (final candidate in workflow.graph.nodes) {
+      if (candidate.id == widget.node.id) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _saveAndClose() async {
+    final delayRaw = _delayController.text.trim();
+    final delayMs = int.tryParse(delayRaw);
+    if (delayMs == null || delayMs <= 0) {
+      return;
+    }
+    final label = _labelController.text.trim();
+    await ref.read(activeWorkflowProvider.notifier).updateSelectedNode(
+          widget.node.copyWith(
+            label: label.isNotEmpty ? label : kLabelWorkflowDelay,
+            delayMs: delayMs,
+          ),
+        );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete node'),
+        content: const Text(
+          'Remove this delay from the workflow? Connected edges will also be removed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(kLabelCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text(kTooltipDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await ref.read(activeWorkflowProvider.notifier).deleteNode(widget.node.id);
+    ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final workflow = ref.watch(activeWorkflowProvider);
+    final node = _currentNode(workflow);
+    if (workflow == null || node == null) {
+      return const Scaffold(
+        body: Center(child: Text(kMsgWorkflowNotFound)),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              node.label.isNotEmpty ? node.label : kLabelWorkflowDelay,
+            ),
+            Text(
+              'Wait before continuing',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: kTooltipDelete,
+            onPressed: _confirmDelete,
+          ),
+          FilledButton(
+            onPressed: _saveAndClose,
+            child: const Text(kLabelDone),
+          ),
+          kHSpacer12,
+        ],
+      ),
+      body: _LogicNodeEditorBody(
+        nodeId: node.id,
+        splitController: _splitController,
+        config: _DelayConfigPanel(
+          labelController: _labelController,
+          delayController: _delayController,
+          onPresetSelected: (value) => setState(() {
+            _delayController.text = value;
+          }),
+        ),
+        guide: const _DelayGuidePanel(),
+      ),
+    );
+  }
+}
+
 class _LogicNodeEditorBody extends StatelessWidget {
   const _LogicNodeEditorBody({
     required this.nodeId,
@@ -753,6 +928,66 @@ class _ConditionConfigPanel extends StatelessWidget {
   }
 }
 
+class _DelayConfigPanel extends StatelessWidget {
+  const _DelayConfigPanel({
+    required this.labelController,
+    required this.delayController,
+    required this.onPresetSelected,
+  });
+
+  final TextEditingController labelController;
+  final TextEditingController delayController;
+  final ValueChanged<String> onPresetSelected;
+
+  static const _presets = ['500', '1000', '2000', '5000'];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        Text('Delay configuration', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 16),
+        TextField(
+          controller: labelController,
+          decoration: const InputDecoration(
+            labelText: 'Node label',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: delayController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: kLabelWorkflowDelayMs,
+            hintText: '1000',
+            helperText: 'Wait this many milliseconds, then continue via Next.',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text('Quick presets', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final preset in _presets)
+              ActionChip(
+                label: Text('${preset}ms'),
+                onPressed: () => onPresetSelected(preset),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _LoopGuidePanel extends StatelessWidget {
   const _LoopGuidePanel();
 
@@ -808,6 +1043,34 @@ class _ConditionGuidePanel extends StatelessWidget {
           title: 'Variables',
           body:
               'Use var:token to branch when a flow variable is set and non-empty.',
+        ),
+      ],
+    );
+  }
+}
+
+class _DelayGuidePanel extends StatelessWidget {
+  const _DelayGuidePanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _GuidePanel(
+      title: 'How delays work',
+      sections: [
+        _GuideSection(
+          title: 'Wiring',
+          body:
+              'Connect In from the previous step and Next to the step that should run after waiting.',
+        ),
+        _GuideSection(
+          title: 'Wait time',
+          body:
+              'Set milliseconds to pause the workflow. Useful for rate limits, polling gaps, or giving a service time to settle.',
+        ),
+        _GuideSection(
+          title: 'Stop',
+          body:
+              'Pressing Stop during a delay cancels the wait and ends the run.',
         ),
       ],
     );

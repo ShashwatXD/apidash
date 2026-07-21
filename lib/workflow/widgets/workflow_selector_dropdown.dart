@@ -1,5 +1,5 @@
 import 'package:apidash/workflow/providers/workflow_providers.dart';
-import 'package:apidash/workflow/widgets/workflow_help_sheet.dart';
+import 'package:apidash/workflow/widgets/workflow_template_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 

@@ -2,15 +2,16 @@ import 'package:apidash/consts.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
-import 'package:apidash/workflow/widgets/workflow_help_sheet.dart';
 import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash/workflow/widgets/workflow_run_bar.dart';
 import 'package:apidash/workflow/widgets/workflow_canvas_constants.dart';
 import 'package:apidash/workflow/widgets/workflow_node_layout.dart';
 import 'package:apidash/workflow/widgets/workflow_request_node_card.dart';
+import 'package:apidash/workflow/widgets/workflow_template_sheet.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class _ActiveWire {
   const _ActiveWire({
@@ -420,7 +421,9 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
             bottom: 72,
             right: 200,
             child: _WorkflowGettingStartedHint(
-              onShowHelp: () => showWorkflowHelpSheet(context),
+              onShowHelp: () {
+                launchUrl(Uri.parse(kLearnWorkflowsUrl));
+              },
               onShowTemplates: () async {
                 final template = await showWorkflowTemplatePicker(context);
                 if (!context.mounted || template == null) {
@@ -498,6 +501,19 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
         );
       case WorkflowNodeType.condition:
         return WorkflowConditionNodeCard(
+          node: node,
+          selected: selected,
+          highlightInput: hoverInput,
+          onTap: () => _selectNode(node.id),
+          onDoubleTap: () => _openNodeEditor(node),
+          onDuplicate: () => _duplicateNode(node),
+          onDelete: () => _confirmDeleteNode(node),
+          onDragPanUpdate: _nodeDragHandler(node.id),
+          onDragPanEnd: _nodeDragEndHandler(node),
+          onWirePointerDown: _onOutputPortPointerDownHandler(node.id),
+        );
+      case WorkflowNodeType.delay:
+        return WorkflowDelayNodeCard(
           node: node,
           selected: selected,
           highlightInput: hoverInput,

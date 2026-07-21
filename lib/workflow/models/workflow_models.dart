@@ -1,7 +1,7 @@
 import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
 
-enum WorkflowNodeType { request, condition, manualStart, loop }
+enum WorkflowNodeType { request, condition, manualStart, loop, delay }
 
 enum WorkflowLoopMode {
   forEach,
@@ -213,6 +213,7 @@ class WorkflowGraphNode {
     this.loopExpression,
     this.loopMaxIterations,
     this.loopMode = WorkflowLoopMode.forEach,
+    this.delayMs,
     this.extractions = const [],
     this.onFailure = 'abort',
   });
@@ -226,6 +227,7 @@ class WorkflowGraphNode {
   final String? loopExpression;
   final int? loopMaxIterations;
   final WorkflowLoopMode loopMode;
+  final int? delayMs;
   final List<WorkflowExtraction> extractions;
   final String onFailure;
 
@@ -241,6 +243,7 @@ class WorkflowGraphNode {
         if (loopMaxIterations != null && loopMaxIterations! > 0)
           'loopMaxIterations': loopMaxIterations,
         if (loopMode != WorkflowLoopMode.forEach) 'loopMode': loopMode.toJson(),
+        if (delayMs != null && delayMs! > 0) 'delayMs': delayMs,
         if (extractions.isNotEmpty)
           'extractions': extractions.map((e) => e.toJson()).toList(),
         if (onFailure != 'abort') 'onFailure': onFailure,
@@ -267,6 +270,7 @@ class WorkflowGraphNode {
       loopExpression: json['loopExpression']?.toString(),
       loopMaxIterations: (json['loopMaxIterations'] as num?)?.toInt(),
       loopMode: WorkflowLoopMode.fromJson(json['loopMode']?.toString()),
+      delayMs: (json['delayMs'] as num?)?.toInt(),
       extractions: extractionsRaw is List
           ? [
               for (final item in extractionsRaw)
@@ -292,6 +296,8 @@ class WorkflowGraphNode {
     bool clearLoopMaxIterations = false,
     bool clearLoopExpression = false,
     WorkflowLoopMode? loopMode,
+    int? delayMs,
+    bool clearDelayMs = false,
     List<WorkflowExtraction>? extractions,
     String? onFailure,
   }) =>
@@ -309,6 +315,7 @@ class WorkflowGraphNode {
             ? null
             : (loopMaxIterations ?? this.loopMaxIterations),
         loopMode: loopMode ?? this.loopMode,
+        delayMs: clearDelayMs ? null : (delayMs ?? this.delayMs),
         extractions: extractions ?? this.extractions,
         onFailure: onFailure ?? this.onFailure,
       );

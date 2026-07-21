@@ -9,6 +9,8 @@ const double kWorkflowConditionNodeWidth = 220;
 const double kWorkflowConditionNodeHeight = 120;
 const double kWorkflowLoopNodeWidth = 210;
 const double kWorkflowLoopNodeHeight = 112;
+const double kWorkflowDelayNodeWidth = 200;
+const double kWorkflowDelayNodeHeight = 100;
 
 const double kRequestPortSendY = 118;
 const double kRequestPortSuccessY = 108;
@@ -19,3 +21,5 @@ const double kConditionPortElseY = 72;
 const double kLoopPortInY = 56;
 const double kLoopPortEachY = 38;
 const double kLoopPortDoneY = 74;
+const double kDelayPortInY = 50;
+const double kDelayPortNextY = 50;

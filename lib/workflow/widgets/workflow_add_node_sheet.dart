@@ -130,6 +130,17 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
     await _openNodeEditor(nodeId);
   }
 
+  Future<void> _addDelayNode() async {
+    final nodeId = await ref.read(activeWorkflowProvider.notifier).addDelayNode(
+          position: _placementPosition(),
+        );
+    if (!mounted) {
+      return;
+    }
+    _closeSheet();
+    await _openNodeEditor(nodeId);
+  }
+
   Future<void> _createNewRequest({APIType apiType = APIType.rest}) async {
     final nodeId = await ref.read(activeWorkflowProvider.notifier).addRequestStep(
           position: _placementPosition(),
@@ -288,6 +299,14 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
           title: kLabelWorkflowCondition,
           subtitle: 'Branch the flow on true / false conditions',
           onTap: _addConditionNode,
+        ),
+        const SizedBox(height: 8),
+        _AddNodeOptionTile(
+          icon: Icons.timer_outlined,
+          iconColor: theme.colorScheme.secondary,
+          title: kLabelWorkflowDelay,
+          subtitle: 'Wait a fixed number of milliseconds before continuing',
+          onTap: _addDelayNode,
         ),
       ],
     );

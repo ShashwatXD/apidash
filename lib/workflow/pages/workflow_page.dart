@@ -4,7 +4,6 @@ import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/widgets/workflow_canvas.dart';
 import 'package:apidash/workflow/widgets/workflow_flow_variables_sheet.dart';
-import 'package:apidash/workflow/widgets/workflow_help_sheet.dart';
 import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash/workflow/widgets/workflow_run_timeline.dart';
 import 'package:apidash/workflow/widgets/workflow_selector_dropdown.dart';
@@ -111,12 +110,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                 label: Text(
                   context.isMediumWindow ? 'Vars' : kLabelWorkflowVariables,
                 ),
-              ),
-              kHSpacer8,
-              IconButton(
-                tooltip: kLabelWorkflowHelp,
-                onPressed: () => showWorkflowHelpSheet(context),
-                icon: const Icon(Icons.help_outline_rounded),
               ),
               if (selectedNode != null &&
                   selectedNode.type != WorkflowNodeType.manualStart) ...[

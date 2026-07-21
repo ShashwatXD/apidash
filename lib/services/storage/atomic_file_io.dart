@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'disk_sync.dart';
+
 Future<void> _ensureDirectory(Directory dir) async {
   if (!await dir.exists()) {
     await dir.create(recursive: true);
@@ -16,6 +18,8 @@ Future<void> writeFileAtomic(String path, List<int> bytes) async {
 
   final tmpPath = '$path.tmp';
   final tmpFile = File(tmpPath);
+  workspaceWriteJournal.record(tmpPath);
+  workspaceWriteJournal.record(path);
   try {
     await tmpFile.writeAsBytes(bytes, flush: true);
     await _ensureDirectory(parent);
@@ -23,6 +27,7 @@ Future<void> writeFileAtomic(String path, List<int> bytes) async {
       await file.delete();
     }
     await tmpFile.rename(path);
+    workspaceWriteJournal.record(path);
   } on FileSystemException catch (e) {
     // Retry once when a concurrent folder rename/remove raced the write.
     if (e.osError?.errorCode == 2 && await tmpFile.exists()) {
@@ -32,6 +37,7 @@ Future<void> writeFileAtomic(String path, List<int> bytes) async {
           await file.delete();
         }
         await tmpFile.rename(path);
+        workspaceWriteJournal.record(path);
         return;
       } catch (retryError, retrySt) {
         debugPrint('writeFileAtomic retry failed for $path: $retryError\n$retrySt');

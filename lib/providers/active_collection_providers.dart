@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:apidash_core/apidash_core.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:apidash/consts.dart';
@@ -134,20 +135,36 @@ class ActiveCollectionNotifier
         );
   }
 
-  RequestModel? _requestModelFromDisk(String collectionId, String id) {
-    final jsonModel = workspaceStorage.getRequestModel(collectionId, id);
-    if (jsonModel == null) {
-      return null;
-    }
-    final jsonMap = Map<String, Object?>.from(jsonModel);
-    var requestModel = RequestModel.fromJson(jsonMap);
-    if (requestModel.httpRequestModel == null &&
-        requestModel.aiRequestModel == null) {
-      requestModel = requestModel.copyWith(
-        httpRequestModel: const HttpRequestModel(),
-      );
-    }
-    return requestModel;
+  RequestModel? _requestModelFromDisk(
+    String collectionId,
+    String folderId, {
+    Set<String> takenDisplayNamesLowercase = const {},
+  }) {
+    return requestModelFromDiskFolder(
+      storage: workspaceStorage,
+      collectionId: collectionId,
+      folderId: folderId,
+      takenDisplayNamesLowercase: takenDisplayNamesLowercase,
+    );
+  }
+
+  Future<void> _persistAdoptedRequest(
+    String collectionId,
+    String requestId,
+    RequestModel model,
+  ) async {
+    if (!ref.mounted || !isWorkspaceStorageInitialized()) return;
+    final settings = ref.read(settingsProvider);
+    var json = settings.saveResponses
+        ? model.toJson()
+        : model.copyWith(httpResponseModel: null).toJson();
+    json = await _prepareRequestJsonForDisk(collectionId, requestId, json);
+    await workspaceStorage.setRequestModel(
+      collectionId,
+      requestId,
+      json,
+      saveMediaAsFiles: settings.saveMediaResponsesAsFiles,
+    );
   }
 
   Future<void> _hydrateAiApiKey(String collectionId, String id) async {
@@ -207,9 +224,110 @@ class ActiveCollectionNotifier
       return;
     }
     state = {...state ?? {}, id: model};
+    _syncedContentFingerprints[id] = requestContentFingerprint(model);
     if (model.aiRequestModel != null) {
       unawaited(_hydrateAiApiKey(active, id));
     }
+  }
+
+
+  bool applyExternalRequestContentChanged(String requestId) {
+    final active = _activeCollectionId;
+    if (active == null) return false;
+    if (!workspaceStorage.requestExistsOnDisk(active, requestId)) {
+      return false;
+    }
+    final diskModel = _requestModelFromDisk(active, requestId);
+    if (diskModel == null) return false;
+
+    final current = state?[requestId];
+    final inSequence = ref.read(requestSequenceProvider).contains(requestId);
+
+    if (current != null) {
+      final synced = _syncedContentFingerprints[requestId];
+      if (synced != null &&
+          requestContentFingerprint(current) != synced) {
+        return false;
+      }
+    } else if (!inSequence) {
+      return applyExternalRequestAdded(requestId);
+    }
+
+    state = {...state ?? {}, requestId: diskModel};
+    _syncedContentFingerprints[requestId] =
+        requestContentFingerprint(diskModel);
+    if (diskModel.aiRequestModel != null) {
+      unawaited(_hydrateAiApiKey(active, requestId));
+    }
+    _syncActiveCollectionSummaries();
+    return true;
+  }
+
+  bool applyExternalRequestAdded(String requestId) {
+    final active = _activeCollectionId;
+    if (active == null) return false;
+    if (!workspaceStorage.requestExistsOnDisk(active, requestId)) {
+      return false;
+    }
+
+    final sequence = ref.read(requestSequenceProvider);
+    if (sequence.contains(requestId)) {
+      return false;
+    }
+
+    final takenNames = <String>{
+      for (final id in sequence)
+        if (_summaryForId(active, id)?.name case final name?)
+          name.toLowerCase(),
+    };
+    final takenIds = sequence.toSet();
+    final adopted = adoptRequestFolderFromDisk(
+      storage: workspaceStorage,
+      collectionId: active,
+      folderId: requestId,
+      takenNamesLower: takenNames,
+      takenIds: takenIds,
+    );
+    if (adopted == null || sequence.contains(adopted.id)) {
+      return false;
+    }
+
+    ref.read(requestSequenceProvider.notifier).state = [
+      ...sequence,
+      adopted.id,
+    ];
+    state = {...state ?? {}, adopted.id: adopted.model};
+    _syncedContentFingerprints[adopted.id] =
+        requestContentFingerprint(adopted.model);
+    if (adopted.model.aiRequestModel != null) {
+      unawaited(_hydrateAiApiKey(active, adopted.id));
+    }
+    _syncActiveCollectionSummaries();
+    unawaited(_persistAdoptedRequest(active, adopted.id, adopted.model));
+    return true;
+  }
+
+  bool applyExternalRequestIndexChanged() {
+    final active = _activeCollectionId;
+    if (active == null) return false;
+    final indexed = workspaceStorage.getIds(active);
+    final onDisk = workspaceStorage.listRequestIdsOnDisk(active);
+    final ordered = <String>[
+      for (final id in indexed)
+        if (onDisk.contains(id) ||
+            workspaceStorage.requestExistsOnDisk(active, id))
+          id,
+      for (final id in onDisk)
+        if (!indexed.contains(id)) id,
+    ];
+    final current = ref.read(requestSequenceProvider);
+    if (listEquals(current, ordered)) {
+      return false;
+    }
+
+    ref.read(requestSequenceProvider.notifier).state = ordered;
+    _syncActiveCollectionSummaries();
+    return true;
   }
 
   String _storageLabelFor(RequestModel model) {
@@ -240,6 +358,10 @@ class ActiveCollectionNotifier
       return;
     }
     workspaceStorage.renameRequestSync(active, oldId, newId);
+    final fp = _syncedContentFingerprints.remove(oldId);
+    if (fp != null) {
+      _syncedContentFingerprints[newId] = fp;
+    }
     unawaited(
       aiRequestSecretsStorage.rekeyApiKey(
         workspaceStorage.rootPath,
@@ -288,6 +410,7 @@ class ActiveCollectionNotifier
   }
 
   void activateCollection(String? collectionId) {
+    _syncedContentFingerprints.clear();
     if (collectionId == null) {
       state = {};
       ref.read(requestSequenceProvider.notifier).state = [];
@@ -342,6 +465,11 @@ class ActiveCollectionNotifier
   bool _saveDataInFlight = false;
   String? _pendingSaveCollectionId;
 
+  /// Fingerprint of request content last known to match disk (no response).
+  /// Used so external VS Code edits update clean requests without clobbering
+  /// in-memory edits that have not been saved yet.
+  final Map<String, String> _syncedContentFingerprints = {};
+
   bool hasId(String id) => state?.keys.contains(id) ?? false;
 
   RequestModel? getRequestModel(String id) {
@@ -391,27 +519,62 @@ class ActiveCollectionNotifier
 
   void remove({String? id}) {
     final rId = id ?? ref.read(selectedIdStateProvider);
+    if (rId == null) return;
     var itemIds = ref.read(requestSequenceProvider);
-    int idx = itemIds.indexOf(rId!);
+    int idx = itemIds.indexOf(rId);
+    if (idx < 0 && !(state?.containsKey(rId) ?? false)) {
+      return;
+    }
     cancelHttpRequest(rId);
-    itemIds.remove(rId);
-    ref.read(requestSequenceProvider.notifier).state = [...itemIds];
-
-    String? newId;
-    if (idx == 0 && itemIds.isNotEmpty) {
-      newId = itemIds[0];
-    } else if (itemIds.length > 1) {
-      newId = itemIds[idx - 1];
+    if (idx >= 0) {
+      itemIds = [...itemIds]..removeAt(idx);
+      ref.read(requestSequenceProvider.notifier).state = itemIds;
     } else {
-      newId = null;
+      itemIds = [...itemIds];
     }
 
-    ref.read(selectedIdStateProvider.notifier).state = newId;
+    final selectedId = ref.read(selectedIdStateProvider);
+    if (selectedId == rId) {
+      String? newId;
+      if (itemIds.isEmpty) {
+        newId = null;
+      } else if (idx <= 0) {
+        newId = itemIds[0];
+      } else if (idx >= itemIds.length) {
+        newId = itemIds[itemIds.length - 1];
+      } else {
+        newId = itemIds[idx - 1];
+      }
+      ref.read(selectedIdStateProvider.notifier).state = newId;
+    }
 
-    var map = {...state!};
-    map.remove(rId);
-    state = map;
+    if (state != null && state!.containsKey(rId)) {
+      var map = {...state!};
+      map.remove(rId);
+      state = map;
+    }
+    _syncedContentFingerprints.remove(rId);
     _syncActiveCollectionSummaries();
+  }
+
+  /// Applies an external (Finder/editor) deletion of a request folder.
+  ///
+  /// Idempotent: no-ops when the request is already gone from memory.
+  Future<bool> applyExternalRequestRemoved(String requestId) async {
+    final inSequence = ref.read(requestSequenceProvider).contains(requestId);
+    final inState = state?.containsKey(requestId) ?? false;
+    if (!inSequence && !inState) {
+      return false;
+    }
+    remove(id: requestId);
+    final active = _activeCollectionId;
+    if (active != null) {
+      final model = ref.read(collectionCatalogProvider)?[active];
+      if (model != null) {
+        await workspaceStorage.setCollection(active, model.toJson());
+      }
+    }
+    return true;
   }
 
   void clearResponse({String? id}) {
@@ -894,17 +1057,25 @@ class ActiveCollectionNotifier
   Future<void> clearData() async {
     ref.read(clearDataStateProvider.notifier).state = true;
     ref.read(selectedIdStateProvider.notifier).state = null;
-    await environmentSecretsStorage.deleteAllForWorkspace(
-      workspaceStorage.rootPath,
-    );
-    await aiRequestSecretsStorage.deleteAllForWorkspace(
-      workspaceStorage.rootPath,
-    );
-    await workspaceStorage.clear();
-    await ref.read(environmentsStateNotifierProvider.notifier).loadEnvironments();
-    ref.read(clearDataStateProvider.notifier).state = false;
-    ref.read(requestSequenceProvider.notifier).state = [];
-    state = {};
+    beginWorkspaceDiskReloadSuppress(ref);
+    try {
+      await environmentSecretsStorage.deleteAllForWorkspace(
+        workspaceStorage.rootPath,
+      );
+      await aiRequestSecretsStorage.deleteAllForWorkspace(
+        workspaceStorage.rootPath,
+      );
+      await workspaceStorage.clear();
+      await ref
+          .read(environmentsStateNotifierProvider.notifier)
+          .loadEnvironments();
+      ref.read(requestSequenceProvider.notifier).state = [];
+      state = {};
+      _syncedContentFingerprints.clear();
+    } finally {
+      endWorkspaceDiskReloadSuppress(ref);
+      ref.read(clearDataStateProvider.notifier).state = false;
+    }
   }
 
   Future<void> saveData({String? collectionId}) async {
@@ -977,6 +1148,11 @@ class ActiveCollectionNotifier
           json,
           saveMediaAsFiles: saveMediaAsFiles,
         );
+        final savedModel = state?[requestId];
+        if (savedModel != null) {
+          _syncedContentFingerprints[requestId] =
+              requestContentFingerprint(savedModel);
+        }
       }
 
       if (!ref.mounted) return;
@@ -987,6 +1163,8 @@ class ActiveCollectionNotifier
         targetId,
         finalIds,
       );
+      _syncedContentFingerprints
+          .removeWhere((id, _) => !finalIds.contains(id));
     } finally {
       if (ref.mounted) {
         ref.read(saveDataStateProvider.notifier).state = false;
@@ -1023,4 +1201,13 @@ class ActiveCollectionNotifier
 
     return substituteHttpRequestModel(httpRequestModel, envMap, activeEnvId);
   }
+}
+
+/// Stable fingerprint of editable request content (excludes response + API key).
+String requestContentFingerprint(RequestModel model) {
+  final json = Map<String, dynamic>.from(
+    model.copyWith(httpResponseModel: null).toJson(),
+  );
+  final stripped = AiRequestSecretsStorage.stripApiKeyFromJson(json);
+  return jsonEncode(stripped);
 }

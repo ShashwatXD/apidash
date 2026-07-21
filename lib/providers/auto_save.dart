@@ -28,6 +28,9 @@ class AutoSaveNotifier extends Notifier<void> {
       if (ref.read(saveDataStateProvider) || ref.read(clearDataStateProvider)) {
         return;
       }
+      if (ref.read(workspaceDiskSyncMuteAutosaveCountProvider) > 0) {
+        return;
+      }
       _schedule();
     }
 

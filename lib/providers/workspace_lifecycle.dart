@@ -25,8 +25,10 @@ import '../workflow/providers/workflow_ui_providers.dart';
 
 final workspaceDiskReloadSuppressCountProvider = StateProvider<int>((ref) => 0);
 
+/// While > 0, autosave ignores provider changes from disk→memory apply.
+final workspaceDiskSyncMuteAutosaveCountProvider = StateProvider<int>((ref) => 0);
+
 const _kWorkspaceDiskSuppressTail = Duration(milliseconds: 1500);
-const _kWorkspaceFolderPollInterval = Duration(seconds: 1);
 
 typedef _WorkspaceReader = T Function<T>(ProviderListenable<T> provider);
 typedef _WorkspaceInvalidator =
@@ -57,6 +59,28 @@ void endWorkspaceDiskReloadSuppress(Ref ref) {
   _endWorkspaceDiskReloadSuppress(ref.read);
 }
 
+void beginWorkspaceDiskSyncMuteAutosave(Ref ref) {
+  ref.read(workspaceDiskSyncMuteAutosaveCountProvider.notifier).state++;
+}
+
+void endWorkspaceDiskSyncMuteAutosave(Ref ref) {
+  final notifier = ref.read(workspaceDiskSyncMuteAutosaveCountProvider.notifier);
+  final next = notifier.state - 1;
+  notifier.state = next < 0 ? 0 : next;
+}
+
+Future<T> runWithDiskSyncMuteAutosave<T>(
+  Ref ref,
+  Future<T> Function() action,
+) async {
+  beginWorkspaceDiskSyncMuteAutosave(ref);
+  try {
+    return await action();
+  } finally {
+    endWorkspaceDiskSyncMuteAutosave(ref);
+  }
+}
+
 void _beginWorkspaceDiskReloadSuppress(_WorkspaceReader read) {
   read(workspaceDiskReloadSuppressCountProvider.notifier).state++;
 }
@@ -67,15 +91,6 @@ void _endWorkspaceDiskReloadSuppress(_WorkspaceReader read) {
     final next = notifier.state - 1;
     notifier.state = next < 0 ? 0 : next;
   });
-}
-
-Future<void> _ensureActiveWorkspaceStillOnDisk(Ref ref) async {
-  if (_workspaceCloseInProgress) return;
-  final path = _activeWorkspacePath(ref.read);
-  if (path == null) return;
-  if (!await _workspaceFolderExists(path)) {
-    await closeActiveWorkspaceMissingOnDisk(ref);
-  }
 }
 
 void _showWorkspaceMissingOnDiskSnackBar() {
@@ -117,45 +132,6 @@ Future<void> closeActiveWorkspaceMissingOnDisk(Ref ref) async {
     _workspaceCloseInProgress = false;
   }
 }
-
-/// Detects when the workspace root folder is deleted externally.
-///
-/// Does not reload workspace data on file changes — that raced with autosave and
-/// dropped in-memory requests. Disk → memory reload is only for explicit git ops.
-final workspacePresenceWatchProvider = Provider<void>((ref) {
-  if (!kIsDesktop) return;
-
-  final path = ref.watch(
-    settingsProvider.select((settings) => settings.workspaceFolderPath),
-  );
-  if (path == null || path.isEmpty) return;
-
-  StreamSubscription<FileSystemEvent>? subscription;
-
-  unawaited(_ensureActiveWorkspaceStillOnDisk(ref));
-
-  final pollTimer = Timer.periodic(_kWorkspaceFolderPollInterval, (_) {
-    unawaited(_ensureActiveWorkspaceStillOnDisk(ref));
-  });
-
-  try {
-    subscription = Directory(path)
-        .watch(recursive: true)
-        .listen(
-          (_) {},
-          onError: (_) => unawaited(_ensureActiveWorkspaceStillOnDisk(ref)),
-          onDone: () => unawaited(_ensureActiveWorkspaceStillOnDisk(ref)),
-        );
-  } catch (_) {
-    unawaited(closeActiveWorkspaceMissingOnDisk(ref));
-    return;
-  }
-
-  ref.onDispose(() {
-    pollTimer.cancel();
-    subscription?.cancel();
-  });
-});
 
 /// Reloads workspace providers from disk. Called only from explicit git flows
 /// (pull, checkout, restore) — never from passive filesystem watching.
@@ -259,6 +235,7 @@ Future<void> clearAllWorkspaceData(WidgetRef ref) async {
   ref.read(saveDataStateProvider.notifier).state = true;
   ref.read(hasUnsavedChangesProvider.notifier).state = false;
 
+  _beginWorkspaceDiskReloadSuppress(ref.read);
   try {
     ref.read(autoSaveNotifierProvider.notifier).cancelPending();
 
@@ -273,6 +250,7 @@ Future<void> clearAllWorkspaceData(WidgetRef ref) async {
     await Future<void>.delayed(Duration.zero);
     await SchedulerBinding.instance.endOfFrame;
   } finally {
+    _endWorkspaceDiskReloadSuppress(ref.read);
     ref.read(hasUnsavedChangesProvider.notifier).state = false;
     ref.read(clearDataStateProvider.notifier).state = false;
     ref.read(saveDataStateProvider.notifier).state = false;

@@ -6,7 +6,6 @@ import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 
-import 'git_diff_chrome.dart';
 import 'git_diff_side_by_side_shell.dart';
 import 'git_json_fallback_column.dart';
 
@@ -26,141 +25,6 @@ RequestModel? parseRequestModel(Map<String, Object?>? json) {
   }
 }
 
-List<GitDiffChangedField> collectRequestDiffChanges({
-  required RequestModel? original,
-  required RequestModel? current,
-}) {
-  if (original == null && current == null) return const [];
-
-  final changes = <GitDiffChangedField>[];
-  void add(
-    String label,
-    Object? a,
-    Object? b, {
-    String? Function(Object? a, Object? b)? detailOf,
-  }) {
-    final kind = _pairChangeKind(a, b);
-    if (kind == null) return;
-    changes.add(
-      GitDiffChangedField(
-        label: label,
-        kind: kind,
-        detail: detailOf?.call(a, b),
-      ),
-    );
-  }
-
-  add(
-    'Name',
-    original?.name,
-    current?.name,
-    detailOf: (a, b) => '${_preview(a)} → ${_preview(b)}',
-  );
-  add(
-    'Description',
-    original?.description,
-    current?.description,
-  );
-  add(
-    'Type',
-    original?.apiType,
-    current?.apiType,
-    detailOf: (a, b) =>
-        '${(a as APIType?)?.label ?? '—'} → ${(b as APIType?)?.label ?? '—'}',
-  );
-
-  final oh = original?.httpRequestModel;
-  final ch = current?.httpRequestModel;
-  add(
-    'Method',
-    oh?.method,
-    ch?.method,
-    detailOf: (a, b) =>
-        '${(a as HTTPVerb?)?.name.toUpperCase() ?? '—'} → '
-        '${(b as HTTPVerb?)?.name.toUpperCase() ?? '—'}',
-  );
-  add(
-    'URL',
-    oh?.url,
-    ch?.url,
-    detailOf: (a, b) => '${_preview(a)} → ${_preview(b)}',
-  );
-  add(
-    'Auth',
-    _configuredAuthType(oh),
-    _configuredAuthType(ch),
-    detailOf: (a, b) =>
-        '${(a as APIAuthType?)?.displayType ?? 'None'} → '
-        '${(b as APIAuthType?)?.displayType ?? 'None'}',
-  );
-  add(
-    'Headers',
-    oh?.headersMap,
-    ch?.headersMap,
-    detailOf: (a, b) =>
-        '${_mapCount(a)} → ${_mapCount(b)}',
-  );
-  add(
-    'URL Params',
-    oh?.paramsMap,
-    ch?.paramsMap,
-    detailOf: (a, b) => '${_mapCount(a)} → ${_mapCount(b)}',
-  );
-  add(
-    'Body',
-    oh == null ? null : _requestBodySignature(oh),
-    ch == null ? null : _requestBodySignature(ch),
-    detailOf: (_, _) {
-      final from = oh?.bodyContentType.name ?? '—';
-      final to = ch?.bodyContentType.name ?? '—';
-      return from == to ? from : '$from → $to';
-    },
-  );
-  add('GraphQL Query', oh?.query, ch?.query);
-  add(
-    'Pre-request Script',
-    original?.preRequestScript,
-    current?.preRequestScript,
-  );
-  add(
-    'Post-response Script',
-    original?.postRequestScript,
-    current?.postRequestScript,
-  );
-
-  final oa = original?.aiRequestModel;
-  final ca = current?.aiRequestModel;
-  add('AI Provider', oa?.modelApiProvider?.name, ca?.modelApiProvider?.name);
-  add('AI Model', oa?.model, ca?.model);
-  add('AI URL', oa?.url, ca?.url);
-  add('System Prompt', oa?.systemPrompt, ca?.systemPrompt);
-  add('User Prompt', oa?.userPrompt, ca?.userPrompt);
-
-  return changes;
-}
-
-String _preview(Object? value) {
-  final text = (value?.toString() ?? '').trim();
-  if (text.isEmpty) return '—';
-  if (text.length <= 42) return text;
-  return '${text.substring(0, 39)}…';
-}
-
-String _mapCount(Object? value) {
-  if (value is Map) return '${value.length}';
-  return '0';
-}
-
-GitDiffChangeKind? _pairChangeKind(Object? a, Object? b) {
-  if (_diffValueEquals(a, b)) return null;
-  final hasA = _hasDiffValue(a);
-  final hasB = _hasDiffValue(b);
-  if (!hasA && !hasB) return null;
-  if (!hasA && hasB) return GitDiffChangeKind.added;
-  if (hasA && !hasB) return GitDiffChangeKind.removed;
-  return GitDiffChangeKind.modified;
-}
-
 class GitRequestVisualDiff extends StatelessWidget {
   const GitRequestVisualDiff({
     super.key,
@@ -177,33 +41,21 @@ class GitRequestVisualDiff extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final changes = collectRequestDiffChanges(
-      original: original,
-      current: current,
-    );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        GitDiffChangeSummaryBar(changes: changes),
-        Expanded(
-          child: GitDiffSideBySideShell(
-            original: _RequestDiffColumn(
-              model: original,
-              otherModel: current,
-              side: _DiffSide.original,
-              raw: originalRaw,
-              fieldKey: 'git-diff-request-original',
-            ),
-            current: _RequestDiffColumn(
-              model: current,
-              otherModel: original,
-              side: _DiffSide.current,
-              raw: currentRaw,
-              fieldKey: 'git-diff-request-current',
-            ),
-          ),
-        ),
-      ],
+    return GitDiffSideBySideShell(
+      original: _RequestDiffColumn(
+        model: original,
+        otherModel: current,
+        side: _DiffSide.original,
+        raw: originalRaw,
+        fieldKey: 'git-diff-request-original',
+      ),
+      current: _RequestDiffColumn(
+        model: current,
+        otherModel: original,
+        side: _DiffSide.current,
+        raw: currentRaw,
+        fieldKey: 'git-diff-request-current',
+      ),
     );
   }
 }
@@ -252,7 +104,10 @@ class _RequestDiffSlots {
       showDescription:
           _hasDiffValue(model?.description) ||
           _hasDiffValue(otherModel?.description),
-      showType: model != null || otherModel != null,
+      showType:
+          model == null ||
+          otherModel == null ||
+          model.apiType != otherModel.apiType,
       showRestLine:
           effectiveApiType == APIType.rest &&
           (http != null || otherHttp != null),
@@ -320,22 +175,18 @@ class _RequestDiffColumn extends StatelessWidget {
     final apiType = model!.apiType;
     final slots = _RequestDiffSlots.compare(model, otherModel);
 
-    Widget section(
-      String label,
-      Widget child, {
-      GitDiffChangeKind? change,
-      String? subtitle,
-      Widget? trailing,
-    }) {
+    Widget section(String label, Widget child, {GitDiffChangeKind? change}) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GitDiffSectionHeader(
-            label: label,
-            change: change,
-            subtitle: subtitle,
-            trailing: trailing,
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          kVSpacer6,
           _GitDiffChangedBox(change: change, child: child),
           kVSpacer10,
         ],
@@ -347,78 +198,88 @@ class _RequestDiffColumn extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (slots.showName)
-            section(
-              'Name',
-              model!.name.trim().isEmpty
-                  ? const _GitDiffNoContentBox()
-                  : Text(
-                      model!.name,
-                      style: textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+          if (slots.showName) ...[
+            _GitDiffChangedBox(
               change: _fieldChangeKind(model!.name, otherModel?.name, side),
-            ),
-          if (slots.showDescription)
-            section(
-              'Description',
-              model!.description.trim().isEmpty
-                  ? const _GitDiffNoContentBox()
-                  : Text(
-                      model!.description,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+              child:
+                  model!.name.trim().isEmpty
+                      ? const _GitDiffNoContentBox()
+                      : Text(
+                        model!.name,
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
+            ),
+            kVSpacer8,
+          ],
+          if (slots.showDescription) ...[
+            _GitDiffChangedBox(
               change: _fieldChangeKind(
                 model!.description,
                 otherModel?.description,
                 side,
               ),
+              child:
+                  model!.description.trim().isEmpty
+                      ? const _GitDiffNoContentBox()
+                      : Text(
+                        model!.description,
+                        style: textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
             ),
-          if (slots.showType)
-            section(
-              'Type',
-              Text(
-                apiType.label,
-                style: kCodeStyle.copyWith(fontWeight: FontWeight.w600),
-              ),
+            kVSpacer10,
+          ],
+          if (slots.showType) ...[
+            _GitDiffScalarRow(
+              label: 'Type',
+              value: apiType.label,
               change: _fieldChangeKind(apiType, otherModel?.apiType, side),
             ),
+            kVSpacer10,
+          ],
           if (slots.showRestLine) ...[
-            if (apiType == APIType.rest && http != null) ...[
-              section(
-                'Method',
-                Text(
-                  http.method.name.toUpperCase(),
-                  style: kCodeStyle.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: getAPIColor(
-                      apiType,
-                      method: http.method,
-                      brightness: Theme.of(context).brightness,
+            apiType == APIType.rest && http != null
+                ? Row(
+                  children: [
+                    _GitDiffChangedBox(
+                      change: _fieldChangeKind(
+                        http.method,
+                        otherHttp?.method,
+                        side,
+                      ),
+                      child: Text(
+                        http.method.name.toUpperCase(),
+                        style: kCodeStyle.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: getAPIColor(
+                            apiType,
+                            method: http.method,
+                            brightness: Theme.of(context).brightness,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                change: _fieldChangeKind(
-                  http.method,
-                  otherHttp?.method,
-                  side,
-                ),
-              ),
-              section(
-                'URL',
-                ReadOnlyTextField(
-                  initialValue: http.url,
-                  style: kCodeStyle,
-                ),
-                change: _fieldChangeKind(http.url, otherHttp?.url, side),
-              ),
-            ] else ...[
-              section('Method', const _GitDiffNoContentBox()),
-              section('URL', const _GitDiffNoContentBox()),
-            ],
+                    kHSpacer12,
+                    Expanded(
+                      child: _GitDiffChangedBox(
+                        change: _fieldChangeKind(
+                          http.url,
+                          otherHttp?.url,
+                          side,
+                        ),
+                        child: ReadOnlyTextField(
+                          initialValue: http.url,
+                          style: kCodeStyle,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+                : const _GitDiffRestLinePlaceholder(),
+            kVSpacer10,
           ],
           if (slots.showAi) ...[
             apiType == APIType.ai && model!.aiRequestModel != null
@@ -429,25 +290,22 @@ class _RequestDiffColumn extends StatelessWidget {
                   idSuffix: model!.id,
                 )
                 : _AiRequestNoContentBody(ai: otherModel!.aiRequestModel!),
+            kVSpacer10,
           ],
-          if (slots.showAuth)
-            section(
-              kLabelAuthorization,
-              _hasConfiguredAuth(http)
-                  ? Text(
-                      http!.authModel!.type.displayType,
-                      style: kCodeStyle.copyWith(fontWeight: FontWeight.w600),
-                    )
-                  : const _GitDiffNoContentBox(),
-              change: _fieldChangeKind(
-                _configuredAuthType(http),
-                _configuredAuthType(otherHttp),
-                side,
-              ),
-              subtitle: _hasConfiguredAuth(http)
-                  ? 'Auth type for this request'
-                  : null,
-            ),
+          if (slots.showAuth) ...[
+            _hasConfiguredAuth(http)
+                ? _GitDiffScalarRow(
+                  label: 'Auth',
+                  value: http!.authModel!.type.displayType,
+                  change: _fieldChangeKind(
+                    _configuredAuthType(http),
+                    _configuredAuthType(otherHttp),
+                    side,
+                  ),
+                )
+                : const _GitDiffNoContentBox(),
+            kVSpacer10,
+          ],
           if (slots.showHeaders)
             section(
               kLabelHeaders,
@@ -458,14 +316,6 @@ class _RequestDiffColumn extends StatelessWidget {
                     otherRows: otherHttp?.headersMap ?? const {},
                     side: side,
                   ),
-              change: _fieldChangeKind(
-                http?.headersMap,
-                otherHttp?.headersMap,
-                side,
-              ),
-              subtitle:
-                  '${http?.headersMap.length ?? 0} header'
-                  '${(http?.headersMap.length ?? 0) == 1 ? '' : 's'}',
             ),
           if (slots.showParams)
             section(
@@ -477,14 +327,6 @@ class _RequestDiffColumn extends StatelessWidget {
                     otherRows: otherHttp?.paramsMap ?? const {},
                     side: side,
                   ),
-              change: _fieldChangeKind(
-                http?.paramsMap,
-                otherHttp?.paramsMap,
-                side,
-              ),
-              subtitle:
-                  '${http?.paramsMap.length ?? 0} param'
-                  '${(http?.paramsMap.length ?? 0) == 1 ? '' : 's'}',
             ),
           if (slots.showBody)
             section(
@@ -517,9 +359,6 @@ class _RequestDiffColumn extends StatelessWidget {
                 otherHttp == null ? null : _requestBodySignature(otherHttp),
                 side,
               ),
-              subtitle: http == null
-                  ? null
-                  : 'Content type: ${http.bodyContentType.name}',
             ),
           if (slots.showGraphqlQuery)
             section(
@@ -673,6 +512,9 @@ class _AiRequestDiffBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+
     final meta = <String, String>{
       if (ai.modelApiProvider != null) 'Provider': ai.modelApiProvider!.name,
       if (ai.model != null && ai.model!.trim().isNotEmpty) 'Model': ai.model!,
@@ -696,20 +538,18 @@ class _AiRequestDiffBody extends StatelessWidget {
         ) ??
         const <String, String>{};
 
-    Widget section(
-      String label,
-      Widget child, {
-      GitDiffChangeKind? change,
-      String? subtitle,
-    }) {
+    Widget section(String label, Widget child, {GitDiffChangeKind? change}) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          GitDiffSectionHeader(
-            label: label,
-            change: change,
-            subtitle: subtitle,
+          Text(
+            label,
+            style: textTheme.labelMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          kVSpacer6,
           _GitDiffChangedBox(change: change, child: child),
           kVSpacer10,
         ],
@@ -729,8 +569,6 @@ class _AiRequestDiffBody extends StatelessWidget {
                   otherRows: otherMeta,
                   side: side,
                 ),
-            change: _fieldChangeKind(meta, otherMeta, side),
-            subtitle: '${meta.length} setting${meta.length == 1 ? '' : 's'}',
           ),
         if (ai.url.trim().isNotEmpty ||
             (otherAi?.url.trim().isNotEmpty ?? false))
@@ -787,9 +625,6 @@ class _AiRequestDiffBody extends StatelessWidget {
                   otherRows: otherConfigs,
                   side: side,
                 ),
-            change: _fieldChangeKind(configs, otherConfigs, side),
-            subtitle:
-                '${configs.length} config${configs.length == 1 ? '' : 's'}',
           ),
       ],
     );
@@ -870,7 +705,6 @@ class _GitDiffKeyValueList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const GitDiffKvTableHeader(),
         for (final key in keys)
           _GitDiffChangedBox(
             change: _mapEntryChangeKind(
@@ -891,7 +725,6 @@ class _GitDiffKeyValueList extends StatelessWidget {
                             key,
                             style: kCodeStyle.copyWith(
                               color: scheme.onSurface.withValues(alpha: 0.9),
-                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
@@ -934,7 +767,6 @@ class _GitDiffFormDataList extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const GitDiffKvTableHeader(keyLabel: 'Name', valueLabel: 'Value'),
         for (final entry in mergedRows)
           _GitDiffChangedBox(
             change:
@@ -1009,20 +841,22 @@ class _GitDiffNoContentBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return GitDiffBoxedContent(
-      minHeight: minHeight,
+    return Container(
+      width: width,
+      constraints: BoxConstraints(minHeight: minHeight),
       margin: margin,
-      child: SizedBox(
-        width: width,
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: Text(
-            kMsgNoContent,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
-              fontStyle: FontStyle.italic,
-            ),
-          ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      alignment: Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        kMsgNoContent,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
+          fontStyle: FontStyle.italic,
         ),
       ),
     );
@@ -1044,6 +878,48 @@ class _GitDiffRestLinePlaceholder extends StatelessWidget {
   }
 }
 
+class _GitDiffScalarRow extends StatelessWidget {
+  const _GitDiffScalarRow({
+    required this.label,
+    required this.value,
+    required this.change,
+  });
+
+  final String label;
+  final String value;
+  final GitDiffChangeKind? change;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return _GitDiffChangedBox(
+      change: change,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: kCodeStyle.copyWith(
+                color: scheme.onSurface.withValues(alpha: 0.9),
+              ),
+            ),
+          ),
+          kHSpacer8,
+          Expanded(
+            flex: 3,
+            child: Text(
+              value,
+              style: kCodeStyle.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GitDiffChangedBox extends StatelessWidget {
   const _GitDiffChangedBox({
     required this.child,
@@ -1057,9 +933,20 @@ class _GitDiffChangedBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GitDiffBoxedContent(
-      change: change,
+    final kind = change;
+    if (kind == null) {
+      return Padding(padding: margin, child: child);
+    }
+
+    final highlight = getGitDiffHighlight(Theme.of(context).brightness, kind);
+    return Container(
       margin: margin,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: highlight.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: highlight.foreground.withValues(alpha: 0.22)),
+      ),
       child: child,
     );
   }
@@ -1149,13 +1036,6 @@ List<FormDataModel?> _orderedFormDataRows(
 bool _diffValueEquals(Object? a, Object? b) {
   if (a is String || b is String) {
     return (a?.toString() ?? '') == (b?.toString() ?? '');
-  }
-  if (a is Map && b is Map) {
-    if (a.length != b.length) return false;
-    for (final key in a.keys) {
-      if (!b.containsKey(key) || b[key] != a[key]) return false;
-    }
-    return true;
   }
   return a == b;
 }

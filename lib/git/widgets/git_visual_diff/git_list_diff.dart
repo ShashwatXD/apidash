@@ -263,21 +263,6 @@ String? _envVarPresenceDetail(EnvironmentVariableModel variable) {
   return parts.join(' · ');
 }
 
-List<GitDiffChangedField> collectListDiffChanges(List<GitListDiffRow> rows) {
-  return [
-    for (final row in rows)
-      GitDiffChangedField(
-        label: row.label,
-        kind: switch (row.kind) {
-          GitListDiffRowKind.added => GitDiffChangeKind.added,
-          GitListDiffRowKind.removed => GitDiffChangeKind.removed,
-          GitListDiffRowKind.modified => GitDiffChangeKind.modified,
-        },
-        detail: row.detail,
-      ),
-  ];
-}
-
 List<GitListDiffRow> _diffById<T>({
   required List<T> original,
   required List<T> updated,
@@ -346,106 +331,95 @@ class GitListDiffView extends StatelessWidget {
       return const GitDiffEmptyState();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        GitDiffChangeSummaryBar(changes: collectListDiffChanges(rows)),
-        Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: scheme.outlineVariant.withValues(alpha: 0.3),
-              ),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: ListView.separated(
-                padding: kP8,
-                itemCount: rows.length,
-                separatorBuilder: (_, _) => kVSpacer5,
-                itemBuilder: (context, index) {
-                  final row = rows[index];
-                  final kind = switch (row.kind) {
-                    GitListDiffRowKind.added => GitDiffChangeKind.added,
-                    GitListDiffRowKind.removed => GitDiffChangeKind.removed,
-                    GitListDiffRowKind.modified => GitDiffChangeKind.modified,
-                  };
-                  final highlight = getGitDiffHighlight(
-                    Theme.of(context).brightness,
-                    kind,
-                  );
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: scheme.outlineVariant.withValues(alpha: 0.3),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: ListView.separated(
+          padding: kP8,
+          itemCount: rows.length,
+          separatorBuilder: (_, _) => kVSpacer5,
+          itemBuilder: (context, index) {
+            final row = rows[index];
+            final kind = switch (row.kind) {
+              GitListDiffRowKind.added => GitDiffChangeKind.added,
+              GitListDiffRowKind.removed => GitDiffChangeKind.removed,
+              GitListDiffRowKind.modified => GitDiffChangeKind.modified,
+            };
+            final highlight = getGitDiffHighlight(
+              Theme.of(context).brightness,
+              kind,
+            );
 
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: highlight.background,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: highlight.foreground.withValues(alpha: 0.2),
-                      ),
-                    ),
-                    child: Row(
+            return Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: highlight.background,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: highlight.foreground.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  GitDiffChangeBadge(kind: kind),
+                  kHSpacer10,
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        GitDiffChangeBadge(kind: kind),
-                        kHSpacer10,
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (row.method != null &&
-                                  row.apiType == APIType.rest)
-                                Text(
-                                  row.method!.name.toUpperCase(),
-                                  style: kCodeStyle.copyWith(
-                                    fontSize: 11,
-                                    color: highlight.foreground,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              if (row.apiType != null &&
-                                  row.apiType != APIType.rest)
-                                Text(
-                                  row.apiType!.label,
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: highlight.foreground,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              Text(
-                                row.label,
-                                style: textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: highlight.foreground,
-                                ),
-                              ),
-                              if (row.detail != null &&
-                                  row.detail!.isNotEmpty) ...[
-                                kVSpacer5,
-                                Text(
-                                  row.detail!,
-                                  style: textTheme.bodySmall?.copyWith(
-                                    color: scheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ],
+                        if (row.method != null && row.apiType == APIType.rest)
+                          Text(
+                            row.method!.name.toUpperCase(),
+                            style: kCodeStyle.copyWith(
+                              fontSize: 11,
+                              color: highlight.foreground,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        if (row.apiType != null && row.apiType != APIType.rest)
+                          Text(
+                            row.apiType!.label,
+                            style: textTheme.labelSmall?.copyWith(
+                              color: highlight.foreground,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        Text(
+                          row.label,
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: highlight.foreground,
                           ),
                         ),
+                        if (row.detail != null && row.detail!.isNotEmpty) ...[
+                          kVSpacer5,
+                          Text(
+                            row.detail!,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
-                  );
-                },
+                  ),
+                ],
               ),
-            ),
-          ),
+            );
+          },
         ),
-      ],
+      ),
     );
   }
 }

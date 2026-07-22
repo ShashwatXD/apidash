@@ -32,35 +32,44 @@ class WorkflowNodeLayout {
 
   static Offset portOffset(WorkflowGraphNode node, WorkflowEdgeHandle handle) {
     final size = sizeFor(node);
+    const wireYNudge = 3.0;
     return switch (node.type) {
       WorkflowNodeType.manualStart => switch (handle) {
-          WorkflowEdgeHandle.next => Offset(size.width, kStartPortNextY),
-          _ => Offset(0, kStartPortNextY),
+          WorkflowEdgeHandle.next =>
+            Offset(size.width, kStartPortNextY + wireYNudge),
+          _ => Offset(0, kStartPortNextY + wireYNudge),
         },
       WorkflowNodeType.request => switch (handle) {
-          WorkflowEdgeHandle.inPort => Offset(0, kRequestPortSendY),
+          WorkflowEdgeHandle.inPort =>
+            Offset(0, kRequestPortSendY + wireYNudge),
           WorkflowEdgeHandle.success =>
-            Offset(size.width, kRequestPortSuccessY),
-          WorkflowEdgeHandle.failure => Offset(size.width, kRequestPortFailY),
-          _ => Offset(size.width, kRequestPortSuccessY),
+            Offset(size.width, kRequestPortSuccessY + wireYNudge),
+          WorkflowEdgeHandle.failure =>
+            Offset(size.width, kRequestPortFailY + wireYNudge),
+          _ => Offset(size.width, kRequestPortSuccessY + wireYNudge),
         },
       WorkflowNodeType.condition => switch (handle) {
-          WorkflowEdgeHandle.inPort => Offset(0, size.height / 2),
-          WorkflowEdgeHandle.then => Offset(size.width, kConditionPortThenY),
+          WorkflowEdgeHandle.inPort =>
+            Offset(0, kConditionPortInY + wireYNudge),
+          WorkflowEdgeHandle.then =>
+            Offset(size.width, kConditionPortThenY + wireYNudge),
           WorkflowEdgeHandle.elseBranch =>
-            Offset(size.width, kConditionPortElseY),
-          _ => Offset(size.width, kConditionPortThenY),
+            Offset(size.width, kConditionPortElseY + wireYNudge),
+          _ => Offset(size.width, kConditionPortThenY + wireYNudge),
         },
       WorkflowNodeType.loop => switch (handle) {
-          WorkflowEdgeHandle.inPort => Offset(0, kLoopPortInY),
-          WorkflowEdgeHandle.next => Offset(size.width, kLoopPortEachY),
-          WorkflowEdgeHandle.loopDone => Offset(size.width, kLoopPortDoneY),
-          _ => Offset(size.width, kLoopPortEachY),
+          WorkflowEdgeHandle.inPort => Offset(0, kLoopPortInY + wireYNudge),
+          WorkflowEdgeHandle.next =>
+            Offset(size.width, kLoopPortEachY + wireYNudge),
+          WorkflowEdgeHandle.loopDone =>
+            Offset(size.width, kLoopPortDoneY + wireYNudge),
+          _ => Offset(size.width, kLoopPortEachY + wireYNudge),
         },
       WorkflowNodeType.delay => switch (handle) {
-          WorkflowEdgeHandle.inPort => Offset(0, kDelayPortInY),
-          WorkflowEdgeHandle.next => Offset(size.width, kDelayPortNextY),
-          _ => Offset(size.width, kDelayPortNextY),
+          WorkflowEdgeHandle.inPort => Offset(0, kDelayPortInY + wireYNudge),
+          WorkflowEdgeHandle.next =>
+            Offset(size.width, kDelayPortNextY + wireYNudge),
+          _ => Offset(size.width, kDelayPortNextY + wireYNudge),
         },
     };
   }

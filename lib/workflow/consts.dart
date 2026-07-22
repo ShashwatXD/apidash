@@ -16,13 +16,14 @@ const double kRequestPortSendY = 118;
 const double kRequestPortSuccessY = 108;
 const double kRequestPortFailY = 128;
 const double kStartPortNextY = 48;
-const double kConditionPortThenY = 40;
-const double kConditionPortElseY = 72;
-const double kLoopPortInY = 56;
-const double kLoopPortEachY = 38;
-const double kLoopPortDoneY = 74;
-const double kDelayPortInY = 50;
-const double kDelayPortNextY = 50;
+const double kConditionPortInY = 68;
+const double kConditionPortThenY = 48;
+const double kConditionPortElseY = 80;
+const double kLoopPortInY = 60;
+const double kLoopPortEachY = 42;
+const double kLoopPortDoneY = 78;
+const double kDelayPortInY = 58;
+const double kDelayPortNextY = 58;
 
 const kLearnWorkflowsUrl =
     'https://github.com/foss42/apidash/blob/main/doc/user_guide/workflows_guide.md';

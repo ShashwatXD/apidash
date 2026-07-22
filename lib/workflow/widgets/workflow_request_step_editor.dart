@@ -7,6 +7,7 @@ import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/
 import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/request_pane_rest.dart';
 import 'package:apidash/screens/home_page/editor_pane/details_card/response_pane.dart';
 import 'package:apidash/screens/common_widgets/envfield_url.dart';
+import 'package:apidash/screens/home_page/editor_pane/url_card.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/engine/workflow_request_executor.dart';
 import 'package:apidash/workflow/engine/workflow_runner.dart';
@@ -589,17 +590,10 @@ class WorkflowStepUrlBar extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             if (!compact)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Text(
-                  kLabelURL,
-                  style: theme.textTheme.titleSmall,
-                ),
-              ),
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const _WorkflowStepMethodDropdown(),
+                const DropdownButtonHTTPMethod(),
                 kHSpacer8,
                 Expanded(
                   child: selectedId == null
@@ -633,37 +627,6 @@ class WorkflowStepUrlBar extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-class _WorkflowStepMethodDropdown extends ConsumerWidget {
-  const _WorkflowStepMethodDropdown();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final requestModel = ref.watch(selectedRequestModelProvider);
-    if (requestModel?.httpRequestModel == null) {
-      return const SizedBox.shrink();
-    }
-    final method = requestModel!.httpRequestModel!.method;
-    return DropdownButton<HTTPVerb>(
-      value: method,
-      underline: kSizedBoxEmpty,
-      items: HTTPVerb.values
-          .map(
-            (verb) => DropdownMenuItem(
-              value: verb,
-              child: Text(verb.name.toUpperCase()),
-            ),
-          )
-          .toList(),
-      onChanged: (value) {
-        if (value == null) {
-          return;
-        }
-        ref.read(activeCollectionProvider.notifier).update(method: value);
-      },
     );
   }
 }

@@ -595,6 +595,7 @@ class WorkflowNodeRunResult {
     this.message,
     this.durationMs,
     this.statusCode,
+    this.loopIndex,
   });
 
   final String nodeId;
@@ -603,6 +604,8 @@ class WorkflowNodeRunResult {
   final String? message;
   final int? durationMs;
   final int? statusCode;
+  /// Present when this result is one iteration of a loop body.
+  final String? loopIndex;
 }
 
 class WorkflowRunResult {

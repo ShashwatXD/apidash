@@ -157,13 +157,28 @@ class _WorkflowLoopStepEditorPageState
   }
 
   Future<void> _saveAndClose() async {
+    final saved = await _persist();
+    if (!saved || !mounted) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
+  Future<bool> _persist() async {
     final label = _labelController.text.trim();
     final iterationsRaw = _iterationsController.text.trim();
     final parsedIterations = int.tryParse(iterationsRaw);
 
     if (_loopMode == WorkflowLoopMode.repeat) {
       if (parsedIterations == null || parsedIterations <= 0) {
-        return;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Set times to repeat to a number greater than 0'),
+            ),
+          );
+        }
+        return false;
       }
       await ref.read(activeWorkflowProvider.notifier).updateSelectedNode(
             widget.node.copyWith(
@@ -175,28 +190,32 @@ class _WorkflowLoopStepEditorPageState
               clearLoopExpression: true,
             ),
           );
-    } else {
-      final listVar = _listVarController.text.trim();
-      if (listVar.isEmpty) {
-        return;
+      return true;
+    }
+
+    final listVar = _listVarController.text.trim();
+    if (listVar.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Set a list variable name')),
+        );
       }
-      final loopMaxIterations =
-          parsedIterations != null && parsedIterations > 0
-              ? parsedIterations
-              : null;
-      await ref.read(activeWorkflowProvider.notifier).updateSelectedNode(
-            widget.node.copyWith(
-              label: label.isNotEmpty ? label : kLabelWorkflowLoop,
-              loopMode: WorkflowLoopMode.forEach,
-              loopExpression: 'var:$listVar',
-              loopMaxIterations: loopMaxIterations,
-              clearLoopMaxIterations: loopMaxIterations == null,
-            ),
-          );
+      return false;
     }
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
+    final loopMaxIterations =
+        parsedIterations != null && parsedIterations > 0
+            ? parsedIterations
+            : null;
+    await ref.read(activeWorkflowProvider.notifier).updateSelectedNode(
+          widget.node.copyWith(
+            label: label.isNotEmpty ? label : kLabelWorkflowLoop,
+            loopMode: WorkflowLoopMode.forEach,
+            loopExpression: 'var:$listVar',
+            loopMaxIterations: loopMaxIterations,
+            clearLoopMaxIterations: loopMaxIterations == null,
+          ),
+        );
+    return true;
   }
 
   Future<void> _confirmDelete() async {
@@ -239,11 +258,23 @@ class _WorkflowLoopStepEditorPageState
       );
     }
 
-    return Scaffold(
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) {
+          await _persist();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            await _persist();
+            if (mounted) {
+              Navigator.of(context).pop();
+            }
+          },
         ),
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -252,7 +283,9 @@ class _WorkflowLoopStepEditorPageState
               node.label.isNotEmpty ? node.label : kLabelWorkflowLoop,
             ),
             Text(
-              'For-each loop',
+              _loopMode == WorkflowLoopMode.repeat
+                  ? 'Repeat N times'
+                  : 'For each item in a list',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
@@ -282,6 +315,7 @@ class _WorkflowLoopStepEditorPageState
         ),
         guide: const _LoopGuidePanel(),
       ),
+    ),
     );
   }
 }
@@ -681,7 +715,7 @@ class _LogicNodeEditorBody extends StatelessWidget {
   }
 }
 
-class _LoopConfigPanel extends StatefulWidget {
+class _LoopConfigPanel extends StatelessWidget {
   const _LoopConfigPanel({
     required this.labelController,
     required this.listVarController,
@@ -697,173 +731,113 @@ class _LoopConfigPanel extends StatefulWidget {
   final ValueChanged<WorkflowLoopMode> onLoopModeChanged;
 
   @override
-  State<_LoopConfigPanel> createState() => _LoopConfigPanelState();
-}
-
-class _LoopConfigPanelState extends State<_LoopConfigPanel>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(
-      length: widget.loopMode == WorkflowLoopMode.repeat ? 1 : 2,
-      vsync: this,
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _LoopConfigPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final tabCount = widget.loopMode == WorkflowLoopMode.repeat ? 1 : 2;
-    if (_tabController.length != tabCount) {
-      _tabController.dispose();
-      _tabController = TabController(length: tabCount, vsync: this);
-    }
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isRepeat = widget.loopMode == WorkflowLoopMode.repeat;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    final isRepeat = loopMode == WorkflowLoopMode.repeat;
+
+    return ListView(
+      padding: const EdgeInsets.all(24),
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-          child: Text('Loop configuration', style: theme.textTheme.titleMedium),
-        ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SegmentedButton<WorkflowLoopMode>(
-            segments: const [
-              ButtonSegment(
-                value: WorkflowLoopMode.forEach,
-                label: Text(kLabelWorkflowLoopForEach),
-                icon: Icon(Icons.list_rounded, size: 18),
-              ),
-              ButtonSegment(
-                value: WorkflowLoopMode.repeat,
-                label: Text(kLabelWorkflowLoopRepeat),
-                icon: Icon(Icons.repeat_rounded, size: 18),
-              ),
-            ],
-            selected: {widget.loopMode},
-            onSelectionChanged: (selection) {
-              widget.onLoopModeChanged(selection.first);
-            },
+        Text('Loop configuration', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text(
+          isRepeat
+              ? 'Run the Each branch a fixed number of times.'
+              : 'Run the Each branch once per item in an Environment variable list.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 12),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: TextField(
-            controller: widget.labelController,
+        const SizedBox(height: 16),
+        SegmentedButton<WorkflowLoopMode>(
+          segments: const [
+            ButtonSegment(
+              value: WorkflowLoopMode.forEach,
+              label: Text(kLabelWorkflowLoopForEach),
+              icon: Icon(Icons.list_rounded, size: 18),
+            ),
+            ButtonSegment(
+              value: WorkflowLoopMode.repeat,
+              label: Text(kLabelWorkflowLoopRepeat),
+              icon: Icon(Icons.repeat_rounded, size: 18),
+            ),
+          ],
+          selected: {loopMode},
+          onSelectionChanged: (selection) {
+            onLoopModeChanged(selection.first);
+          },
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: labelController,
+          decoration: const InputDecoration(
+            labelText: 'Node label',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (isRepeat)
+          TextField(
+            controller: iterationsController,
+            keyboardType: TextInputType.number,
             decoration: const InputDecoration(
-              labelText: 'Node label',
+              labelText: 'Times to repeat',
+              hintText: '5',
+              helperText: 'Required. Runs the Each branch this many times.',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          )
+        else ...[
+          TextField(
+            controller: listVarController,
+            decoration: const InputDecoration(
+              labelText: 'List variable',
+              hintText: 'items',
+              helperText:
+                  'Environment variable holding a JSON array or comma-separated values.',
+              border: OutlineInputBorder(),
+              isDense: true,
+              prefixText: 'var:',
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: iterationsController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Max items (optional)',
+              hintText: 'All items',
+              helperText: 'Leave empty to process the full list.',
               border: OutlineInputBorder(),
               isDense: true,
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        if (isRepeat) ...[
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                TextField(
-                  controller: widget.iterationsController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Times to repeat',
-                    hintText: '5',
-                    helperText:
-                        'Runs the connected Each step this many times. No list variable needed.',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('Available references', style: theme.textTheme.titleSmall),
-                const SizedBox(height: 8),
-                const _ReferenceChip(
-                  reference: '{{loop.index}}',
-                  label: 'Zero-based index (0, 1, 2…)',
-                ),
-              ],
-            ),
-          ),
-        ] else ...[
-          TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(text: kLabelWorkflowLoopList),
-              Tab(text: kLabelWorkflowLoopIterations),
-            ],
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    TextField(
-                      controller: widget.listVarController,
-                      decoration: const InputDecoration(
-                        labelText: 'List variable',
-                        hintText: 'items',
-                        helperText:
-                            'Set this as an Environment variable. JSON array or comma-separated values.',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                        prefixText: 'var:',
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text('Downstream references', style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 8),
-                    const _ReferenceChip(
-                      reference: '{{loop.item}}',
-                      label: 'Current item',
-                    ),
-                    const SizedBox(height: 8),
-                    const _ReferenceChip(
-                      reference: '{{loop.index}}',
-                      label: 'Zero-based index',
-                    ),
-                  ],
-                ),
-                ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    TextField(
-                      controller: widget.iterationsController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Max items (optional)',
-                        hintText: 'All items',
-                        helperText:
-                            'Leave empty to process the full list. Set a number to cap iterations.',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
         ],
+        const SizedBox(height: 24),
+        Text('Use in requests inside the loop', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (!isRepeat) ...[
+          const _ReferenceChip(
+            reference: '{{loop.item}}',
+            label: 'Current list item',
+          ),
+          const SizedBox(height: 8),
+        ],
+        const _ReferenceChip(
+          reference: '{{loop.index}}',
+          label: 'Zero-based index (0, 1, 2…)',
+        ),
+        const SizedBox(height: 24),
+        Text('Ports', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Text(
+          'In → enter the loop · Each → body to repeat · Done → after all iterations',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
       ],
     );
   }
@@ -998,24 +972,24 @@ class _LoopGuidePanel extends StatelessWidget {
       title: 'How loops work',
       sections: [
         _GuideSection(
-          title: 'Modes',
+          title: 'Pick a mode',
           body:
-              'For each item runs once per entry in a list variable. Repeat runs the same step N times with no list setup.',
+              'For each item — iterate an Environment list variable. Repeat — run N times with no list.',
         ),
         _GuideSection(
-          title: 'Wiring',
+          title: 'Wire the ports',
           body:
-              'Connect In from the previous step. Connect Each to the first step inside the loop body. Connect Done to the step that runs after all iterations finish.',
+              'In: previous step. Each: first step inside the loop. Done: continues after every iteration finishes.',
         ),
         _GuideSection(
-          title: 'List variable',
+          title: 'List values',
           body:
-              'For each mode: set an Environment variable, e.g. items = ["a","b"] or comma-separated values, then use var:items.',
+              'Example Environment var items = ["a","b"] or a,b. Point the loop at var:items.',
         ),
         _GuideSection(
-          title: 'Per iteration',
+          title: 'Inside the loop',
           body:
-              'Use {{loop.item}} and {{loop.index}} in downstream request URLs, headers, or bodies.',
+              'Use {{loop.item}} (for each) and {{loop.index}} in request URLs, headers, or bodies.',
         ),
       ],
     );

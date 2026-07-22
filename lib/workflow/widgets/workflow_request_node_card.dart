@@ -330,7 +330,7 @@ class WorkflowStartNodeCard extends StatelessWidget {
                   onTap: onTap,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
@@ -422,14 +422,19 @@ class WorkflowConditionNodeCard extends StatelessWidget {
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
               child: Material(
-                color: theme.colorScheme.tertiaryContainer,
+                color: Color.alphaBlend(
+                  const Color(0xFFFFB300).withValues(
+                    alpha: theme.brightness == Brightness.dark ? 0.22 : 0.14,
+                  ),
+                  theme.colorScheme.surfaceContainerLow,
+                ),
                 borderRadius: BorderRadius.circular(12),
                 child: InkWell(
                   onTap: onTap,
                   onDoubleTap: onDoubleTap,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
@@ -444,7 +449,13 @@ class WorkflowConditionNodeCard extends StatelessWidget {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.rule, size: 20),
+                            Icon(
+                              Icons.call_split_rounded,
+                              size: 20,
+                              color: theme.brightness == Brightness.dark
+                                  ? const Color(0xFFFFD54F)
+                                  : const Color(0xFFB26A00),
+                            ),
                             kHSpacer8,
                             Expanded(
                               child: Text(
@@ -486,7 +497,7 @@ class WorkflowConditionNodeCard extends StatelessWidget {
           ),
           Positioned(
             left: -6,
-            top: kWorkflowConditionNodeHeight / 2 - 10,
+            top: kConditionPortInY - 10,
             child: WorkflowPort(
               label: 'In',
               side: WorkflowPortSide.left,
@@ -588,7 +599,7 @@ class WorkflowLoopNodeCard extends StatelessWidget {
                 color: theme.colorScheme.secondaryContainer,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
@@ -631,27 +642,11 @@ class WorkflowLoopNodeCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 6),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              loopDetail,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              node.loopMode == WorkflowLoopMode.repeat
-                                  ? 'Runs the Each branch repeatedly'
-                                  : 'Use {{loop.item}} in downstream requests',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          loopDetail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall,
                         ),
                       ),
                     ],
@@ -757,7 +752,7 @@ class WorkflowDelayNodeCard extends StatelessWidget {
                 color: theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(

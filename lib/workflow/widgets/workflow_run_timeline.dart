@@ -175,9 +175,14 @@ class _WorkflowRunTimelineState extends ConsumerState<WorkflowRunTimeline> {
                                 kHSpacer6,
                                 Expanded(
                                   child: Text(
-                                    result.label.isEmpty
-                                        ? result.nodeId
-                                        : result.label,
+                                    [
+                                      if (result.label.isEmpty)
+                                        result.nodeId
+                                      else
+                                        result.label,
+                                      if (result.loopIndex != null)
+                                        '#${int.tryParse(result.loopIndex!) != null ? (int.parse(result.loopIndex!) + 1) : result.loopIndex}',
+                                    ].join(' '),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall,

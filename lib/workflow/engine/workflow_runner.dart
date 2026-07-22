@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:apidash/consts.dart';
 import 'package:apidash/models/models.dart';
+import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/engine/extraction_service.dart';
 import 'package:apidash/workflow/engine/workflow_request_executor.dart';
@@ -85,6 +87,8 @@ class WorkflowRunner {
     final visited = <String>{};
     final loopIterationsRemaining = <String, int>{};
     final loopDoneTargets = <String, List<String>>{};
+    final loopItems = <String, List<String>>{};
+    final loopBodyStarts = <String, String>{};
     int? lastStatusCode;
 
     while (queue.isNotEmpty) {
@@ -110,7 +114,7 @@ class WorkflowRunner {
         scopedVariables['loop.index'] = entry.loopIndex!;
       }
 
-      final visitKey = _visitKey(node, scopedVariables);
+      final visitKey = _visitKey(entry);
       if (!visited.add(visitKey)) {
         continue;
       }
@@ -119,6 +123,7 @@ class WorkflowRunner {
         nodeId: node.id,
         label: node.label,
         status: WorkflowNodeRunStatus.running,
+        loopIndex: entry.loopIndex,
       );
       onNodeUpdate?.call(running);
 
@@ -187,11 +192,13 @@ class WorkflowRunner {
               passed ? WorkflowEdgeHandle.then : WorkflowEdgeHandle.elseBranch;
         case WorkflowNodeType.loop:
           final maxIterations = node.loopMaxIterations;
+          final environmentVariables = _environmentVariables(ref);
           final allItems = node.loopMode == WorkflowLoopMode.repeat
               ? _repeatLoopItems(maxIterations)
               : _resolveLoopItems(
                   node.loopExpression,
                   scopedVariables,
+                  environmentVariables,
                 );
           final items = node.loopMode == WorkflowLoopMode.repeat
               ? allItems
@@ -228,6 +235,8 @@ class WorkflowRunner {
           } else {
             loopIterationsRemaining[node.id] = items.length;
             loopDoneTargets[node.id] = doneTargetIds;
+            loopItems[node.id] = items;
+            loopBodyStarts[node.id] = bodyStarts.first;
             final bodyNode = workflow.graph.nodes
                 .where((candidate) => candidate.id == bodyStarts.first)
                 .cast<WorkflowGraphNode?>()
@@ -236,17 +245,16 @@ class WorkflowRunner {
                   orElse: () => null,
                 );
             if (bodyNode != null) {
-              for (var index = items.length - 1; index >= 0; index--) {
-                queue.insert(
-                  0,
-                  _QueueEntry(
-                    bodyNode,
-                    loopItem: items[index],
-                    loopIndex: '$index',
-                    loopCompletionId: node.id,
-                  ),
-                );
-              }
+              // Run iterations sequentially: queue only the first body start.
+              queue.insert(
+                0,
+                _QueueEntry(
+                  bodyNode,
+                  loopItem: items.first,
+                  loopIndex: '0',
+                  loopCompletionId: node.id,
+                ),
+              );
             }
           }
           skipDefaultEnqueue = true;
@@ -325,7 +333,17 @@ class WorkflowRunner {
       }
 
       nodeResults.add(result);
-      onNodeUpdate?.call(result);
+      onNodeUpdate?.call(
+        WorkflowNodeRunResult(
+          nodeId: result.nodeId,
+          label: result.label,
+          status: result.status,
+          message: result.message,
+          durationMs: result.durationMs,
+          statusCode: result.statusCode,
+          loopIndex: entry.loopIndex,
+        ),
+      );
 
       if (skipDefaultEnqueue) {
         continue;
@@ -358,6 +376,8 @@ class WorkflowRunner {
           queue.add(
             _QueueEntry(
               nextNode,
+              loopItem: entry.loopItem,
+              loopIndex: entry.loopIndex,
               loopCompletionId: loopCompletionId,
             ),
           );
@@ -369,6 +389,8 @@ class WorkflowRunner {
           loopId: loopCompletionId,
           loopIterationsRemaining: loopIterationsRemaining,
           loopDoneTargets: loopDoneTargets,
+          loopItems: loopItems,
+          loopBodyStarts: loopBodyStarts,
           queue: queue,
           workflow: workflow,
           scopedVariables: scopedVariables,
@@ -390,14 +412,34 @@ class WorkflowRunner {
     );
   }
 
-  String _visitKey(WorkflowGraphNode node, Map<String, String> scopedVariables) {
-    if (node.type == WorkflowNodeType.request) {
-      final loopIndex = scopedVariables['loop.index'];
-      if (loopIndex != null) {
-        return '${node.id}:$loopIndex';
-      }
+  String _visitKey(_QueueEntry entry) {
+    final node = entry.node;
+    // Loop body iterations must be distinct even for the same node id.
+    if (entry.loopCompletionId != null && entry.loopIndex != null) {
+      return '${node.id}@${entry.loopCompletionId}:${entry.loopIndex}';
     }
     return node.id;
+  }
+
+  Map<String, String> _environmentVariables(WidgetRef ref) {
+    final envMap = ref.read(availableEnvironmentVariablesStateProvider);
+    final activeEnvId = ref.read(activeEnvironmentIdProvider);
+    final merged = <String, String>{};
+    void addAll(String? environmentId) {
+      if (environmentId == null) {
+        return;
+      }
+      for (final variable in envMap[environmentId] ?? const []) {
+        if (variable.key.isEmpty) {
+          continue;
+        }
+        merged[variable.key] = variable.value;
+      }
+    }
+
+    addAll(kGlobalEnvironmentId);
+    addAll(activeEnvId);
+    return merged;
   }
 
   List<String> _repeatLoopItems(int? count) {
@@ -410,6 +452,7 @@ class WorkflowRunner {
   List<String> _resolveLoopItems(
     String? expression,
     Map<String, String> scopedVariables,
+    Map<String, String> environmentVariables,
   ) {
     final expr = expression?.trim();
     if (expr == null || expr.isEmpty) {
@@ -422,7 +465,7 @@ class WorkflowRunner {
     if (key.isEmpty) {
       return const [];
     }
-    final raw = scopedVariables[key];
+    final raw = scopedVariables[key] ?? environmentVariables[key];
     if (raw == null || raw.trim().isEmpty) {
       return const [];
     }
@@ -506,6 +549,8 @@ class WorkflowRunner {
     required String loopId,
     required Map<String, int> loopIterationsRemaining,
     required Map<String, List<String>> loopDoneTargets,
+    required Map<String, List<String>> loopItems,
+    required Map<String, String> loopBodyStarts,
     required List<_QueueEntry> queue,
     required WorkflowDocument workflow,
     required Map<String, String> scopedVariables,
@@ -517,13 +562,41 @@ class WorkflowRunner {
     final nextRemaining = remaining - 1;
     if (nextRemaining <= 0) {
       loopIterationsRemaining.remove(loopId);
+      loopItems.remove(loopId);
+      loopBodyStarts.remove(loopId);
       final doneTargets = loopDoneTargets.remove(loopId) ?? const [];
       scopedVariables.remove('loop.item');
       scopedVariables.remove('loop.index');
       _enqueueTargetIds(queue, workflow, doneTargets);
-    } else {
-      loopIterationsRemaining[loopId] = nextRemaining;
+      return;
     }
+
+    loopIterationsRemaining[loopId] = nextRemaining;
+    final items = loopItems[loopId];
+    final bodyStartId = loopBodyStarts[loopId];
+    if (items == null || bodyStartId == null) {
+      return;
+    }
+    final nextIndex = items.length - nextRemaining;
+    if (nextIndex < 0 || nextIndex >= items.length) {
+      return;
+    }
+    final bodyNode = workflow.graph.nodes
+        .where((candidate) => candidate.id == bodyStartId)
+        .cast<WorkflowGraphNode?>()
+        .firstWhere((candidate) => candidate != null, orElse: () => null);
+    if (bodyNode == null) {
+      return;
+    }
+    queue.insert(
+      0,
+      _QueueEntry(
+        bodyNode,
+        loopItem: items[nextIndex],
+        loopIndex: '$nextIndex',
+        loopCompletionId: loopId,
+      ),
+    );
   }
 }
 

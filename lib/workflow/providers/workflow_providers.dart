@@ -919,15 +919,21 @@ Future<WorkflowRunResult?> runActiveWorkflow(WidgetRef ref) async {
       workflow: workflow,
       storage: workspaceStorage,
       onNodeUpdate: (nodeResult) {
+        final iterationKey = nodeResult.loopIndex != null
+            ? '${nodeResult.nodeId}#${nodeResult.loopIndex}'
+            : nodeResult.nodeId;
         ref.read(workflowNodeRunResultsProvider.notifier).state = {
           ...ref.read(workflowNodeRunResultsProvider),
+          // Latest status for the node card on the canvas.
           nodeResult.nodeId: nodeResult,
+          // Distinct key so loop iterations all appear in the timeline.
+          iterationKey: nodeResult,
         };
         final order = ref.read(workflowRunStepOrderProvider);
-        if (!order.contains(nodeResult.nodeId)) {
+        if (!order.contains(iterationKey)) {
           ref.read(workflowRunStepOrderProvider.notifier).state = [
             ...order,
-            nodeResult.nodeId,
+            iterationKey,
           ];
         }
       },

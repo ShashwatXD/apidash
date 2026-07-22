@@ -461,7 +461,7 @@ class _ExtractionsPanel extends ConsumerWidget {
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerLowest,
       child: Padding(
-        padding: kP12,
+        padding: kP8,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -481,7 +481,7 @@ class _ExtractionsPanel extends ConsumerWidget {
                   dense: true,
                   contentPadding: EdgeInsets.zero,
                   title: Text('{{${extraction.varName}}}'),
-                  subtitle: Text('${extraction.source} ${extraction.jsonPath}'),
+                  subtitle: Text('${extraction.source}.${extraction.jsonPath}'),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, size: 18),
                     onPressed: () async {
@@ -507,7 +507,6 @@ class _ExtractionsPanel extends ConsumerWidget {
                     decoration: const InputDecoration(
                       labelText: 'Variable',
                       isDense: true,
-                      hintText: 'token',
                     ),
                   ),
                 ),
@@ -517,9 +516,9 @@ class _ExtractionsPanel extends ConsumerWidget {
                   child: TextField(
                     controller: pathController,
                     decoration: const InputDecoration(
-                      labelText: 'JSONPath',
+                      labelText: 'Path',
                       isDense: true,
-                      hintText: r'$.id',
+                  
                     ),
                   ),
                 ),

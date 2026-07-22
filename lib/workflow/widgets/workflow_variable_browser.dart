@@ -1,6 +1,6 @@
 import 'package:apidash/consts.dart';
-import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_providers.dart';
+import 'package:apidash/workflow/utils/workflow_variable_utils.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,16 +21,14 @@ class WorkflowVariableBrowser extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final upstream = _upstreamRequestNodes(workflow, nodeId);
-    final chained = <_VariableEntry>[
-      for (final upstreamNode in upstream)
-        for (final extraction in upstreamNode.extractions)
-          if (extraction.varName.isNotEmpty)
-            _VariableEntry(
-              label: extraction.varName,
-              reference: '{{${extraction.varName}}}',
-              subtitle: '${upstreamNode.label} · ${extraction.jsonPath}',
-            ),
+    final chainedMap = upstreamExtractionVariables(workflow, nodeId);
+    final chained = [
+      for (final entry in chainedMap.entries)
+        _VariableEntry(
+          label: entry.key,
+          reference: '{{${entry.key}}}',
+          subtitle: entry.value,
+        ),
     ];
 
     return ListView(
@@ -42,7 +40,7 @@ class WorkflowVariableBrowser extends ConsumerWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Use Environments for shared inputs. Extractions from upstream steps appear here for chaining.',
+          'Extractions from upstream steps appear here for chaining.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.outline,
               ),
@@ -55,38 +53,12 @@ class WorkflowVariableBrowser extends ConsumerWidget {
           Padding(
             padding: kP12,
             child: Text(
-              'No upstream extractions yet. Add an extraction on a previous request, or use Environment variables with {{name}}.',
+              'No upstream extractions yet.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
       ],
     );
-  }
-
-  List<WorkflowGraphNode> _upstreamRequestNodes(
-    WorkflowDocument workflow,
-    String targetNodeId,
-  ) {
-    final predecessors = <String>{};
-    final queue = <String>[targetNodeId];
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
-      for (final edge in workflow.graph.edges) {
-        if (edge.target != current) {
-          continue;
-        }
-        if (predecessors.add(edge.source)) {
-          queue.add(edge.source);
-        }
-      }
-    }
-
-    return [
-      for (final node in workflow.graph.nodes)
-        if (predecessors.contains(node.id) &&
-            node.type == WorkflowNodeType.request)
-          node,
-    ];
   }
 }
 

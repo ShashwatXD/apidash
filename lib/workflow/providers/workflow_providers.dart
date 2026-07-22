@@ -8,6 +8,7 @@ import 'package:apidash/workflow/engine/workflow_runner.dart';
 import 'package:apidash/workflow/engine/workflow_templates.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
+import 'package:apidash/workflow/utils/workflow_variable_utils.dart';
 import 'package:apidash_core/apidash_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -33,6 +34,16 @@ final activeWorkflowProvider =
     NotifierProvider<ActiveWorkflowNotifier, WorkflowDocument?>(
   ActiveWorkflowNotifier.new,
 );
+
+/// Upstream extractions available to the selected workflow node (`{{name}}` → source).
+final workflowChainedVariablesProvider = Provider<Map<String, String>>((ref) {
+  final workflow = ref.watch(activeWorkflowProvider);
+  final nodeId = ref.watch(selectedWorkflowNodeIdProvider);
+  if (workflow == null || nodeId == null) {
+    return const {};
+  }
+  return upstreamExtractionVariables(workflow, nodeId);
+});
 
 class WorkflowSummary {
   const WorkflowSummary({

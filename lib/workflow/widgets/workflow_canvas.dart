@@ -4,7 +4,7 @@ import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
 import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash/workflow/widgets/workflow_run_bar.dart';
-import 'package:apidash/workflow/widgets/workflow_canvas_constants.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/workflow/widgets/workflow_node_layout.dart';
 import 'package:apidash/workflow/widgets/workflow_request_node_card.dart';
 import 'package:apidash/workflow/widgets/workflow_template_sheet.dart';

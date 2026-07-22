@@ -1,5 +1,5 @@
 import 'package:apidash/workflow/models/workflow_models.dart';
-import 'package:apidash/workflow/widgets/workflow_canvas_constants.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:flutter/material.dart';
 
 class WorkflowNodeLayout {

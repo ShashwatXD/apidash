@@ -15,8 +15,6 @@ import 'package:flutter_riverpod/legacy.dart';
 
 final selectedWorkflowIdStateProvider = StateProvider<String?>((ref) => null);
 
-final workflowSearchQueryProvider = StateProvider<String>((ref) => '');
-
 final workflowRunInProgressProvider = StateProvider<bool>((ref) => false);
 
 final workflowNodeRunResultsProvider =
@@ -287,16 +285,6 @@ class ActiveWorkflowNotifier extends Notifier<WorkflowDocument?> {
     }
     await workspaceStorage.setWorkflowsIndex(index);
     await ref.read(workflowCatalogProvider.notifier).reloadFromDisk();
-  }
-
-  Future<void> updateWorkflow(
-    WorkflowDocument Function(WorkflowDocument current) transform,
-  ) async {
-    final current = state;
-    if (current == null) {
-      return;
-    }
-    await save(transform(current));
   }
 
   Future<String?> addRequestStep({

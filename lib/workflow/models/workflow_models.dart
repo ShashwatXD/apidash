@@ -40,9 +40,6 @@ class WorkflowPosition {
         x: (json['x'] as num?)?.toDouble() ?? 0,
         y: (json['y'] as num?)?.toDouble() ?? 0,
       );
-
-  WorkflowPosition copyWith({double? x, double? y}) =>
-      WorkflowPosition(x: x ?? this.x, y: y ?? this.y);
 }
 
 class WorkflowViewport {
@@ -59,13 +56,6 @@ class WorkflowViewport {
         x: (json['x'] as num?)?.toDouble() ?? 0,
         y: (json['y'] as num?)?.toDouble() ?? 0,
         zoom: (json['zoom'] as num?)?.toDouble() ?? 1,
-      );
-
-  WorkflowViewport copyWith({double? x, double? y, double? zoom}) =>
-      WorkflowViewport(
-        x: x ?? this.x,
-        y: y ?? this.y,
-        zoom: zoom ?? this.zoom,
       );
 }
 
@@ -95,19 +85,6 @@ class WorkflowFlowVariable {
         value: json['value']?.toString() ?? '',
         enabled: json['enabled'] as bool? ?? true,
         description: json['description']?.toString() ?? '',
-      );
-
-  WorkflowFlowVariable copyWith({
-    String? key,
-    String? value,
-    bool? enabled,
-    String? description,
-  }) =>
-      WorkflowFlowVariable(
-        key: key ?? this.key,
-        value: value ?? this.value,
-        enabled: enabled ?? this.enabled,
-        description: description ?? this.description,
       );
 }
 
@@ -193,12 +170,11 @@ class WorkflowStep {
     String? label,
     Map<String, dynamic>? request,
     WorkflowInheritFrom? inheritFrom,
-    bool clearInheritFrom = false,
   }) =>
       WorkflowStep(
         label: label ?? this.label,
         request: request ?? this.request,
-        inheritFrom: clearInheritFrom ? null : inheritFrom ?? this.inheritFrom,
+        inheritFrom: inheritFrom ?? this.inheritFrom,
       );
 }
 
@@ -361,23 +337,6 @@ class WorkflowGraphEdge {
           WorkflowEdgeHandle.inPort,
         ),
         label: json['label']?.toString() ?? '',
-      );
-
-  WorkflowGraphEdge copyWith({
-    String? id,
-    String? source,
-    String? target,
-    WorkflowEdgeHandle? sourceHandle,
-    WorkflowEdgeHandle? targetHandle,
-    String? label,
-  }) =>
-      WorkflowGraphEdge(
-        id: id ?? this.id,
-        source: source ?? this.source,
-        target: target ?? this.target,
-        sourceHandle: sourceHandle ?? this.sourceHandle,
-        targetHandle: targetHandle ?? this.targetHandle,
-        label: label ?? this.label,
       );
 }
 

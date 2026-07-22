@@ -1,4 +1,3 @@
-import 'package:apidash/consts.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
@@ -41,31 +40,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
           workflows.first.id;
       await ref.read(activeWorkflowProvider.notifier).load(workflows.first.id);
     }
-  }
-
-  Future<void> _confirmDeleteSelectedNode(WorkflowGraphNode node) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete node'),
-        content: Text('Remove "${node.label}" from this workflow?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(kLabelCancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(kTooltipDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) {
-      return;
-    }
-    await ref.read(activeWorkflowProvider.notifier).deleteNode(node.id);
-    ref.read(selectedWorkflowNodeIdProvider.notifier).state = null;
   }
 
   WorkflowGraphNode? _selectedNode(

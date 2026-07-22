@@ -12,8 +12,6 @@ import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/engine/workflow_request_executor.dart';
 import 'package:apidash/workflow/engine/workflow_runner.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
-import 'package:apidash/workflow/providers/workflow_providers.dart';
-import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
 import 'package:apidash/workflow/widgets/workflow_variable_browser.dart';
 import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
@@ -248,7 +246,7 @@ class _WorkflowRequestStepEditorPageState
       ref: ref,
       requestModel: request,
       scopedVariables: _flowVariablesFor(workflow),
-      logLabel: '${workflow.id}/${stepKey}',
+      logLabel: '${workflow.id}/$stepKey',
     );
 
     final latest = ref.read(selectedRequestModelProvider) ?? current;
@@ -560,12 +558,7 @@ class _ExtractionsPanel extends ConsumerWidget {
 }
 
 class WorkflowStepUrlBar extends ConsumerWidget {
-  const WorkflowStepUrlBar({
-    super.key,
-    this.compact = false,
-  });
-
-  final bool compact;
+  const WorkflowStepUrlBar({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -582,14 +575,10 @@ class WorkflowStepUrlBar extends ConsumerWidget {
         borderRadius: kBorderRadius12,
       ),
       child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 8 : 12,
-          vertical: compact ? 8 : 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!compact)
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -615,7 +604,7 @@ class WorkflowStepUrlBar extends ConsumerWidget {
                                 .update(url: value);
                           },
                           decoration: InputDecoration(
-                            labelText: compact ? null : kLabelURL,
+                            labelText: kLabelURL,
                             hintText: kHintTextUrlCard,
                             border: const OutlineInputBorder(),
                             isDense: true,

@@ -3,9 +3,10 @@ import 'package:apidash_core/apidash_core.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/consts.dart';
+import 'package:apidash/workflow/widgets/workflow_interactive_node.dart';
 import 'package:apidash/workflow/widgets/workflow_port.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class WorkflowRequestNodeCard extends StatelessWidget {
   const WorkflowRequestNodeCard({
@@ -79,127 +80,102 @@ class WorkflowRequestNodeCard extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: WorkflowInteractiveNode(
+              selected: selected,
+              backgroundColor: theme.colorScheme.surfaceContainerLow,
+              borderColor: borderColor,
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
               onTap: onTap,
               onDoubleTap: onDoubleTap,
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
-              child: Material(
-                elevation: selected ? 2 : 0,
-                color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: borderColor,
-                        width: selected ? 2 : 1,
+              actions: selected
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _NodeActionButton(
+                          icon: Icons.copy_outlined,
+                          tooltip: kTooltipDuplicate,
+                          onPressed: onDuplicate,
+                        ),
+                        _NodeActionButton(
+                          icon: Icons.delete_outline,
+                          tooltip: kTooltipDelete,
+                          onPressed: onDelete,
+                        ),
+                      ],
+                    )
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isAi ? Icons.auto_awesome_rounded : Icons.http,
+                        size: 20,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                      kHSpacer8,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isAi
+                              ? theme.colorScheme.tertiaryContainer
+                              : theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          badgeLabel,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      if (selected) const SizedBox(width: 56),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    node.label.isNotEmpty ? node.label : defaultLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(
+                          alpha: 0.55,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: theme.colorScheme.outline.withValues(
+                            alpha: 0.2,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        detailText,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall,
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              isAi ? Icons.auto_awesome_rounded : Icons.http,
-                              size: 20,
-                              color: theme.colorScheme.onSurface,
-                            ),
-                            kHSpacer8,
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isAi
-                                    ? theme.colorScheme.tertiaryContainer
-                                    : theme.colorScheme.primaryContainer,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                badgeLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            kHSpacer8,
-                            Expanded(
-                              child: Text(
-                                node.label.isNotEmpty ? node.label : defaultLabel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
-                            ),
-                            if (selected) ...[
-                              _NodeActionButton(
-                                icon: Icons.copy_outlined,
-                                tooltip: kTooltipDuplicate,
-                                onPressed: onDuplicate,
-                              ),
-                              _NodeActionButton(
-                                icon: Icons.delete_outline,
-                                tooltip: kTooltipDelete,
-                                onPressed: onDelete,
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surface.withValues(
-                                alpha: 0.45,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: theme.colorScheme.outline.withValues(
-                                  alpha: 0.35,
-                                ),
-                              ),
-                            ),
-                            child: Text(
-                              detailText,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ),
-                        ),
-                        if (node.extractions.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          ...node.extractions.map(
-                            (extraction) => Text(
-                              '→ {{${extraction.varName}}} from ${extraction.jsonPath}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall,
-                            ),
-                          ),
-                        ],
-                        if (runResult?.durationMs != null)
-                          Text(
-                            '${runResult!.durationMs} ms',
-                            style: theme.textTheme.labelSmall,
-                          ),
-                      ],
-                    ),
                   ),
-                ),
+                ],
               ),
+            ),
           ),
           Positioned(
             left: -6,
@@ -279,10 +255,19 @@ class _NodeActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: onPressed,
+      onPressed: onPressed == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onPressed!();
+            },
       tooltip: tooltip,
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
+      splashRadius: 16,
+      style: IconButton.styleFrom(
+        animationDuration: const Duration(milliseconds: 100),
+      ),
       constraints: const BoxConstraints.tightFor(width: 28, height: 28),
       icon: Icon(icon, size: 16),
     );
@@ -320,40 +305,26 @@ class WorkflowStartNodeCard extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: GestureDetector(
+            child: WorkflowInteractiveNode(
+              selected: selected,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              borderColor: selected
+                  ? theme.colorScheme.primary
+                  : theme.dividerColor,
+              onTap: onTap,
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
-              child: Material(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  onTap: onTap,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selected
-                            ? theme.colorScheme.primary
-                            : theme.dividerColor,
-                        width: selected ? 2 : 1,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.play_circle_outline, size: 22),
-                        kHSpacer8,
-                        Expanded(
-                          child: Text(
-                            node.label.isEmpty ? 'Start' : node.label,
-                            style: theme.textTheme.titleSmall,
-                          ),
-                        ),
-                      ],
+              child: Row(
+                children: [
+                  const Icon(Icons.play_circle_outline, size: 22),
+                  kHSpacer8,
+                  Expanded(
+                    child: Text(
+                      node.label.isEmpty ? 'Start' : node.label,
+                      style: theme.textTheme.titleSmall,
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -418,80 +389,72 @@ class WorkflowConditionNodeCard extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: GestureDetector(
+            child: WorkflowInteractiveNode(
+              selected: selected,
+              backgroundColor: Color.alphaBlend(
+                const Color(0xFFFFB300).withValues(
+                  alpha: theme.brightness == Brightness.dark ? 0.22 : 0.14,
+                ),
+                theme.colorScheme.surfaceContainerLow,
+              ),
+              borderColor: selected
+                  ? theme.colorScheme.primary
+                  : theme.dividerColor,
+              onTap: onTap,
+              onDoubleTap: onDoubleTap,
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
-              child: Material(
-                color: Color.alphaBlend(
-                  const Color(0xFFFFB300).withValues(
-                    alpha: theme.brightness == Brightness.dark ? 0.22 : 0.14,
-                  ),
-                  theme.colorScheme.surfaceContainerLow,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                child: InkWell(
-                  onTap: onTap,
-                  onDoubleTap: onDoubleTap,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selected
-                            ? theme.colorScheme.primary
-                            : theme.dividerColor,
-                        width: selected ? 2 : 1,
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              actions: selected
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.call_split_rounded,
-                              size: 20,
-                              color: theme.brightness == Brightness.dark
-                                  ? const Color(0xFFFFD54F)
-                                  : const Color(0xFFB26A00),
-                            ),
-                            kHSpacer8,
-                            Expanded(
-                              child: Text(
-                                node.label.isEmpty ? 'Condition' : node.label,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall,
-                              ),
-                            ),
-                            if (selected) ...[
-                              _NodeActionButton(
-                                icon: Icons.copy_outlined,
-                                tooltip: kTooltipDuplicate,
-                                onPressed: onDuplicate,
-                              ),
-                              _NodeActionButton(
-                                icon: Icons.delete_outline,
-                                tooltip: kTooltipDelete,
-                                onPressed: onDelete,
-                              ),
-                            ],
-                          ],
+                        _NodeActionButton(
+                          icon: Icons.copy_outlined,
+                          tooltip: kTooltipDuplicate,
+                          onPressed: onDuplicate,
                         ),
-                        const SizedBox(height: 6),
-                        Expanded(
-                          child: Text(
-                            node.conditionExpression ?? 'true',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall,
-                          ),
+                        _NodeActionButton(
+                          icon: Icons.delete_outline,
+                          tooltip: kTooltipDelete,
+                          onPressed: onDelete,
                         ),
                       ],
+                    )
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.call_split_rounded,
+                        size: 20,
+                        color: theme.brightness == Brightness.dark
+                            ? const Color(0xFFFFD54F)
+                            : const Color(0xFFB26A00),
+                      ),
+                      kHSpacer8,
+                      Expanded(
+                        child: Text(
+                          node.label.isEmpty ? 'Condition' : node.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                      ),
+                      if (selected) const SizedBox(width: 56),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Text(
+                      node.conditionExpression ?? 'true',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -577,7 +540,7 @@ class WorkflowLoopNodeCard extends StatelessWidget {
     final maxIterations = node.loopMaxIterations;
     final loopDetail = node.loopMode == WorkflowLoopMode.repeat
         ? maxIterations != null && maxIterations > 0
-            ? 'Repeat ${maxIterations}×'
+            ? 'Repeat $maxIterations×'
             : 'Repeat'
         : maxIterations != null && maxIterations > 0
             ? '$loopExpr · max $maxIterations'
@@ -589,69 +552,63 @@ class WorkflowLoopNodeCard extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: WorkflowInteractiveNode(
+              selected: selected,
+              backgroundColor: theme.colorScheme.secondaryContainer,
+              borderColor: selected
+                  ? theme.colorScheme.primary
+                  : theme.dividerColor,
               onTap: onTap,
               onDoubleTap: onDoubleTap,
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
-              child: Material(
-                color: theme.colorScheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: selected
-                          ? theme.colorScheme.primary
-                          : theme.dividerColor,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              actions: selected
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _NodeActionButton(
+                          icon: Icons.copy_outlined,
+                          tooltip: kTooltipDuplicate,
+                          onPressed: onDuplicate,
+                        ),
+                        _NodeActionButton(
+                          icon: Icons.delete_outline,
+                          tooltip: kTooltipDelete,
+                          onPressed: onDelete,
+                        ),
+                      ],
+                    )
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.loop_rounded, size: 20),
-                          kHSpacer8,
-                          Expanded(
-                            child: Text(
-                              node.label.isNotEmpty
-                                  ? node.label
-                                  : kLabelWorkflowLoop,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall,
-                            ),
-                          ),
-                          if (selected) ...[
-                            _NodeActionButton(
-                              icon: Icons.copy_outlined,
-                              tooltip: kTooltipDuplicate,
-                              onPressed: onDuplicate,
-                            ),
-                            _NodeActionButton(
-                              icon: Icons.delete_outline,
-                              tooltip: kTooltipDelete,
-                              onPressed: onDelete,
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 6),
+                      const Icon(Icons.loop_rounded, size: 20),
+                      kHSpacer8,
                       Expanded(
                         child: Text(
-                          loopDetail,
+                          node.label.isNotEmpty
+                              ? node.label
+                              : kLabelWorkflowLoop,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall,
+                          style: theme.textTheme.titleSmall,
                         ),
                       ),
+                      if (selected) const SizedBox(width: 56),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Text(
+                      loopDetail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -742,69 +699,63 @@ class WorkflowDelayNodeCard extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
+            child: WorkflowInteractiveNode(
+              selected: selected,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              borderColor: selected
+                  ? theme.colorScheme.primary
+                  : theme.dividerColor,
               onTap: onTap,
               onDoubleTap: onDoubleTap,
               onPanUpdate: onDragPanUpdate,
               onPanEnd: onDragPanEnd,
-              child: Material(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: selected
-                          ? theme.colorScheme.primary
-                          : theme.dividerColor,
-                      width: selected ? 2 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              actions: selected
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _NodeActionButton(
+                          icon: Icons.copy_outlined,
+                          tooltip: kTooltipDuplicate,
+                          onPressed: onDuplicate,
+                        ),
+                        _NodeActionButton(
+                          icon: Icons.delete_outline,
+                          tooltip: kTooltipDelete,
+                          onPressed: onDelete,
+                        ),
+                      ],
+                    )
+                  : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.timer_outlined, size: 20),
-                          kHSpacer8,
-                          Expanded(
-                            child: Text(
-                              node.label.isNotEmpty
-                                  ? node.label
-                                  : kLabelWorkflowDelay,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall,
-                            ),
-                          ),
-                          if (selected) ...[
-                            _NodeActionButton(
-                              icon: Icons.copy_outlined,
-                              tooltip: kTooltipDuplicate,
-                              onPressed: onDuplicate,
-                            ),
-                            _NodeActionButton(
-                              icon: Icons.delete_outline,
-                              tooltip: kTooltipDelete,
-                              onPressed: onDelete,
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 6),
+                      const Icon(Icons.timer_outlined, size: 20),
+                      kHSpacer8,
                       Expanded(
                         child: Text(
-                          detail,
+                          node.label.isNotEmpty
+                              ? node.label
+                              : kLabelWorkflowDelay,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall,
+                          style: theme.textTheme.titleSmall,
                         ),
                       ),
+                      if (selected) const SizedBox(width: 56),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 6),
+                  Expanded(
+                    child: Text(
+                      detail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

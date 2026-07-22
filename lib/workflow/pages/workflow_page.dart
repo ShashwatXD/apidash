@@ -104,6 +104,9 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                   selectedNode.type != WorkflowNodeType.manualStart) ...[
                 kHSpacer8,
                 FilledButton.tonalIcon(
+                  style: FilledButton.styleFrom(
+                    animationDuration: const Duration(milliseconds: 120),
+                  ),
                   onPressed: () => openWorkflowNodeEditor(
                     context,
                     ref,

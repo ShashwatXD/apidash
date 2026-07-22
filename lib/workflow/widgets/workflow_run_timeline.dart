@@ -3,6 +3,7 @@ import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class WorkflowRunTimeline extends ConsumerStatefulWidget {
@@ -47,7 +48,10 @@ class _WorkflowRunTimelineState extends ConsumerState<WorkflowRunTimeline> {
         mainAxisSize: MainAxisSize.min,
         children: [
           InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _expanded = !_expanded);
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Row(
@@ -59,13 +63,19 @@ class _WorkflowRunTimelineState extends ConsumerState<WorkflowRunTimeline> {
                   ),
                   kHSpacer8,
                   Expanded(
-                    child: Text(
-                      running
-                          ? 'Running workflow…'
-                          : failed > 0
-                              ? '${orderedResults.length} steps · $failed failed'
-                              : '${orderedResults.length} steps completed',
-                      style: theme.textTheme.labelLarge,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 180),
+                      child: Text(
+                        running
+                            ? 'Running workflow…'
+                            : failed > 0
+                            ? '${orderedResults.length} steps · $failed failed'
+                            : '${orderedResults.length} steps completed',
+                        key: ValueKey(
+                          '$running-$failed-${orderedResults.length}',
+                        ),
+                        style: theme.textTheme.labelLarge,
+                      ),
                     ),
                   ),
                   if (!running && orderedResults.isNotEmpty)
@@ -88,133 +98,160 @@ class _WorkflowRunTimelineState extends ConsumerState<WorkflowRunTimeline> {
                       ),
                     ),
                   kHSpacer4,
-                  Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_down_rounded
-                        : Icons.keyboard_arrow_up_rounded,
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: const Icon(Icons.keyboard_arrow_up_rounded),
                   ),
                 ],
               ),
             ),
           ),
-          if (_expanded) ...[
-            const Divider(height: 1),
-            SizedBox(
-              height: 132,
-              child: orderedResults.isEmpty && running
-                  ? Center(
-                      child: Text(
-                        'Waiting for first step…',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      padding: kPh8,
-                      itemCount: orderedResults.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final result = orderedResults[index];
-                        final stepNumber = index + 1;
-                        final selected =
-                            ref.watch(selectedWorkflowNodeIdProvider) ==
-                                result.nodeId;
-                        return Material(
-                          color: selected
-                              ? theme.colorScheme.primaryContainer
-                                  .withValues(alpha: 0.35)
-                              : null,
-                          borderRadius: BorderRadius.circular(8),
-                          child: ListTile(
-                            dense: true,
-                            visualDensity: VisualDensity.compact,
-                            contentPadding:
-                                const EdgeInsets.symmetric(horizontal: 8),
-                            leading: CircleAvatar(
-                              radius: 12,
-                              backgroundColor: switch (result.status) {
-                                WorkflowNodeRunStatus.success =>
-                                  Colors.green.withValues(alpha: 0.15),
-                                WorkflowNodeRunStatus.failed =>
-                                  theme.colorScheme.errorContainer,
-                                WorkflowNodeRunStatus.running =>
-                                  theme.colorScheme.primaryContainer,
-                                _ => theme.colorScheme.surfaceContainerHighest,
-                              },
-                              child: Text(
-                                '$stepNumber',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            title: Row(
-                              children: [
-                                Icon(
-                                  switch (result.status) {
-                                    WorkflowNodeRunStatus.success =>
-                                      Icons.check_circle_outline,
-                                    WorkflowNodeRunStatus.failed =>
-                                      Icons.error_outline,
-                                    WorkflowNodeRunStatus.running =>
-                                      Icons.sync,
-                                    _ => Icons.radio_button_unchecked,
-                                  },
-                                  size: 16,
-                                  color: switch (result.status) {
-                                    WorkflowNodeRunStatus.success =>
-                                      Colors.green,
-                                    WorkflowNodeRunStatus.failed =>
-                                      theme.colorScheme.error,
-                                    WorkflowNodeRunStatus.running =>
-                                      theme.colorScheme.primary,
-                                    _ => null,
-                                  },
-                                ),
-                                kHSpacer6,
-                                Expanded(
-                                  child: Text(
-                                    [
-                                      if (result.label.isEmpty)
-                                        result.nodeId
-                                      else
-                                        result.label,
-                                      if (result.loopIndex != null)
-                                        '#${int.tryParse(result.loopIndex!) != null ? (int.parse(result.loopIndex!) + 1) : result.loopIndex}',
-                                    ].join(' '),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall,
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: !_expanded
+                ? const SizedBox.shrink()
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Divider(height: 1),
+                      SizedBox(
+                        height: 132,
+                        child: orderedResults.isEmpty && running
+                            ? Center(
+                                child: Text(
+                                  'Waiting for first step…',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                              ],
-                            ),
-                            subtitle: Text(
-                              [
-                                if (result.statusCode != null)
-                                  'HTTP ${result.statusCode}',
-                                if (result.durationMs != null)
-                                  '${result.durationMs} ms',
-                                if (result.message != null &&
-                                    result.message!.isNotEmpty)
-                                  result.message,
-                              ].join(' · '),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall,
-                            ),
-                            onTap: () {
-                              ref
-                                  .read(selectedWorkflowNodeIdProvider.notifier)
-                                  .state = result.nodeId;
-                            },
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                              )
+                            : ListView.separated(
+                                padding: kPh8,
+                                itemCount: orderedResults.length,
+                                separatorBuilder: (_, _) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final result = orderedResults[index];
+                                  final stepNumber = index + 1;
+                                  final selected =
+                                      ref.watch(
+                                        selectedWorkflowNodeIdProvider,
+                                      ) ==
+                                      result.nodeId;
+                                  return Material(
+                                    color: selected
+                                        ? theme.colorScheme.primaryContainer
+                                              .withValues(alpha: 0.35)
+                                        : null,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: ListTile(
+                                      dense: true,
+                                      visualDensity: VisualDensity.compact,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                          ),
+                                      leading: CircleAvatar(
+                                        radius: 12,
+                                        backgroundColor: switch (result
+                                            .status) {
+                                          WorkflowNodeRunStatus.success =>
+                                            Colors.green.withValues(
+                                              alpha: 0.15,
+                                            ),
+                                          WorkflowNodeRunStatus.failed =>
+                                            theme.colorScheme.errorContainer,
+                                          WorkflowNodeRunStatus.running =>
+                                            theme.colorScheme.primaryContainer,
+                                          _ =>
+                                            theme
+                                                .colorScheme
+                                                .surfaceContainerHighest,
+                                        },
+                                        child: Text(
+                                          '$stepNumber',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                      ),
+                                      title: Row(
+                                        children: [
+                                          Icon(
+                                            switch (result.status) {
+                                              WorkflowNodeRunStatus.success =>
+                                                Icons.check_circle_outline,
+                                              WorkflowNodeRunStatus.failed =>
+                                                Icons.error_outline,
+                                              WorkflowNodeRunStatus.running =>
+                                                Icons.sync,
+                                              _ => Icons.radio_button_unchecked,
+                                            },
+                                            size: 16,
+                                            color: switch (result.status) {
+                                              WorkflowNodeRunStatus.success =>
+                                                Colors.green,
+                                              WorkflowNodeRunStatus.failed =>
+                                                theme.colorScheme.error,
+                                              WorkflowNodeRunStatus.running =>
+                                                theme.colorScheme.primary,
+                                              _ => null,
+                                            },
+                                          ),
+                                          kHSpacer6,
+                                          Expanded(
+                                            child: Text(
+                                              [
+                                                if (result.label.isEmpty)
+                                                  result.nodeId
+                                                else
+                                                  result.label,
+                                                if (result.loopIndex != null)
+                                                  '#${int.tryParse(result.loopIndex!) != null ? (int.parse(result.loopIndex!) + 1) : result.loopIndex}',
+                                              ].join(' '),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: theme.textTheme.bodySmall,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      subtitle: Text(
+                                        [
+                                          if (result.statusCode != null)
+                                            'HTTP ${result.statusCode}',
+                                          if (result.durationMs != null)
+                                            '${result.durationMs} ms',
+                                          if (result.message != null &&
+                                              result.message!.isNotEmpty)
+                                            result.message,
+                                        ].join(' · '),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: theme.textTheme.labelSmall,
+                                      ),
+                                      onTap: () {
+                                        ref
+                                                .read(
+                                                  selectedWorkflowNodeIdProvider
+                                                      .notifier,
+                                                )
+                                                .state =
+                                            result.nodeId;
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
         ],
       ),
     );

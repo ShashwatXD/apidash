@@ -1,9 +1,8 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 enum WorkflowPortSide { left, right }
 
-class WorkflowPort extends StatelessWidget {
+class WorkflowPort extends StatefulWidget {
   const WorkflowPort({
     super.key,
     required this.label,
@@ -20,59 +19,73 @@ class WorkflowPort extends StatelessWidget {
   final void Function(PointerDownEvent event)? onPointerDown;
 
   @override
+  State<WorkflowPort> createState() => _WorkflowPortState();
+}
+
+class _WorkflowPortState extends State<WorkflowPort> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final active = highlighted;
-    final dot = Container(
-      width: 14,
-      height: 14,
+    final active = widget.highlighted || _hovered;
+    final dot = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOutCubic,
+      width: active ? 16 : 14,
+      height: active ? 16 : 14,
       decoration: BoxDecoration(
-        color: active ? color : theme.colorScheme.surface,
+        color: active ? widget.color : theme.colorScheme.surface,
         shape: BoxShape.circle,
         border: Border.all(
-          color: color,
+          color: widget.color,
           width: active ? 2.5 : 1.5,
         ),
         boxShadow: active
             ? [
                 BoxShadow(
-                  color: color.withValues(alpha: 0.35),
-                  blurRadius: 6,
+                  color: widget.color.withValues(alpha: 0.4),
+                  blurRadius: 8,
                 ),
               ]
             : null,
       ),
     );
 
-    final labelWidget = Text(
-      label,
-      style: theme.textTheme.labelSmall?.copyWith(
+    final labelWidget = AnimatedDefaultTextStyle(
+      duration: const Duration(milliseconds: 120),
+      style: theme.textTheme.labelSmall!.copyWith(
         fontSize: 10,
         fontWeight: FontWeight.w600,
-        color: active ? color : theme.colorScheme.onSurfaceVariant,
+        color: active ? widget.color : theme.colorScheme.onSurfaceVariant,
       ),
+      child: Text(widget.label),
     );
 
-    final children = side == WorkflowPortSide.left
+    final children = widget.side == WorkflowPortSide.left
         ? [dot, const SizedBox(width: 4), labelWidget]
         : [labelWidget, const SizedBox(width: 4), dot];
 
-    final content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: children,
+    final content = MouseRegion(
+      cursor: widget.onPointerDown != null
+          ? SystemMouseCursors.grab
+          : SystemMouseCursors.basic,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: children,
+        ),
       ),
     );
 
-    if (onPointerDown != null) {
+    if (widget.onPointerDown != null) {
       return Listener(
         behavior: HitTestBehavior.opaque,
-        onPointerDown: onPointerDown,
-        child: MouseRegion(
-          cursor: SystemMouseCursors.grab,
-          child: content,
-        ),
+        onPointerDown: widget.onPointerDown,
+        child: content,
       );
     }
 

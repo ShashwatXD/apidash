@@ -6,6 +6,7 @@ import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 enum _AddNodePage {
@@ -21,10 +22,8 @@ Future<void> showWorkflowAddNodeSheet(BuildContext context, WidgetRef ref) {
     isScrollControlled: true,
     showDragHandle: true,
     useSafeArea: true,
-    builder: (sheetContext) => _WorkflowAddNodeSheet(
-      parentRef: ref,
-      sheetContext: sheetContext,
-    ),
+    builder: (sheetContext) =>
+        _WorkflowAddNodeSheet(parentRef: ref, sheetContext: sheetContext),
   );
 }
 
@@ -109,9 +108,9 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
   }
 
   Future<void> _addLoopNode() async {
-    final nodeId = await ref.read(activeWorkflowProvider.notifier).addLoopNode(
-          position: _placementPosition(),
-        );
+    final nodeId = await ref
+        .read(activeWorkflowProvider.notifier)
+        .addLoopNode(position: _placementPosition());
     if (!mounted) {
       return;
     }
@@ -120,10 +119,9 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
   }
 
   Future<void> _addConditionNode() async {
-    final nodeId =
-        await ref.read(activeWorkflowProvider.notifier).addConditionNode(
-              position: _placementPosition(),
-            );
+    final nodeId = await ref
+        .read(activeWorkflowProvider.notifier)
+        .addConditionNode(position: _placementPosition());
     if (!mounted) {
       return;
     }
@@ -132,9 +130,9 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
   }
 
   Future<void> _addDelayNode() async {
-    final nodeId = await ref.read(activeWorkflowProvider.notifier).addDelayNode(
-          position: _placementPosition(),
-        );
+    final nodeId = await ref
+        .read(activeWorkflowProvider.notifier)
+        .addDelayNode(position: _placementPosition());
     if (!mounted) {
       return;
     }
@@ -143,10 +141,9 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
   }
 
   Future<void> _createNewRequest({APIType apiType = APIType.rest}) async {
-    final nodeId = await ref.read(activeWorkflowProvider.notifier).addRequestStep(
-          position: _placementPosition(),
-          apiType: apiType,
-        );
+    final nodeId = await ref
+        .read(activeWorkflowProvider.notifier)
+        .addRequestStep(position: _placementPosition(), apiType: apiType);
     if (!mounted) {
       return;
     }
@@ -158,12 +155,13 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
     required String collectionId,
     required String requestId,
   }) async {
-    final nodeId =
-        await ref.read(activeWorkflowProvider.notifier).importRequestFromCollection(
-              collectionId: collectionId,
-              requestId: requestId,
-              position: _placementPosition(),
-            );
+    final nodeId = await ref
+        .read(activeWorkflowProvider.notifier)
+        .importRequestFromCollection(
+          collectionId: collectionId,
+          requestId: requestId,
+          position: _placementPosition(),
+        );
     if (!mounted || nodeId == null) {
       return;
     }
@@ -187,9 +185,7 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
     final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
 
     return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: Column(
@@ -200,11 +196,15 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
             Flexible(
               child: switch (_page) {
                 _AddNodePage.nodeTypes => _buildNodeTypeList(theme),
-                _AddNodePage.httpRequestSource =>
-                  _buildHttpRequestSourceList(theme),
-                _AddNodePage.aiRequestSource => _buildAiRequestSourceList(theme),
-                _AddNodePage.importCollection =>
-                  _buildImportCollectionList(theme),
+                _AddNodePage.httpRequestSource => _buildHttpRequestSourceList(
+                  theme,
+                ),
+                _AddNodePage.aiRequestSource => _buildAiRequestSourceList(
+                  theme,
+                ),
+                _AddNodePage.importCollection => _buildImportCollectionList(
+                  theme,
+                ),
               },
             ),
           ],
@@ -240,12 +240,7 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
             )
           else
             const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              title,
-              style: theme.textTheme.titleMedium,
-            ),
-          ),
+          Expanded(child: Text(title, style: theme.textTheme.titleMedium)),
           IconButton(
             tooltip: kLabelCancel,
             onPressed: _closeSheet,
@@ -397,10 +392,7 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
               color: theme.colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 12),
-            Text(
-              'No collections yet',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('No collections yet', style: theme.textTheme.titleSmall),
             const SizedBox(height: 4),
             Text(
               'Create a collection with requests first, then import them here.',
@@ -440,9 +432,7 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
                 ),
                 title: Text(summary.name),
                 subtitle: Text(
-                  summary.apiType == APIType.ai
-                      ? kLabelAiRequest
-                      : summary.url,
+                  summary.apiType == APIType.ai ? kLabelAiRequest : summary.url,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -491,7 +481,7 @@ class _WorkflowAddNodeSheetState extends ConsumerState<_WorkflowAddNodeSheet> {
   }
 }
 
-class _AddNodeOptionTile extends StatelessWidget {
+class _AddNodeOptionTile extends StatefulWidget {
   const _AddNodeOptionTile({
     required this.icon,
     required this.title,
@@ -509,54 +499,92 @@ class _AddNodeOptionTile extends StatelessWidget {
   final bool showChevron;
 
   @override
+  State<_AddNodeOptionTile> createState() => _AddNodeOptionTileState();
+}
+
+class _AddNodeOptionTileState extends State<_AddNodeOptionTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(12),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: (iconColor ?? theme.colorScheme.primary)
-                      .withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
+    final accent = widget.iconColor ?? theme.colorScheme.primary;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedScale(
+        scale: _hovered ? 1.01 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: _hovered
+                ? [
+                    BoxShadow(
+                      color: theme.shadowColor.withValues(alpha: 0.12),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Material(
+            color: _hovered
+                ? theme.colorScheme.surfaceContainerHighest
+                : theme.colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                widget.onTap();
+              },
+              splashFactory: InkSparkle.splashFactory,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
                 ),
-                child: Icon(
-                  icon,
-                  color: iconColor ?? theme.colorScheme.primary,
-                  size: 22,
-                ),
-              ),
-              kHSpacer12,
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Text(title, style: theme.textTheme.titleSmall),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 140),
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: _hovered ? 0.18 : 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(widget.icon, color: accent, size: 22),
+                    ),
+                    kHSpacer12,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(widget.title, style: theme.textTheme.titleSmall),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.subtitle,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                    if (widget.showChevron)
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                   ],
                 ),
               ),
-              if (showChevron)
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-            ],
+            ),
           ),
         ),
       ),

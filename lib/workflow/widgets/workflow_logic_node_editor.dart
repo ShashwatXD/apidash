@@ -79,7 +79,7 @@ Future<void> _showLogicNodeEditor(
 
   return showDialog<void>(
     context: context,
-    barrierDismissible: false,
+    barrierDismissible: true,
     builder: (dialogContext) => Dialog(
       insetPadding: const EdgeInsets.all(20),
       clipBehavior: Clip.antiAlias,
@@ -822,7 +822,7 @@ class _LoopConfigPanelState extends State<_LoopConfigPanel>
                         labelText: 'List variable',
                         hintText: 'items',
                         helperText:
-                            'Set this under Workflow → Variables. JSON array or comma-separated values.',
+                            'Set this as an Environment variable. JSON array or comma-separated values.',
                         border: OutlineInputBorder(),
                         isDense: true,
                         prefixText: 'var:',
@@ -1009,7 +1009,7 @@ class _LoopGuidePanel extends StatelessWidget {
         _GuideSection(
           title: 'List variable',
           body:
-              'For each mode: set a variable under Workflow → Variables, e.g. items = ["a","b"] or comma-separated values.',
+              'For each mode: set an Environment variable, e.g. items = ["a","b"] or comma-separated values, then use var:items.',
         ),
         _GuideSection(
           title: 'Per iteration',
@@ -1042,7 +1042,7 @@ class _ConditionGuidePanel extends StatelessWidget {
         _GuideSection(
           title: 'Variables',
           body:
-              'Use var:token to branch when a flow variable is set and non-empty.',
+              'Use var:token to branch when an environment or extracted variable is set and non-empty.',
         ),
       ],
     );

@@ -21,16 +21,6 @@ class WorkflowVariableBrowser extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
-    final flowVariables = [
-      for (final variable in workflow.flowVariables)
-        if (variable.enabled && variable.key.isNotEmpty)
-          _VariableEntry(
-            label: variable.key,
-            reference: '{{${variable.key}}}',
-            subtitle: 'Flow variable',
-          ),
-    ];
-
     final upstream = _upstreamRequestNodes(workflow, nodeId);
     final chained = <_VariableEntry>[
       for (final upstreamNode in upstream)
@@ -52,26 +42,20 @@ class WorkflowVariableBrowser extends ConsumerWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          kHintWorkflowVariableInsert,
+          'Use Environments for shared inputs. Extractions from upstream steps appear here for chaining.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.outline,
               ),
         ),
         const SizedBox(height: 12),
-        if (flowVariables.isNotEmpty) ...[
-          _SectionHeader(title: 'Flow'),
-          ...flowVariables.map((entry) => _VariableTile(entry: entry)),
-          const SizedBox(height: 12),
-        ],
         if (chained.isNotEmpty) ...[
           _SectionHeader(title: 'From upstream steps'),
           ...chained.map((entry) => _VariableTile(entry: entry)),
-        ],
-        if (flowVariables.isEmpty && chained.isEmpty)
+        ] else
           Padding(
             padding: kP12,
             child: Text(
-              'Add variables with the Variables button in the toolbar, or connect upstream steps with extractions.',
+              'No upstream extractions yet. Add an extraction on a previous request, or use Environment variables with {{name}}.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),

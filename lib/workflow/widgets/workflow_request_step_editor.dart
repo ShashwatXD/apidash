@@ -63,7 +63,7 @@ Future<void> showWorkflowRequestStepEditor(
 
   return showDialog<void>(
     context: context,
-    barrierDismissible: false,
+    barrierDismissible: true,
     builder: (dialogContext) => ProviderScope(
       overrides: [
         ..._editorOverrides(

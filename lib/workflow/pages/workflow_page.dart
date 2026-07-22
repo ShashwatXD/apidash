@@ -3,7 +3,6 @@ import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/widgets/workflow_canvas.dart';
-import 'package:apidash/workflow/widgets/workflow_flow_variables_sheet.dart';
 import 'package:apidash/workflow/widgets/workflow_logic_node_editor.dart';
 import 'package:apidash/workflow/widgets/workflow_run_timeline.dart';
 import 'package:apidash/workflow/widgets/workflow_selector_dropdown.dart';
@@ -86,8 +85,8 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
 
   @override
   Widget build(BuildContext context) {
-    final workflow = ref.watch(activeWorkflowProvider);
     final selectedNodeId = ref.watch(selectedWorkflowNodeIdProvider);
+    final workflow = ref.watch(activeWorkflowProvider);
     final selectedNode = _selectedNode(selectedNodeId, workflow);
 
     return Column(
@@ -100,16 +99,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
               SizedBox(
                 width: context.isMediumWindow ? 200 : 280,
                 child: const WorkflowSelectorDropdown(),
-              ),
-              kHSpacer8,
-              FilledButton.tonalIcon(
-                onPressed: workflow == null
-                    ? null
-                    : () => showWorkflowFlowVariablesSheet(context, ref),
-                icon: const Icon(Icons.data_object_outlined),
-                label: Text(
-                  context.isMediumWindow ? 'Vars' : kLabelWorkflowVariables,
-                ),
               ),
               if (selectedNode != null &&
                   selectedNode.type != WorkflowNodeType.manualStart) ...[

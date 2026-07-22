@@ -1,4 +1,4 @@
-import 'package:apidash/consts.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/utils/workflow_variable_utils.dart';
 import 'package:apidash_design_system/apidash_design_system.dart';

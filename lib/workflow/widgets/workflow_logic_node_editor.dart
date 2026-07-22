@@ -1,4 +1,5 @@
 import 'package:apidash/consts.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_providers.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
@@ -264,7 +265,7 @@ class _WorkflowLoopStepEditorPageState
           ),
           FilledButton(
             onPressed: _saveAndClose,
-            child: const Text(kLabelDone),
+            child: const Text(kLabelWorkflowDone),
           ),
           kHSpacer12,
         ],
@@ -432,7 +433,7 @@ class _WorkflowConditionStepEditorPageState
           ),
           FilledButton(
             onPressed: _saveAndClose,
-            child: const Text(kLabelDone),
+            child: const Text(kLabelWorkflowDone),
           ),
           kHSpacer12,
         ],
@@ -594,7 +595,7 @@ class _WorkflowDelayStepEditorPageState
           ),
           FilledButton(
             onPressed: _saveAndClose,
-            child: const Text(kLabelDone),
+            child: const Text(kLabelWorkflowDone),
           ),
           kHSpacer12,
         ],

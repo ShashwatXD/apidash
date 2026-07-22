@@ -97,7 +97,7 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
           child: Row(
             children: [
               SizedBox(
-                width: context.isMediumWindow ? 200 : 280,
+                width: context.isMediumWindow ? 240 : 320,
                 child: const WorkflowSelectorDropdown(),
               ),
               if (selectedNode != null &&
@@ -113,12 +113,6 @@ class _WorkflowPageState extends ConsumerState<WorkflowPage> {
                   label: Text(
                     context.isMediumWindow ? 'Edit' : 'Edit node',
                   ),
-                ),
-                kHSpacer8,
-                IconButton(
-                  tooltip: kTooltipDelete,
-                  onPressed: () => _confirmDeleteSelectedNode(selectedNode),
-                  icon: const Icon(Icons.delete_outline),
                 ),
               ],
               const Spacer(),

@@ -8,8 +8,6 @@ const kDiscordUrl = "https://bit.ly/heyfoss";
 const kGitUrl = "https://github.com/foss42/apidash";
 const kLearnScriptingUrl =
     "$kGitUrl/blob/main/doc/user_guide/scripting_user_guide.md";
-const kLearnWorkflowsUrl =
-    "$kGitUrl/blob/main/doc/user_guide/workflows_guide.md";
 const kIssueUrl = "$kGitUrl/issues";
 const kDefaultUri = "api.apidash.dev";
 
@@ -628,45 +626,6 @@ const kNavRailSettingsIndex = 6;
 const kMobileNavCollaborationIndex = 4;
 const kMobileNavLogsIndex = 5;
 const kMobileNavSettingsIndex = 6;
-
-const kLabelNewWorkflow = "New workflow";
-const kLabelRunWorkflow = "Run workflow";
-const kLabelAutoArrange = "Auto arrange";
-const kTooltipAutoArrange = "Auto arrange workflow layout";
-const kLabelStopWorkflow = "Stop";
-const kLabelAddWorkflowStep = "Add request";
-const kLabelAddWorkflowNode = "Add node";
-const kLabelCreateNewRequest = "Create new request";
-const kLabelCreateNewAiRequest = "Create new AI request";
-const kLabelAiRequest = "AI request";
-const kLabelHttpRequest = "HTTP request";
-const kLabelWorkflowStep = "Request step";
-const kLabelWorkflowCondition = "Condition";
-const kLabelWorkflowLoop = "For each";
-const kLabelWorkflowDelay = "Delay";
-const kLabelWorkflowDelayMs = "Wait (ms)";
-const kLabelWorkflowLoopRepeat = "Repeat";
-const kLabelWorkflowLoopForEach = "For each item";
-const kLabelWorkflowLoopList = "List";
-const kLabelWorkflowLoopIterations = "Iterations";
-const kLabelWorkflowHelp = "How workflows work";
-const kLabelWorkflowTemplates = "Start from template";
-const kLabelWorkflowNewBlank = "Blank workflow";
-const kHintWorkflowVariables =
-    "Use {{name}} in request URLs, headers, and bodies.";
-const kMsgWorkflowRunStopped = "Workflow stopped";
-const kLabelImportFromCollection = "Import from collection";
-const kHintFilterWorkflows = "Filter workflows";
-const kMsgWorkflowNotFound = "Workflow not found";
-const kMsgWorkflowRunFailed = "Workflow run failed";
-const kMsgWorkflowRunSuccess = "Workflow completed";
-const kLabelEditWorkflowStep = "Edit request";
-const kLabelDone = "Done";
-const kLabelWorkflowVariables = "Variables";
-const kLabelWorkflowExtractions = "Response extractions";
-const kLabelWorkflowStepOutput = "Output";
-const kHintWorkflowVariableInsert = "Tap to copy {{variable}}";
-const kMsgWorkflowDoubleClickEdit = "Double-click a request node to configure it";
 
 const kLabelFetch = "Fetch";
 const kLabelPull = "Pull";

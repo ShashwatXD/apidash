@@ -1,11 +1,10 @@
-import 'package:apidash/consts.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/settings_providers.dart';
 import 'package:apidash/services/storage/workspace_storage.dart';
 import 'package:apidash/utils/utils.dart';
 import 'package:apidash/workflow/engine/workflow_auto_arrange.dart';
 import 'package:apidash/workflow/engine/workflow_runner.dart';
-import 'package:apidash/workflow/engine/workflow_templates.dart';
 import 'package:apidash/workflow/models/workflow_models.dart';
 import 'package:apidash/workflow/providers/workflow_ui_providers.dart';
 import 'package:apidash/workflow/utils/workflow_variable_utils.dart';
@@ -103,24 +102,13 @@ class WorkflowCatalogNotifier extends AsyncNotifier<List<WorkflowSummary>> {
 
   Future<WorkflowDocument> createWorkflow({
     String? name,
-    WorkflowTemplate? template,
   }) async {
     final now = DateTime.now();
     final baseName = name?.trim().isNotEmpty == true
         ? name!.trim()
-        : template != null
-            ? WorkflowTemplates.templates
-                .firstWhere((info) => info.template == template)
-                .title
-            : 'Workflow ${(state.value?.length ?? 0) + 1}';
+        : 'Workflow ${(state.value?.length ?? 0) + 1}';
     final workflowName = _uniqueWorkflowName(baseName);
-    final workflow = template != null
-        ? WorkflowTemplates.build(
-            template: template,
-            name: workflowName,
-            now: now,
-          )
-        : _defaultWorkflow(name: workflowName, now: now);
+    final workflow = _defaultWorkflow(name: workflowName, now: now);
     await _persistWorkflow(workflow);
     await reloadFromDisk();
     ref.read(selectedWorkflowIdStateProvider.notifier).state = workflowName;

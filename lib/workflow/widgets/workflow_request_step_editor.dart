@@ -1,4 +1,5 @@
 import 'package:apidash/consts.dart';
+import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/models/models.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/screens/home_page/editor_pane/details_card/request_pane/ai_request/request_pane_ai.dart';
@@ -327,7 +328,7 @@ class _WorkflowRequestStepEditorPageState
           kHSpacer8,
           FilledButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text(kLabelDone),
+            child: const Text(kLabelWorkflowDone),
           ),
           kHSpacer12,
         ],

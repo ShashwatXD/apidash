@@ -7,7 +7,6 @@ import 'package:apidash/workflow/widgets/workflow_run_bar.dart';
 import 'package:apidash/workflow/consts.dart';
 import 'package:apidash/workflow/widgets/workflow_node_layout.dart';
 import 'package:apidash/workflow/widgets/workflow_request_node_card.dart';
-import 'package:apidash/workflow/widgets/workflow_template_sheet.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -424,15 +423,6 @@ class _WorkflowCanvasState extends ConsumerState<WorkflowCanvas> {
               onShowHelp: () {
                 launchUrl(Uri.parse(kLearnWorkflowsUrl));
               },
-              onShowTemplates: () async {
-                final template = await showWorkflowTemplatePicker(context);
-                if (!context.mounted || template == null) {
-                  return;
-                }
-                await ref
-                    .read(workflowCatalogProvider.notifier)
-                    .createWorkflow(template: template);
-              },
             ),
           ),
       ],
@@ -690,11 +680,9 @@ extension _FirstOrNull<T> on Iterable<T> {
 class _WorkflowGettingStartedHint extends StatelessWidget {
   const _WorkflowGettingStartedHint({
     required this.onShowHelp,
-    required this.onShowTemplates,
   });
 
   final VoidCallback onShowHelp;
-  final VoidCallback onShowTemplates;
 
   @override
   Widget build(BuildContext context) {
@@ -712,26 +700,16 @@ class _WorkflowGettingStartedHint extends StatelessWidget {
             Text('New to workflows?', style: theme.textTheme.titleSmall),
             const SizedBox(height: 6),
             Text(
-              'Chain requests, branch on results, or repeat steps. Start from a template or read the short guide.',
+              'Chain requests, branch on results, or repeat steps. Read the short guide to get started.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 height: 1.35,
               ),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.tonal(
-                  onPressed: onShowTemplates,
-                  child: const Text(kLabelWorkflowTemplates),
-                ),
-                OutlinedButton(
-                  onPressed: onShowHelp,
-                  child: const Text(kLabelWorkflowHelp),
-                ),
-              ],
+            OutlinedButton(
+              onPressed: onShowHelp,
+              child: const Text(kLabelWorkflowHelp),
             ),
           ],
         ),

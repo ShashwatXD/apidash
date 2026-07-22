@@ -220,6 +220,55 @@ final class WorkflowIndexChangedOnDisk extends WorkspaceDiskChange {
   int get hashCode => runtimeType.hashCode;
 }
 
+final class EnvironmentRemovedFromDisk extends WorkspaceDiskChange {
+  const EnvironmentRemovedFromDisk(this.environmentId);
+  final String environmentId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EnvironmentRemovedFromDisk &&
+      other.environmentId == environmentId;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, environmentId);
+}
+
+final class EnvironmentAddedFromDisk extends WorkspaceDiskChange {
+  const EnvironmentAddedFromDisk(this.environmentId);
+  final String environmentId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EnvironmentAddedFromDisk &&
+      other.environmentId == environmentId;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, environmentId);
+}
+
+final class EnvironmentContentChangedOnDisk extends WorkspaceDiskChange {
+  const EnvironmentContentChangedOnDisk(this.environmentId);
+  final String environmentId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EnvironmentContentChangedOnDisk &&
+      other.environmentId == environmentId;
+
+  @override
+  int get hashCode => Object.hash(runtimeType, environmentId);
+}
+
+final class EnvironmentIndexChangedOnDisk extends WorkspaceDiskChange {
+  const EnvironmentIndexChangedOnDisk();
+
+  @override
+  bool operator ==(Object other) => other is EnvironmentIndexChangedOnDisk;
+
+  @override
+  int get hashCode => runtimeType.hashCode;
+}
+
 /// Maps a [FileSystemEvent] under [workspaceRoot] into a domain change.
 ///
 /// Cross-platform notes:
@@ -263,6 +312,14 @@ WorkspaceDiskChange? classifyWorkspaceDiskEvent({
   }
   if (top == kWorkspaceWorkflowsDir) {
     return _classifyWorkflowDiskEvent(
+      segments: segments,
+      isRemoval: isRemoval,
+      isCreate: isCreate,
+      isContentWrite: isContentWrite,
+    );
+  }
+  if (top == kWorkspaceEnvironmentsDir) {
+    return _classifyEnvironmentDiskEvent(
       segments: segments,
       isRemoval: isRemoval,
       isCreate: isCreate,
@@ -386,6 +443,39 @@ WorkspaceDiskChange? _classifyWorkflowDiskEvent({
     if (isContentWrite) return WorkflowContentChangedOnDisk(workflowId);
   }
 
+  return null;
+}
+
+WorkspaceDiskChange? _classifyEnvironmentDiskEvent({
+  required List<String> segments,
+  required bool isRemoval,
+  required bool isCreate,
+  required bool isContentWrite,
+}) {
+  if (segments.length == 2 && segments[1] == kWorkspaceEnvironmentIndexFile) {
+    if (isContentWrite && !isRemoval) {
+      return const EnvironmentIndexChangedOnDisk();
+    }
+    return null;
+  }
+
+  if (segments.length != 2) return null;
+
+  final fileName = segments[1];
+  if (!fileName.endsWith(kJsonFileExtension)) {
+    return null;
+  }
+  final environmentId = fileName.substring(
+    0,
+    fileName.length - kJsonFileExtension.length,
+  );
+  if (environmentId.isEmpty || environmentId.startsWith('.')) {
+    return null;
+  }
+
+  if (isRemoval) return EnvironmentRemovedFromDisk(environmentId);
+  if (isCreate) return EnvironmentAddedFromDisk(environmentId);
+  if (isContentWrite) return EnvironmentContentChangedOnDisk(environmentId);
   return null;
 }
 

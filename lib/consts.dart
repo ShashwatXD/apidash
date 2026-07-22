@@ -592,6 +592,8 @@ const kMsgCollectionRemovedFromDisk =
     'A collection was deleted from disk.';
 const kMsgWorkflowRemovedFromDisk =
     'A workflow was deleted from disk.';
+const kMsgEnvironmentRemovedFromDisk =
+    'An environment was deleted from disk.';
 const kWorkspaceMissingSnackDuration = Duration(seconds: 4);
 // History Page
 const kTitleClearHistory = 'Clear History';

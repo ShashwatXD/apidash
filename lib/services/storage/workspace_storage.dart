@@ -565,6 +565,51 @@ class WorkspaceStorage {
     );
   }
 
+  bool environmentExistsOnDisk(String id) {
+    return File(
+      _path(p.join(kWorkspaceEnvironmentsDir, _environmentFileName(id))),
+    ).existsSync();
+  }
+
+  List<String> listEnvironmentIdsOnDisk() {
+    final envDir = Directory(_path(kWorkspaceEnvironmentsDir));
+    if (!envDir.existsSync()) {
+      return [];
+    }
+    final result = <String>[];
+    for (final entity in envDir.listSync()) {
+      if (entity is! File || !entity.path.endsWith(kJsonFileExtension)) {
+        continue;
+      }
+      final fileName = p.basenameWithoutExtension(entity.path);
+      if (fileName ==
+          p.basenameWithoutExtension(kWorkspaceEnvironmentIndexFile)) {
+        continue;
+      }
+      if (fileName.isEmpty || fileName.startsWith('.')) {
+        continue;
+      }
+      result.add(fileName);
+    }
+    result.sort();
+    return result;
+  }
+
+  /// Ensures [kGlobalEnvironmentId] exists on disk and in the environment index.
+  Future<void> ensureGlobalEnvironmentExists() async {
+    final ids = getEnvironmentIds()?.toList() ?? <String>[];
+    if (!ids.contains(kGlobalEnvironmentId)) {
+      await setEnvironmentIds([kGlobalEnvironmentId, ...ids]);
+    }
+    if (!environmentExistsOnDisk(kGlobalEnvironmentId)) {
+      await setEnvironment(kGlobalEnvironmentId, {
+        'id': kGlobalEnvironmentId,
+        'name': kGlobalEnvironmentName,
+        'values': <Map<String, Object?>>[],
+      });
+    }
+  }
+
   Map<String, dynamic>? getEnvironment(String id) {
     final json = _readJsonSync(
       p.join(kWorkspaceEnvironmentsDir, _environmentFileName(id)),

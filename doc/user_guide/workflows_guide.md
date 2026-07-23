@@ -1,0 +1,110 @@
+# Workflows Guide
+
+Workflows let you run multi-step API scenarios on a visual canvas: chain requests, pass data between steps, branch on results, and repeat actions.
+
+
+## What workflows do
+
+Use workflows when a single request is not enough — for example login → fetch profile → update profile, or run the same request once per item in a list.
+
+## Request nodes
+
+A request node calls an API.
+
+- Double-click a request node to edit URL, headers, body, and related settings.
+- Add **extractions** to save values from the response into workflow variables for later steps.
+
+### Extractions and JSON paths
+
+Extractions read from the response (usually `response.body`) using a dotted path, then store the value as a workflow variable. Downstream steps use it as `{{variableName}}`.
+
+#### Normal object fields
+
+Response:
+
+```json
+{
+  "id": 42,
+  "name": "Ada",
+  "auth": {
+    "token": "abc123",
+    "expiresIn": 3600
+  }
+}
+```
+
+| Variable | Path | Value stored |
+|----------|------|--------------|
+| `userId` | `id` | `42` |
+| `userName` | `name` | `Ada` |
+| `token` | `auth.token` | `abc123` |
+
+Next request examples:
+
+- URL: `https://api.example.com/users/{{userId}}`
+- Header: `Authorization: Bearer {{token}}`
+
+#### Array fields
+
+Response:
+
+```json
+{
+  "users": [
+    { "id": 1, "email": "a@example.com" },
+    { "id": 2, "email": "b@example.com" }
+  ],
+  "tags": ["api", "beta"]
+}
+```
+
+Use a **numeric index** in the path (`0` = first item, `1` = second):
+
+| Variable | Path | Value stored |
+|----------|------|--------------|
+| `firstUserId` | `users.0.id` | `1` |
+| `secondEmail` | `users.1.email` | `b@example.com` |
+| `firstTag` | `tags.0` | `api` |
+
+Next request example:
+
+- URL: `https://api.example.com/users/{{firstUserId}}/posts`
+
+Bracket form like `users[0].id` is not supported yet — use `users.0.id`.
+
+
+## Condition nodes
+
+A condition node branches after a request.
+
+- Wire **True** and **False** ports to different next steps.
+- Use presets such as HTTP success, or check a workflow variable.
+
+## Delay nodes
+
+A delay node pauses the workflow for a fixed number of milliseconds.
+
+- Wire **In** from the previous step and **Next** to the step that should run after waiting.
+- Useful for rate limits, polling gaps, or giving a service time to settle.
+- Pressing **Stop** during a delay cancels the wait.
+
+## Loop nodes (For each / Repeat)
+
+- **For each** runs once per list item. Put a JSON array (or comma-separated list) in an **Environment** variable, then point the loop at `var:thatName`.
+- **Repeat** runs the same step N times without needing a list.
+
+Loop ports:
+
+- **In** — entry into the loop
+- **Each** — body that runs per iteration
+- **Done** — continues after all iterations finish
+
+## Variables
+
+- Use **Environments** for shared inputs (`{{name}}` in URLs, headers, and bodies).
+- Use **extractions** on request nodes to pass response values into later steps.
+- If an environment variable and an extraction share the same name, the **extraction wins** during the run.
+
+## Connecting nodes
+
+Drag from an output port to an input port to connect steps. The runner follows those edges when you press Run.

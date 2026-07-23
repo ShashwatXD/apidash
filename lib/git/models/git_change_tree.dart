@@ -11,7 +11,6 @@ class GitFolderSummary {
 
   final Map<GitChangeType, int> counts;
 
-
   final bool entityRemoved;
 
   final bool entityAdded;
@@ -44,7 +43,6 @@ class GitFolderSummary {
     return counts.keys.first;
   }
 
-  /// Stable badge order for the folder row.
   List<GitChangeType> get badgeTypes {
     const order = [
       GitChangeType.added,
@@ -56,6 +54,26 @@ class GitFolderSummary {
     return [
       for (final type in order)
         if ((counts[type] ?? 0) > 0) type,
+    ];
+  }
+
+  /// Badges shown on collection / request / environment folders.
+  ///
+  /// Nested deletes must not appear as `M 5D` on a still-present collection —
+  /// `D` only when the entity itself is fully deleted, `A` only when fully
+  /// added. Living entities may still show `M` / `R`.
+  List<GitChangeType> get displayBadgeTypes {
+    if (entityRemoved) return const [GitChangeType.deleted];
+    if (entityAdded) {
+      if (counts.containsKey(GitChangeType.untracked)) {
+        return const [GitChangeType.untracked];
+      }
+      return const [GitChangeType.added];
+    }
+    return [
+      for (final type in badgeTypes)
+        if (type == GitChangeType.modified || type == GitChangeType.renamed)
+          type,
     ];
   }
 }
@@ -73,6 +91,26 @@ String? gitFolderIdentityFileName(String folderPath) {
     return '${parts[1]}$kJsonFileExtension';
   }
   return null;
+}
+
+bool isGitTreeSectionFolder(String path) {
+  return path == kWorkspaceCollectionsDir ||
+      path == kWorkspaceEnvironmentsDir;
+}
+
+/// Sort so index / request / response sit with their parent folder in a
+/// readable order (index first, then request folders, then other files).
+int gitTreeChildSortRank(GitTreeNode node) {
+  if (!node.isFile) return 20;
+  return switch (node.name) {
+    kWorkspaceCollectionsIndexFile ||
+    kWorkspaceEnvironmentIndexFile ||
+    kWorkspaceRequestIndexFile =>
+      0,
+    kWorkspaceRequestFile => 1,
+    kWorkspaceResponseFile => 2,
+    _ => 40,
+  };
 }
 
 class GitTreeNode {
@@ -141,10 +179,6 @@ class GitTreeNode {
     return name;
   }
 
-  /// Best leaf change to preview when the user selects a folder row.
-  ///
-  /// Prefers files directly under this folder (e.g. indexes) over nested
-  /// request files so tapping `collections/` previews the collections index.
   GitChange? get representativeChange {
     if (isFile) return change;
     final changes = descendantChanges.toList();
@@ -233,9 +267,7 @@ GitFolderSummary summarizeGitFolderChildren({
   // Identity deleted but other files under the folder were added/modified —
   // treat as mixed, not a clean entity removal.
   final hasNonDelete = counts.entries.any(
-    (e) =>
-        e.value > 0 &&
-        e.key != GitChangeType.deleted,
+    (e) => e.value > 0 && e.key != GitChangeType.deleted,
   );
   if (entityRemoved && hasNonDelete) {
     entityRemoved = false;
@@ -256,6 +288,39 @@ GitFolderSummary summarizeGitFolderChildren({
     entityRemoved: entityRemoved,
     entityAdded: entityAdded,
   );
+}
+
+/// Paths that should start expanded so collection index + requests appear
+/// together under the same parent without extra clicking.
+Set<String> preferredExpandedGitTreePaths(List<GitTreeNode> roots) {
+  final expanded = <String>{};
+
+  void walk(GitTreeNode node) {
+    if (node.isFile) return;
+
+    final summary = node.summary;
+    final section = isGitTreeSectionFolder(node.path);
+    final entity = gitFolderIdentityFileName(node.path) != null;
+    final fullyGone =
+        summary != null && (summary.isUniformDeleted || summary.isUniformAdded);
+
+    if (section) {
+      expanded.add(node.path);
+    } else if (entity && !fullyGone) {
+      // Living collection/request: show its files in-place.
+      expanded.add(node.path);
+    }
+
+    for (final child in node.children) {
+      walk(child);
+    }
+  }
+
+  for (final root in roots) {
+    expanded.add(root.path);
+    walk(root);
+  }
+  return expanded;
 }
 
 List<GitTreeNode> buildGitChangeTree(List<GitChange> changes) {
@@ -287,13 +352,8 @@ List<GitTreeNode> buildGitChangeTree(List<GitChange> changes) {
   }
 
   List<GitTreeNode> toNodes(Map<String, _MutableNode> map) {
-    final nodes = map.values.toList()
-      ..sort((a, b) {
-        if (a.isFile != b.isFile) return a.isFile ? 1 : -1;
-        return a.name.compareTo(b.name);
-      });
-    return [
-      for (final node in nodes)
+    final built = <GitTreeNode>[
+      for (final node in map.values)
         node.isFile
             ? GitTreeNode.file(
                 name: node.name,
@@ -306,6 +366,13 @@ List<GitTreeNode> buildGitChangeTree(List<GitChange> changes) {
                 children: toNodes(node.children),
               ),
     ];
+    built.sort((a, b) {
+      final byRank =
+          gitTreeChildSortRank(a).compareTo(gitTreeChildSortRank(b));
+      if (byRank != 0) return byRank;
+      return a.name.compareTo(b.name);
+    });
+    return built;
   }
 
   return toNodes(root);

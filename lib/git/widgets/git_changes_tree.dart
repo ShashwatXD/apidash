@@ -33,21 +33,50 @@ class GitChangesTree extends StatefulWidget {
 
 class _GitChangesTreeState extends State<GitChangesTree> {
   final Set<String> _expanded = {};
+  final Set<String> _userCollapsed = {};
 
   @override
   void initState() {
     super.initState();
-    for (final root in widget.roots) {
-      _expanded.add(root.path);
-    }
+    _expanded.addAll(preferredExpandedGitTreePaths(widget.roots));
   }
 
   @override
   void didUpdateWidget(GitChangesTree oldWidget) {
     super.didUpdateWidget(oldWidget);
-    for (final root in widget.roots) {
-      _expanded.add(root.path);
+    final known = widget.roots.expand(_allFolderPaths).toSet();
+    final previous = oldWidget.roots.expand(_allFolderPaths).toSet();
+    _expanded.removeWhere((path) => !known.contains(path));
+    _userCollapsed.removeWhere((path) => !known.contains(path));
+
+    // Only auto-expand folders that just appeared — never reopen ones the
+    // user collapsed (including collections / environments).
+    final preferred = preferredExpandedGitTreePaths(widget.roots);
+    for (final path in preferred) {
+      if (previous.contains(path)) continue;
+      if (_userCollapsed.contains(path)) continue;
+      _expanded.add(path);
     }
+  }
+
+  Iterable<String> _allFolderPaths(GitTreeNode node) sync* {
+    if (node.isFile) return;
+    yield node.path;
+    for (final child in node.children) {
+      yield* _allFolderPaths(child);
+    }
+  }
+
+  void _setExpanded(String path, bool expanded) {
+    setState(() {
+      if (expanded) {
+        _expanded.add(path);
+        _userCollapsed.remove(path);
+      } else {
+        _expanded.remove(path);
+        _userCollapsed.add(path);
+      }
+    });
   }
 
   void _togglePath(String path, bool selected) {
@@ -163,13 +192,7 @@ class _GitChangesTreeState extends State<GitChangesTree> {
                   busy: widget.busy,
                   enableSelection: widget.enableSelection,
                   onToggleExpand: (path) {
-                    setState(() {
-                      if (_expanded.contains(path)) {
-                        _expanded.remove(path);
-                      } else {
-                        _expanded.add(path);
-                      }
-                    });
+                    _setExpanded(path, !_expanded.contains(path));
                   },
                   onToggleFolder: _toggleFolder,
                   onToggleFile: _togglePath,
@@ -240,80 +263,99 @@ class _TreeNodeTile extends StatelessWidget {
                 ? scheme.primaryContainer.withValues(alpha: 0.3)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(4),
-              onTap: busy
-                  ? null
-                  : () {
-                      onToggleExpand(node.path);
-                      if (representative != null) {
-                        onFilePreview(representative);
-                      }
-                    },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  children: [
-                    if (depth > 0)
-                      _TreeGuide(
-                        prefix: guidePrefix,
-                        isLast: isLast,
-                        color: guideColor,
-                      ),
-                    if (enableSelection)
-                      _SelectionRing(
-                        selected: checkState == true,
-                        partial: checkState == null,
-                        onTap: busy
-                            ? null
-                            : () => onToggleFolder(
-                                  node,
-                                  checkState == true ? false : true,
-                                ),
-                      ),
-                    if (enableSelection) kHSpacer4,
-                    Icon(
-                      summary != null && summary.isUniformDeleted
-                          ? Icons.folder_off_outlined
-                          : isOpen
-                              ? Icons.folder_open_rounded
-                              : Icons.folder_outlined,
-                      size: 14,
-                      color: folderFg ?? guideColor,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  if (depth > 0)
+                    _TreeGuide(
+                      prefix: guidePrefix,
+                      isLast: isLast,
+                      color: guideColor,
                     ),
-                    kHSpacer4,
-                    Expanded(
-                      child: Tooltip(
-                        message: node.path,
-                        child: Text(
-                          node.displayLabel,
-                          style: textTheme.labelMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: folderFg,
-                            decoration: summary != null &&
-                                    summary.isUniformDeleted
-                                ? TextDecoration.lineThrough
-                                : null,
-                            decorationColor: folderFg,
-                          ),
-                          overflow: TextOverflow.ellipsis,
+                  if (enableSelection)
+                    _SelectionRing(
+                      selected: checkState == true,
+                      partial: checkState == null,
+                      onTap: busy
+                          ? null
+                          : () => onToggleFolder(
+                                node,
+                                checkState == true ? false : true,
+                              ),
+                    ),
+                  if (enableSelection) kHSpacer4,
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: busy
+                          ? null
+                          : () {
+                              // Open the folder so index + requests show together,
+                              // then preview the best file under it.
+                              if (!isOpen) onToggleExpand(node.path);
+                              if (representative != null) {
+                                onFilePreview(representative);
+                              }
+                            },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              summary != null && summary.isUniformDeleted
+                                  ? Icons.folder_off_outlined
+                                  : isOpen
+                                      ? Icons.folder_open_rounded
+                                      : Icons.folder_outlined,
+                              size: 14,
+                              color: folderFg ?? guideColor,
+                            ),
+                            kHSpacer4,
+                            Expanded(
+                              child: Tooltip(
+                                message: node.path,
+                                child: Text(
+                                  node.displayLabel,
+                                  style: textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: folderFg,
+                                    decoration: summary != null &&
+                                            summary.isUniformDeleted
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    decorationColor: folderFg,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                            if (node.showsChangeBadges &&
+                                summary != null &&
+                                summary.displayBadgeTypes.isNotEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 4, right: 2),
+                                child: _FolderChangeBadges(summary: summary),
+                              ),
+                          ],
                         ),
                       ),
                     ),
-                    if (node.showsChangeBadges &&
-                        summary != null &&
-                        !summary.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4, right: 2),
-                        child: _FolderChangeBadges(summary: summary),
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: busy ? null : () => onToggleExpand(node.path),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        isOpen ? Icons.expand_less : Icons.expand_more,
+                        size: 16,
+                        color: scheme.outline,
                       ),
-                    Icon(
-                      isOpen ? Icons.expand_less : Icons.expand_more,
-                      size: 16,
-                      color: scheme.outline,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -536,11 +578,11 @@ class _FolderChangeBadges extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final types = summary.badgeTypes;
+    final types = summary.displayBadgeTypes;
     if (types.isEmpty) return const SizedBox.shrink();
 
-    // Uniform folders: one clear letter. Mixed: compact counts (2D 1M).
-    if (summary.isUniform) {
+    // Entity add/delete: one clear letter. Otherwise M/R only (no nested D counts).
+    if (types.length == 1) {
       return _ChangeTypeBadge(type: types.first);
     }
 
@@ -549,10 +591,7 @@ class _FolderChangeBadges extends StatelessWidget {
       children: [
         for (var i = 0; i < types.length; i++) ...[
           if (i > 0) const SizedBox(width: 4),
-          _ChangeTypeBadge(
-            type: types[i],
-            count: summary.counts[types[i]],
-          ),
+          _ChangeTypeBadge(type: types[i]),
         ],
       ],
     );
@@ -562,11 +601,9 @@ class _FolderChangeBadges extends StatelessWidget {
 class _ChangeTypeBadge extends StatelessWidget {
   const _ChangeTypeBadge({
     required this.type,
-    this.count,
   });
 
   final GitChangeType type;
-  final int? count;
 
   @override
   Widget build(BuildContext context) {
@@ -581,10 +618,9 @@ class _ChangeTypeBadge extends StatelessWidget {
     };
     final fg =
         getGitDiffHighlight(Theme.of(context).brightness, kind).foreground;
-    final label = count != null && count! > 1 ? '$count$letter' : letter;
 
     return Text(
-      label,
+      letter,
       style: TextStyle(
         fontSize: 10,
         fontWeight: FontWeight.w700,

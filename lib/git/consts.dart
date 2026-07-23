@@ -28,7 +28,7 @@ const kMsgGitPullSuccess = 'Pulled latest changes';
 const kMsgGitRestoreCommitSuccess = 'Workspace restored to selected commit';
 const kMsgGitRestoreCommitConfirmTitle = 'Restore this commit?';
 const kMsgGitRestoreCommitConfirmBody =
-    'Workspace files will match this commit. Uncommitted changes and any newer commits on this branch are removed locally.';
+    'Workspace files will match this commit exactly. Uncommitted edits, newly created untracked files, and any newer commits on this branch are removed locally.';
 const kLabelGitRestoreCommit = 'Restore';
 const kMsgGitPushRejected =
     'Remote has new changes. Pull first, then push again.';

@@ -648,7 +648,7 @@ const kMsgWorkspaceEditorOpenSuccess = "Workspace opened in VS Code";
 const kMsgGitResetWorkspaceSuccess = "Workspace reset to last commit";
 const kMsgGitResetWorkspaceConfirmTitle = "Reset Workspace?";
 const kMsgGitResetWorkspaceConfirmBody =
-    "All Git-tracked workspace changes will be gone and reset to the last commit. This cannot be undone.";
+    "The workspace will match the last commit exactly. Uncommitted edits and newly created requests or files that were never committed will be removed. This cannot be undone.";
 const kLabelCollaborationSetupTitle = "Set up workspace sharing";
 const kMsgCollaborationSetupSubtitle =
     "Publish this workspace to Git so you and your team can collaborate.";

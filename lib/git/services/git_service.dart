@@ -194,8 +194,21 @@ class GitService {
     await _git(workspacePath, ['fetch', 'origin']);
   }
 
-  Future<void> resetHard(String workspacePath) async {
-    await _git(workspacePath, ['reset', '--hard']);
+  /// Reset tracked files to [ref] (default `HEAD`) and remove untracked files
+  /// and directories so the working tree matches that commit fully.
+  ///
+  /// `git reset --hard` alone leaves newly created (untracked) requests in
+  /// place; `git clean -fd` removes those. Ignored files are kept (no `-x`).
+  Future<void> resetHard(
+    String workspacePath, {
+    String ref = 'HEAD',
+  }) async {
+    final trimmed = ref.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Reset ref cannot be empty');
+    }
+    await _git(workspacePath, ['reset', '--hard', trimmed]);
+    await _git(workspacePath, ['clean', '-fd']);
   }
 
   /// Returns the contents of a git [object] (e.g. `HEAD:path`, `:path`)
@@ -609,11 +622,7 @@ class GitService {
   }
 
   Future<void> restoreToCommit(String workspacePath, String commitHash) async {
-    final trimmed = commitHash.trim();
-    if (trimmed.isEmpty) {
-      throw StateError('Commit hash cannot be empty');
-    }
-    await _git(workspacePath, ['reset', '--hard', trimmed]);
+    await resetHard(workspacePath, ref: commitHash);
   }
 
   Future<void> push(String workspacePath) async {

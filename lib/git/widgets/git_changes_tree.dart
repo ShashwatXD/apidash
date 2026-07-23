@@ -33,21 +33,50 @@ class GitChangesTree extends StatefulWidget {
 
 class _GitChangesTreeState extends State<GitChangesTree> {
   final Set<String> _expanded = {};
+  final Set<String> _userCollapsed = {};
 
   @override
   void initState() {
     super.initState();
-    for (final root in widget.roots) {
-      _expanded.add(root.path);
-    }
+    _expanded.addAll(preferredExpandedGitTreePaths(widget.roots));
   }
 
   @override
   void didUpdateWidget(GitChangesTree oldWidget) {
     super.didUpdateWidget(oldWidget);
-    for (final root in widget.roots) {
-      _expanded.add(root.path);
+    final known = widget.roots.expand(_allFolderPaths).toSet();
+    final previous = oldWidget.roots.expand(_allFolderPaths).toSet();
+    _expanded.removeWhere((path) => !known.contains(path));
+    _userCollapsed.removeWhere((path) => !known.contains(path));
+
+    // Only auto-expand folders that just appeared — never reopen ones the
+    // user collapsed (including collections / environments).
+    final preferred = preferredExpandedGitTreePaths(widget.roots);
+    for (final path in preferred) {
+      if (previous.contains(path)) continue;
+      if (_userCollapsed.contains(path)) continue;
+      _expanded.add(path);
     }
+  }
+
+  Iterable<String> _allFolderPaths(GitTreeNode node) sync* {
+    if (node.isFile) return;
+    yield node.path;
+    for (final child in node.children) {
+      yield* _allFolderPaths(child);
+    }
+  }
+
+  void _setExpanded(String path, bool expanded) {
+    setState(() {
+      if (expanded) {
+        _expanded.add(path);
+        _userCollapsed.remove(path);
+      } else {
+        _expanded.remove(path);
+        _userCollapsed.add(path);
+      }
+    });
   }
 
   void _togglePath(String path, bool selected) {
@@ -163,13 +192,7 @@ class _GitChangesTreeState extends State<GitChangesTree> {
                   busy: widget.busy,
                   enableSelection: widget.enableSelection,
                   onToggleExpand: (path) {
-                    setState(() {
-                      if (_expanded.contains(path)) {
-                        _expanded.remove(path);
-                      } else {
-                        _expanded.add(path);
-                      }
-                    });
+                    _setExpanded(path, !_expanded.contains(path));
                   },
                   onToggleFolder: _toggleFolder,
                   onToggleFile: _togglePath,
@@ -223,17 +246,26 @@ class _TreeNodeTile extends StatelessWidget {
     if (!node.isFile) {
       final isOpen = expanded.contains(node.path);
       final checkState = folderSelectionState(node, selectedPaths);
+      final summary = node.summary;
+      final representative = node.representativeChange;
+      final isPreview = representative != null &&
+          previewPath == representative.path;
+      final folderFg = _folderForeground(
+        scheme: scheme,
+        summary: summary,
+      );
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          InkWell(
+          Material(
+            color: isPreview
+                ? scheme.primaryContainer.withValues(alpha: 0.3)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
-            onTap: () => onToggleExpand(node.path),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (depth > 0)
                     _TreeGuide(
@@ -253,29 +285,75 @@ class _TreeNodeTile extends StatelessWidget {
                               ),
                     ),
                   if (enableSelection) kHSpacer4,
-                  Icon(
-                    isOpen
-                        ? Icons.folder_open_rounded
-                        : Icons.folder_outlined,
-                    size: 14,
-                    color: guideColor,
-                  ),
-                  kHSpacer4,
                   Expanded(
-                    child: Text(
-                      node.name,
-                      style: textTheme.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: busy
+                          ? null
+                          : () {
+                              // Open the folder so index + requests show together,
+                              // then preview the best file under it.
+                              if (!isOpen) onToggleExpand(node.path);
+                              if (representative != null) {
+                                onFilePreview(representative);
+                              }
+                            },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          children: [
+                            Icon(
+                              summary != null && summary.isUniformDeleted
+                                  ? Icons.folder_off_outlined
+                                  : isOpen
+                                      ? Icons.folder_open_rounded
+                                      : Icons.folder_outlined,
+                              size: 14,
+                              color: folderFg ?? guideColor,
+                            ),
+                            kHSpacer4,
+                            Expanded(
+                              child: Tooltip(
+                                message: node.path,
+                                child: Text(
+                                  node.displayLabel,
+                                  style: textTheme.labelMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: folderFg,
+                                    decoration: summary != null &&
+                                            summary.isUniformDeleted
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                    decorationColor: folderFg,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                            if (node.showsChangeBadges &&
+                                summary != null &&
+                                summary.displayBadgeTypes.isNotEmpty)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 4, right: 2),
+                                child: _FolderChangeBadges(summary: summary),
+                              ),
+                          ],
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Icon(
-                    isOpen
-                        ? Icons.expand_less
-                        : Icons.expand_more,
-                    size: 16,
-                    color: scheme.outline,
+                  InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: busy ? null : () => onToggleExpand(node.path),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        isOpen ? Icons.expand_less : Icons.expand_more,
+                        size: 16,
+                        color: scheme.outline,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -305,8 +383,9 @@ class _TreeNodeTile extends StatelessWidget {
     final change = node.change!;
     final isPreview = previewPath == node.path;
     final isSelected = selectedPaths.contains(node.path);
-    final label =
-        node.name.isNotEmpty ? node.name : change.path.split('/').last;
+    final label = node.displayLabel.isNotEmpty
+        ? node.displayLabel
+        : change.path.split('/').last;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
@@ -492,8 +571,37 @@ class _SelectionRing extends StatelessWidget {
   }
 }
 
+class _FolderChangeBadges extends StatelessWidget {
+  const _FolderChangeBadges({required this.summary});
+
+  final GitFolderSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final types = summary.displayBadgeTypes;
+    if (types.isEmpty) return const SizedBox.shrink();
+
+    // Entity add/delete: one clear letter. Otherwise M/R only (no nested D counts).
+    if (types.length == 1) {
+      return _ChangeTypeBadge(type: types.first);
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < types.length; i++) ...[
+          if (i > 0) const SizedBox(width: 4),
+          _ChangeTypeBadge(type: types[i]),
+        ],
+      ],
+    );
+  }
+}
+
 class _ChangeTypeBadge extends StatelessWidget {
-  const _ChangeTypeBadge({required this.type});
+  const _ChangeTypeBadge({
+    required this.type,
+  });
 
   final GitChangeType type;
 
@@ -508,7 +616,8 @@ class _ChangeTypeBadge extends StatelessWidget {
       GitChangeType.deleted => ('D', GitDiffChangeKind.removed),
       GitChangeType.renamed => ('R', GitDiffChangeKind.renamed),
     };
-    final fg = getGitDiffHighlight(Theme.of(context).brightness, kind).foreground;
+    final fg =
+        getGitDiffHighlight(Theme.of(context).brightness, kind).foreground;
 
     return Text(
       letter,
@@ -519,4 +628,24 @@ class _ChangeTypeBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+Color? _folderForeground({
+  required ColorScheme scheme,
+  required GitFolderSummary? summary,
+}) {
+  if (summary == null || summary.isEmpty) return null;
+  if (summary.isUniformDeleted) {
+    return getGitDiffHighlight(
+      scheme.brightness,
+      GitDiffChangeKind.removed,
+    ).foreground;
+  }
+  if (summary.isUniformAdded) {
+    return getGitDiffHighlight(
+      scheme.brightness,
+      GitDiffChangeKind.added,
+    ).foreground;
+  }
+  return null;
 }

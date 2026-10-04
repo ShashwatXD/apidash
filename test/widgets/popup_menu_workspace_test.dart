@@ -19,8 +19,8 @@ void main() {
           body: WorkspacePopupMenu(
             currentLabel: 'Alpha',
             workspaces: const [
-              SavedWorkspaceEntry(path: '/tmp/alpha', name: 'Alpha'),
-              SavedWorkspaceEntry(path: '/tmp/beta', name: 'Beta'),
+              NamePathModel(path: '/tmp/alpha', name: 'Alpha'),
+              NamePathModel(path: '/tmp/beta', name: 'Beta'),
             ],
             onPathSelected: (path) {
               selectedPath = path;
@@ -42,9 +42,7 @@ void main() {
     expect(openedWorkspace, isFalse);
   });
 
-  testWidgets('Open workspace menu item calls onOpenWorkspace', (
-    tester,
-  ) async {
+  testWidgets('Open workspace menu item calls onOpenWorkspace', (tester) async {
     var openedWorkspace = false;
 
     await tester.pumpWidget(
@@ -54,7 +52,7 @@ void main() {
           body: WorkspacePopupMenu(
             currentLabel: 'Alpha',
             workspaces: const [
-              SavedWorkspaceEntry(path: '/tmp/alpha', name: 'Alpha'),
+              NamePathModel(path: '/tmp/alpha', name: 'Alpha'),
             ],
             onPathSelected: (_) {},
             onOpenWorkspace: () {

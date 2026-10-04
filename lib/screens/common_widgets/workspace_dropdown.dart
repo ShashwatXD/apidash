@@ -1,6 +1,7 @@
 import 'package:apidash/consts.dart';
 import 'package:apidash/providers/providers.dart';
 import 'package:apidash/services/services.dart';
+import 'package:apidash/utils/utils.dart';
 import 'package:apidash/widgets/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -13,10 +14,8 @@ class WorkspaceDropdown extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
     final currentPath = settings.workspaceFolderPath;
-    final label = savedWorkspaceNameForPath(
-          settings.savedWorkspaces,
-          currentPath,
-        ) ??
+    final label =
+        savedWorkspaceNameForPath(settings.savedWorkspaces, currentPath) ??
         kLabelSelectWorkspace;
 
     return LayoutBuilder(
@@ -35,9 +34,9 @@ class WorkspaceDropdown extends ConsumerWidget {
               createIfMissing: false,
             );
             if (!ok && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(kMsgWorkspaceOpenFailed)),
-              );
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(kMsgWorkspaceOpenFailed)));
             }
           },
           onOpenWorkspace: () => _openWorkspaceSelector(context, ref),
@@ -46,7 +45,10 @@ class WorkspaceDropdown extends ConsumerWidget {
     );
   }
 
-  Future<void> _openWorkspaceSelector(BuildContext context, WidgetRef ref) async {
+  Future<void> _openWorkspaceSelector(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (selectorContext) => WorkspaceSelector(

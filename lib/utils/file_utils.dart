@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:mime_dart/mime_dart.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path_provider/path_provider.dart';
+import '../models/models.dart';
 import '../consts.dart';
 
 const uuid = Uuid();
@@ -191,4 +192,20 @@ Future<String?> resolveWorkspaceRoot({
   }
   final documents = await getApplicationDocumentsDirectory();
   return p.join(documents.path, kDefaultMobileWorkspaceSubpath);
+}
+
+String? savedWorkspaceNameForPath(
+  List<NamePathModel> saved,
+  String? workspaceFolderPath,
+) {
+  if (workspaceFolderPath == null || workspaceFolderPath.isEmpty) {
+    return null;
+  }
+  final normalized = p.normalize(workspaceFolderPath);
+  for (final entry in saved) {
+    if (p.normalize(entry.path) == normalized) {
+      return entry.name;
+    }
+  }
+  return null;
 }
